@@ -1215,6 +1215,9 @@ def main():
                          if c in merged_df_deflated.columns]
         final_df = merged_df_deflated[final_columns].copy()
 
+        # drop ALASKA and HAWAII rows
+        merged_df_deflated = merged_df_deflated[~merged_df_deflated['statefip'].isin([2, 15])].copy()
+
         # Full dataset (WITH deflator)
         full_df = merged_df_deflated.copy()
 

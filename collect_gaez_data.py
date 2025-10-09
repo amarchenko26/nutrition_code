@@ -1,7 +1,5 @@
-# pip install geopandas rasterio rasterstats pyreadstat shapely pandas numpy
-import os
 from pathlib import Path
-import tempfile
+import os, tempfile
 import numpy as np
 import geopandas as gpd
 import pandas as pd
@@ -10,14 +8,17 @@ from rasterio.warp import calculate_default_transform, reproject, Resampling
 from rasterstats import zonal_stats
 
 # -------------------------------
-# CONFIG — EDIT PATHS
+# CONFIG — edit paths if needed
 # -------------------------------
 COUNTIES_SHP = Path("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/corn/raw/counties/cb_2022_us_county_5m.shp")
 RASTER_DIR   = Path("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/corn/raw/fao_gaez_v4")
 OUT_DTA      = Path("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/corn/interim/gaez/gaez_by_county.dta")
 OUT_DTA.parent.mkdir(parents=True, exist_ok=True)
 
-# crop code -> readable name (based on your files)
+# discover your rasters (GAEZ file pattern)
+RASTER_FILES = sorted(RASTER_DIR.glob("sxHr0_*.tif"))
+
+# crop code -> readable name
 CROP_NAME = {
     "brl": "barley",
     "chk": "chickpea",
@@ -32,11 +33,11 @@ CROP_NAME = {
     "whe": "wheat",
 }
 
-# discover your 11 rasters
-RASTER_FILES = sorted(RASTER_DIR.glob("sxHr0_*.tif"))
+EA_CRS = "EPSG:5070"      # NAD83 / Conus Albers (equal-area)
+PIX_M  = (10000, 10000)   # ~10 km pixels
 
 # -------------------------------
-# 1) Load counties, keep CONUS only, project to equal-area
+# 1) Counties → CONUS only, project to equal-area
 # -------------------------------
 print("Reading counties…")
 gdf = gpd.read_file(COUNTIES_SHP)
@@ -49,7 +50,6 @@ gdf = gdf[~gdf["STATEFP"].isin(drop_states)].copy()
 cols = [c for c in ["STATEFP","COUNTYFP","GEOID","NAME"] if c in gdf.columns]
 gdf = gdf[cols + ["geometry"]].copy()
 
-# state name lookup
 STATE_FIPS_TO_NAME = {
     "01":"Alabama","04":"Arizona","05":"Arkansas","06":"California","08":"Colorado","09":"Connecticut",
     "10":"Delaware","11":"District of Columbia","12":"Florida","13":"Georgia","16":"Idaho","17":"Illinois",
@@ -61,20 +61,17 @@ STATE_FIPS_TO_NAME = {
     "50":"Vermont","51":"Virginia","53":"Washington","54":"West Virginia","55":"Wisconsin","56":"Wyoming"
 }
 gdf["STATE_NAME"] = gdf["STATEFP"].map(STATE_FIPS_TO_NAME).fillna("")
-
-# equal-area CRS
-EA_CRS = "EPSG:5070"
 gdf = gdf.to_crs(EA_CRS)
 
 # -------------------------------
-# helper: warp raster to 5070 once
+# helpers
 # -------------------------------
 def warp_to_equal_area(in_path: Path) -> Path:
+    """Reproject a raster to EPSG:5070 (~10km). Returns temp path."""
     with rasterio.open(in_path) as src:
         dst_crs = EA_CRS
-        dst_res = (10000, 10000)  # ~10 km
         transform, width, height = calculate_default_transform(
-            src.crs, dst_crs, src.width, src.height, *src.bounds, resolution=dst_res
+            src.crs, dst_crs, src.width, src.height, *src.bounds, resolution=PIX_M
         )
         meta = src.meta.copy()
         meta.update({
@@ -94,10 +91,40 @@ def warp_to_equal_area(in_path: Path) -> Path:
             )
     return tmp
 
+def zonal_mean(raster_path: Path, geodf: gpd.GeoDataFrame, all_touched=False) -> np.ndarray:
+    """Mean of raster values within each polygon (equal-area)."""
+    with rasterio.open(raster_path) as src:
+        nd = src.nodata
+    zs = zonal_stats(geodf, raster_path, stats=["mean"], nodata=nd,
+                     all_touched=all_touched, geojson_out=False)
+    return pd.Series([z["mean"] if z["mean"] is not None else np.nan for z in zs]).to_numpy(dtype="float64")
+
+def make_binary_copy(src_path: Path, threshold: float) -> Path:
+    """Return temp path to a 0/1 raster where value >= threshold."""
+    with rasterio.open(src_path) as src:
+        arr = src.read(1)
+        nodata = src.nodata if src.nodata is not None else -32768
+        arr = np.where(arr <= nodata, np.nan, arr)  # mask nodata
+        bin_arr = np.where(arr >= threshold, 1.0, 0.0).astype("float32")
+        tmp = Path(tempfile.mkstemp(suffix=".tif")[1])
+        meta = src.meta.copy()
+        meta.update(dtype="float32", nodata=np.nan)
+        with rasterio.open(tmp, "w", **meta) as dst:
+            dst.write(bin_arr, 1)
+    return tmp
+
 # -------------------------------
-# 2) Zonal mean per county, per crop
+# 2) Mean SI for all crops + corn shares at 8500/5500
 # -------------------------------
-frames = []
+# base table
+out = pd.DataFrame({
+    "state_name": gdf["STATE_NAME"].astype(str).values,
+    "statefip":   gdf["STATEFP"].astype(int).values,
+    "countfip":   gdf["COUNTYFP"].astype(int).values,
+    "fips":       gdf["GEOID"].astype(int).values,
+})
+
+corn_warped = None  # we’ll reuse this for shares
 
 for tif in RASTER_FILES:
     code = tif.stem.split("_")[-1].lower()  # sxHr0_brl -> brl
@@ -105,46 +132,35 @@ for tif in RASTER_FILES:
     print(f"Processing {tif.name} → {crop}")
 
     warped = warp_to_equal_area(tif)
-    with rasterio.open(warped) as src:
-        nodata = src.nodata
 
-    zs = zonal_stats(
-        gdf, warped, stats=["mean"], nodata=nodata,
-        all_touched=False, geojson_out=False
-    )
-    mean_vals = pd.DataFrame(zs)["mean"].astype("float64").to_numpy()
+    # 2a) county mean SI (0–10,000 scale)
+    means = zonal_mean(warped, gdf, all_touched=False)
+    out[f"si_{crop}"] = means
 
-    dfc = pd.DataFrame({
-        "STATEFP": gdf["STATEFP"].astype(str).values,
-        "COUNTYFP": gdf["COUNTYFP"].astype(str).values,
-        "GEOID": gdf["GEOID"].astype(str).values,
-        "STATE_NAME": gdf["STATE_NAME"].astype(str).values,
-        f"si_{crop}": mean_vals  # still 0–10,000 scale
-    })
-    frames.append(dfc)
+    # 2b) if this is corn, compute shares for ≥8500 and ≥5500
+    if code == "mze" or crop == "corn":
+        corn_warped = warped  # keep it for thresholds
+    else:
+        # cleanup non-corn warped rasters right away
+        try: os.remove(warped)
+        except Exception: pass
 
-    try: os.remove(warped)
-    except Exception: pass
+# If we found corn, compute shares
+if corn_warped is not None:
+    print("Computing corn suitability shares (≥8500, ≥5500)…")
+    bin8500 = make_binary_copy(corn_warped, 8500.0)
+    bin5500 = make_binary_copy(corn_warped, 5500.0)
 
-# -------------------------------
-# 3) Merge all crops into one table
-# -------------------------------
-out = frames[0]
-for df in frames[1:]:
-    out = out.merge(df[["GEOID"] + [c for c in df.columns if c.startswith("si_")]],
-                    on="GEOID", how="left")
+    # mean of binary = share of county area (equal-area pixels)
+    out["corn_share_8500"] = zonal_mean(bin8500, gdf, all_touched=True)
+    out["corn_share_5500"] = zonal_mean(bin5500, gdf, all_touched=True)
 
-out["statefip"]  = out["STATEFP"].astype(int)
-out["countfip"] = out["COUNTYFP"].astype(int)
-out["fips"]        = out["GEOID"].astype(int)
-out['state_name'] = out['STATE_NAME'].astype(str)
-
-# order: ids then 11 crop columns
-meta_cols = ["state_name","statefip","countfip", "fips"]
-crop_cols = sorted([c for c in out.columns if c.startswith("si_")])
-out = out[meta_cols + crop_cols]
+    # cleanup
+    for p in [corn_warped, bin8500, bin5500]:
+        try: os.remove(p)
+        except Exception: pass
 
 # -------------------------------
-# 4) Save
+# 3) Save
 # -------------------------------
 out.to_stata(OUT_DTA, write_index=False, version=118)
