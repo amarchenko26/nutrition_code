@@ -137,9 +137,10 @@ for df in frames[1:]:
 out["statefip"]  = out["STATEFP"].astype(int)
 out["countfip"] = out["COUNTYFP"].astype(int)
 out["fips"]        = out["GEOID"].astype(int)
+out['state_name'] = out['STATE_NAME'].astype(str)
 
 # order: ids then 11 crop columns
-meta_cols = ["STATEFP","COUNTYFP","fips","STATE_NAME","GEOID","statefip","countfip"]
+meta_cols = ["state_name","statefip","countfip", "fips"]
 crop_cols = sorted([c for c in out.columns if c.startswith("si_")])
 out = out[meta_cols + crop_cols]
 
