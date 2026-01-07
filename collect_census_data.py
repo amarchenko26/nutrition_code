@@ -324,6 +324,8 @@ VARIABLE_MAPPING = {
         'deflate': False,
         'icpsr_in_thousands': False,
         'icpsr_columns': {
+            1982: 'item01001',
+            1987: 'item01001',
             1992: 'item010001',
             1997: 'item01001',
             2002: 'item01001',
@@ -336,6 +338,8 @@ VARIABLE_MAPPING = {
         'deflate': False,
         'icpsr_in_thousands': False,
         'icpsr_columns': {
+            1982: 'item01014',
+            1987: 'item01014',
             1992: 'item010014',
             1997: 'item01015',
             2002: 'item01015',
@@ -348,6 +352,8 @@ VARIABLE_MAPPING = {
         'deflate': False,
         'icpsr_in_thousands': False,
         'icpsr_columns': {
+            1982: 'item01016',
+            1987: 'item01016',
             1992: 'item010016',
             1997: 'item01017',
             2002: 'item01017',
@@ -360,6 +366,8 @@ VARIABLE_MAPPING = {
         'deflate': False,
         'icpsr_in_thousands': False,
         'icpsr_columns': {
+            1982: 'item01056',
+            1987: 'item01056',
             1992: 'item010058',
             1997: 'item01059',
             2002: 'item01063',
@@ -372,6 +380,8 @@ VARIABLE_MAPPING = {
         'deflate': False,
         'icpsr_in_thousands': False,
         'icpsr_columns': {
+            1982: 'item01057',
+            1987: 'item01057',
             1992: 'item010059',
             1997: 'item01060',
             2002: 'item01064',
@@ -384,6 +394,8 @@ VARIABLE_MAPPING = {
         'deflate': False,
         'icpsr_in_thousands': False,
         'icpsr_columns': {
+            1982: 'item01059',
+            1987: 'item01059',
             1992: 'item010061',
             1997: 'item01062',
             2002: 'item01066',
@@ -396,6 +408,8 @@ VARIABLE_MAPPING = {
         'deflate': True,
         'icpsr_in_thousands': False,
         'icpsr_columns': {
+            1982: 'item04012',
+            1987: 'item04012',
             1992: 'item040012',
             1997: 'item04012',
             2002: 'item05005',
@@ -408,6 +422,8 @@ VARIABLE_MAPPING = {
         'deflate': False,
         'icpsr_in_thousands': False,
         'icpsr_columns': {
+            1982: 'item04010',
+            1987: 'item04010',
             1992: 'item040010',
             1997: 'item04010',
             2002: 'item05001',
@@ -420,6 +436,8 @@ VARIABLE_MAPPING = {
         'deflate': True,
         'icpsr_in_thousands': True,
         'icpsr_columns': {
+            1982: 'item04011',
+            1987: 'item04011',
             1992: 'item040011',
             1997: 'item04011',
             2002: 'item05003',
@@ -432,6 +450,8 @@ VARIABLE_MAPPING = {
         'deflate': True,
         'icpsr_in_thousands': False,
         'icpsr_columns': {
+            1982: '', # CRP not established until 1985
+            1987: '', # Conservation payments not tracked
             1992: 'item040015',
             1997: 'item04015',
             2002: 'item05011',
@@ -444,6 +464,8 @@ VARIABLE_MAPPING = {
         'deflate': True,
         'icpsr_in_thousands': True,
         'icpsr_columns': {
+            1982: '', # CRP not established until 1985
+            1987: '', # Conservation payments not tracked
             1992: 'item040014',
             1997: 'item04014',
             2002: 'item05009',
@@ -456,6 +478,8 @@ VARIABLE_MAPPING = {
         'deflate': False,
         'icpsr_in_thousands': False,
         'icpsr_columns': {
+            1982: '', # CRP not established until 1985
+            1987: '', # Conservation payments not tracked 
             1992: 'item040013',
             1997: 'item04013',
             2002: 'item05007',
@@ -468,6 +492,8 @@ VARIABLE_MAPPING = {
         'deflate': True,
         'icpsr_in_thousands': False,
         'icpsr_columns': {
+            1982: '',
+            1987: '',
             1992: '',
             1997: '',
             2002: '',
@@ -480,6 +506,8 @@ VARIABLE_MAPPING = {
         'deflate': True,
         'icpsr_in_thousands': False,
         'icpsr_columns': {
+            1982: '',
+            1987: '',
             1992: '',
             1997: '',
             2002: '',
@@ -493,6 +521,8 @@ VARIABLE_MAPPING = {
         'deflate': True,
         'icpsr_in_thousands': True,
         'icpsr_columns': {
+            1982: 'item04029',
+            1987: 'item04029',
             1992: 'item040031',
             1997: 'item04031',
             2002: 'item05021',
@@ -505,6 +535,8 @@ VARIABLE_MAPPING = {
         'deflate': False,
         'icpsr_in_thousands': False,
         'icpsr_columns': {
+            1982: 'item04028',
+            1987: 'item04028',
             1992: 'item040030',
             1997: 'item04030',
             2002: 'item05019',
@@ -552,7 +584,7 @@ MANUAL_CALCS = [
     }
 ]
 
-
+YEARS = [1982, 1987, 1992, 1997, 2002, 2007, 2012, 2017, 2022]
 
 STATE_NAMES = [
     "ALABAMA","ALASKA","ARIZONA","ARKANSAS","CALIFORNIA","COLORADO","CONNECTICUT","DELAWARE",
@@ -571,7 +603,7 @@ def setup_directories():
     """Create interim directory structure if it doesn't exist."""
     interim_dir = Path("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/corn/interim")
     interim_dir.mkdir(exist_ok=True)
-    for year in [1992, 1997, 2002, 2007, 2012, 2017, 2022]:
+    for year in YEARS:
         (interim_dir / str(year)).mkdir(exist_ok=True)
     return interim_dir
 
@@ -994,8 +1026,8 @@ def filter_and_process_data(file_path, year, variable_mapping, full_variable_spe
 def collect_census_files():
     """Process ICPSR (1992–2012) files and write merged outputs for those years."""
     base_path = Path("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/corn/raw/ICPSR_1850-2012")
-    folder_year_mapping = {"DS0042": 1992, "DS0043": 1997, "DS0044": 2002, "DS0045": 2007, "DS0047": 2012}
-    folder_file_mapping = {"DS0042": "0042", "DS0043": "0043", "DS0044": "0044", "DS0045": "0045", "DS0047": "0047"}
+    folder_year_mapping = {"DS0040": 1982, "DS0041": 1987, "DS0042": 1992, "DS0043": 1997, "DS0044": 2002, "DS0045": 2007, "DS0047": 2012}
+    folder_file_mapping = {"DS0040": "0040", "DS0041": "0041", "DS0042": "0042", "DS0043": "0043", "DS0044": "0044", "DS0045": "0045", "DS0047": "0047"}
 
     # deflator
     deflator_df = load_deflator_data()
@@ -1112,7 +1144,7 @@ def apply_manual_calculations(df: pd.DataFrame, calcs: list) -> pd.DataFrame:
         name   = spec.get("name")
         op     = (spec.get("op") or "").strip().lower()
         inputs = spec.get("inputs") or []
-        na_zero = bool(spec.get("na_zero", False))
+        na_zero = bool(spec.get("na_zero", True))
 
         if not name or op not in {"add", "sub", "div"} or len(inputs) == 0:
             logger.warning(f"Skipping manual calc with invalid spec: {spec}")
@@ -1164,7 +1196,7 @@ def main():
         return
 
     # Step 1: ICPSR 1992–2012
-    logger.info("Step 1: Processing ICPSR census data (1992–2012)...")
+    logger.info("Step 1: Processing ICPSR census data...")
     icpsr_files, icpsr_missing = collect_census_files()
 
     # Step 2: NASS 2017/2022
@@ -1173,11 +1205,11 @@ def main():
 
     # Step 3: Merge all years (if we have any NASS data)
     if processed_nass_data:
-        logger.info("Step 3: Creating merged dataset (1992–2022)...")
+        logger.info("Step 3: Creating merged dataset...")
 
         # Load already-saved ICPSR per-year files
         icpsr_data = []
-        for y in [1992, 1997, 2002, 2007, 2012]:
+        for y in YEARS:
             f = interim_dir / str(y) / f"census_{y}_filtered.tsv"
             if f.exists():
                 icpsr_data.append(pd.read_csv(f, sep='\t', low_memory=False))
@@ -1190,7 +1222,7 @@ def main():
         merged_df = standardize_geo_names(merged_df)
 
         # Deflate
-        logger.info("Step 4: Applying deflation (1992–2022)...")
+        logger.info("Step 4: Applying deflation...")
         merged_df_deflated = deflate_columns(merged_df, deflator_df, VARIABLE_MAPPING)
 
         # Build any manual calculated columns (post-deflation)
@@ -1222,10 +1254,10 @@ def main():
         full_df = merged_df_deflated.copy()
 
         # Save
-        final_file = interim_dir / "census_merged_1992_2022_deflated.tsv"
+        final_file = interim_dir / "census_merged_deflated.tsv"
         final_df.to_csv(final_file, sep='\t', index=False)
 
-        full_file = interim_dir / "census_merged_1992_2022_full.tsv"
+        full_file = interim_dir / "census_merged_full.tsv"
         full_df.to_csv(full_file, sep='\t', index=False)
 
         logger.info(f"✓ Created deflated merged dataset: {final_file} ({len(final_df)} rows, {len(final_df.columns)} cols)")
