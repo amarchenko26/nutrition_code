@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """
 USDA FoodData Explorer
-Explores USDA FoodData zip files to identify product files
+Explores USDA FoodData zip files to find branded_food.csv files and print their columns
 """
 
 import os
 import zipfile
 from pathlib import Path
+import pandas as pd
+from io import BytesIO
 
 
 def explore_usda_zips(base_path):
     """
-    Explore USDA FoodData zip files and find product-related files
+    Explore USDA FoodData zip files and find branded_food.csv files
 
     Parameters:
     -----------
@@ -19,7 +21,7 @@ def explore_usda_zips(base_path):
         Path to directory containing USDA zip files
     """
     print("="*80)
-    print("USDA FOODDATA EXPLORER")
+    print("USDA FOODDATA BRANDED_FOOD.CSV EXPLORER")
     print("="*80)
 
     if not os.path.exists(base_path):
@@ -37,8 +39,7 @@ def explore_usda_zips(base_path):
     print(f"Directory: {base_path}\n")
 
     # Track results
-    zips_with_product_files = []
-    all_product_files = []
+    branded_food_files = []
 
     # Explore each zip file
     for zip_path in zip_files:
@@ -53,35 +54,43 @@ def explore_usda_zips(base_path):
                 file_list = zf.namelist()
                 print(f"Total files in archive: {len(file_list)}")
 
-                # Look for product-related files
-                # Common patterns: product, branded, food
-                product_patterns = ['product', 'branded', 'food']
-
-                found_product_files = []
-                for filename in file_list:
-                    # Extract just the filename without path
-                    base_filename = os.path.basename(filename).lower()
-
-                    # Check if it's a CSV file with product-related keywords
-                    if base_filename.endswith('.csv'):
-                        for pattern in product_patterns:
-                            if pattern in base_filename:
-                                found_product_files.append(filename)
-                                break
-
-                if found_product_files:
-                    print(f"\n✓ Found {len(found_product_files)} product-related file(s):")
-                    for pf in found_product_files:
-                        # Get file size
-                        file_info = zf.getinfo(pf)
-                        file_size_mb = file_info.file_size / 1024 / 1024
-                        print(f"  - {pf}")
-                        print(f"    Size: {file_size_mb:.2f} MB")
-
-                    zips_with_product_files.append(zip_path.name)
-                    all_product_files.extend([(zip_path.name, pf) for pf in found_product_files])
+                # Special case for BFPD_csv_07132018.zip
+                if zip_path.name == "BFPD_csv_07132018.zip":
+                    target_filename = "Products.csv"
                 else:
-                    print("\n✗ No product-related files found")
+                    target_filename = "branded_food.csv"
+
+                # Look for the branded_food file
+                found_file = None
+                for filename in file_list:
+                    base_filename = os.path.basename(filename)
+                    if base_filename.lower() == target_filename.lower():
+                        found_file = filename
+                        break
+
+                if found_file:
+                    print(f"\n✓ Found: {found_file}")
+
+                    # Get file size
+                    file_info = zf.getinfo(found_file)
+                    file_size_mb = file_info.file_size / 1024 / 1024
+                    print(f"  Size: {file_size_mb:.2f} MB")
+
+                    # Read CSV headers without extracting
+                    try:
+                        with zf.open(found_file) as csv_file:
+                            df_sample = pd.read_csv(BytesIO(csv_file.read()), nrows=0)
+                            columns = df_sample.columns.tolist()
+
+                            print(f"\n  Columns ({len(columns)} total):")
+                            for i, col in enumerate(columns, 1):
+                                print(f"    {i:2d}. {col}")
+
+                            branded_food_files.append((zip_path.name, found_file, columns))
+                    except Exception as e:
+                        print(f"  ERROR reading CSV: {str(e)}")
+                else:
+                    print(f"\n✗ File '{target_filename}' not found")
 
                 # Show first few files for context
                 print(f"\nFirst 10 files in archive:")
@@ -100,22 +109,112 @@ def explore_usda_zips(base_path):
     print("SUMMARY")
     print("="*80)
     print(f"\nTotal zip files explored: {len(zip_files)}")
-    print(f"Zip files with product files: {len(zips_with_product_files)}")
-    print(f"Total product files found: {len(all_product_files)}")
+    print(f"Zip files with branded_food.csv: {len(branded_food_files)}")
 
-    if zips_with_product_files:
-        print(f"\n\nZip files containing product data:")
-        for i, zip_name in enumerate(zips_with_product_files, 1):
-            print(f"  {i}. {zip_name}")
+    if branded_food_files:
+        print(f"\n\nBranded Food Files Found:")
+        for i, (zip_name, csv_path, columns) in enumerate(branded_food_files, 1):
+            print(f"\n{i}. {zip_name}")
+            print(f"   CSV File: {csv_path}")
+            print(f"   Columns ({len(columns)} total):")
+            for j, col in enumerate(columns, 1):
+                print(f"     {j:2d}. {col}")
 
-        print(f"\n\nDetailed product file list:")
-        for zip_name, product_file in all_product_files:
-            print(f"  {zip_name} -> {product_file}")
+        # Combine all branded food files
+        print("\n\n" + "="*80)
+        print("COMBINING ALL BRANDED FOOD FILES")
+        print("="*80)
+
+        all_dfs = []
+
+        for i, (zip_name, csv_path, columns) in enumerate(branded_food_files, 1):
+            print(f"\n{i}. Loading {zip_name}...")
+            zip_path = next(zf for zf in zip_files if zf.name == zip_name)
+
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                with zf.open(csv_path) as csv_file:
+                    df = pd.read_csv(BytesIO(csv_file.read()), low_memory=False)
+                    print(f"   Rows: {len(df):,}")
+                    all_dfs.append(df)
+
+        # Concatenate all dataframes
+        print(f"\nCombining all {len(all_dfs)} files...")
+        combined_df = pd.concat(all_dfs, ignore_index=True)
+        print(f"Total rows after combining: {len(combined_df):,}")
+
+        # Check for duplicates based on gtin_upc
+        print("\n" + "="*80)
+        print("HANDLING DUPLICATES")
+        print("="*80)
+
+        # Find duplicates
+        duplicated_mask = combined_df.duplicated(subset=['gtin_upc'], keep='last')
+        n_duplicates = duplicated_mask.sum()
+
+        print(f"\nDuplicate rows found (based on gtin_upc): {n_duplicates:,}")
+
+        if n_duplicates > 0:
+            # Get sample of duplicated rows for inspection
+            duplicate_gtins = combined_df[duplicated_mask]['gtin_upc'].head(10).tolist()
+
+            print(f"\nShowing 10 example duplicate rows:")
+            print("(For each gtin_upc, showing the FIRST occurrence and the LAST/KEPT occurrence)")
+            print("-" * 80)
+
+            for gtin in duplicate_gtins:
+                matching_rows = combined_df[combined_df['gtin_upc'] == gtin]
+                print(f"\ngtin_upc: {gtin} (appears {len(matching_rows)} times)")
+                # Show first and last occurrence
+                first_last = pd.concat([matching_rows.head(1), matching_rows.tail(1)])
+                print(first_last.to_string())
+                print("-" * 80)
+
+            # Remove duplicates, keeping LAST (most recent) occurrence
+            combined_df_deduped = combined_df.drop_duplicates(subset=['gtin_upc'], keep='last')
+            print(f"\nRows after deduplication: {len(combined_df_deduped):,}")
+            print(f"Rows removed: {n_duplicates:,}")
+            print(f"Reduction: {n_duplicates/len(combined_df)*100:.1f}%")
+
+            return combined_df_deduped
+        else:
+            print("\nNo duplicates found!")
+            return combined_df
     else:
-        print("\nNo product files found in any zip archives.")
+        print("\nNo branded_food.csv files found in any zip archives.")
         print("\nHint: Try examining the file list above to identify the correct pattern.")
+        return None
 
 
 if __name__ == "__main__":
     base_path = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/raw/usda'
-    explore_usda_zips(base_path)
+    result_df = explore_usda_zips(base_path)
+
+    if result_df is not None:
+        print("\n\n" + "="*80)
+        print("FINAL DATASET INFO")
+        print("="*80)
+        print(f"Total rows: {len(result_df):,}")
+        print(f"Total columns: {len(result_df.columns)}")
+        print(f"\nColumns: {result_df.columns.tolist()}")
+        print(f"\nFirst few rows:")
+        print(result_df.head(10))
+
+        # Export to CSV
+        print("\n\n" + "="*80)
+        print("EXPORTING TO CSV")
+        print("="*80)
+
+        output_dir = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/usda'
+        os.makedirs(output_dir, exist_ok=True)
+
+        output_path = os.path.join(output_dir, 'usda_branded_food_deduped.csv')
+        print(f"\nSaving to: {output_path}")
+
+        result_df.to_csv(output_path, index=False)
+
+        # Get file size
+        file_size_mb = os.path.getsize(output_path) / 1024 / 1024
+        print(f"✓ File saved successfully!")
+        print(f"  File size: {file_size_mb:.2f} MB")
+        print(f"  Rows: {len(result_df):,}")
+        print(f"  Columns: {len(result_df.columns)}")
