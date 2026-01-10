@@ -185,11 +185,97 @@ def explore_usda_zips(base_path):
         return None
 
 
+def consolidate_ingredients(df):
+    """
+    Consolidate ingredients and ingredients_english columns
+
+    Rules:
+    1. If one is non-empty and the other is empty, copy to the empty one
+    2. If both are non-empty, flag and keep both
+    3. Lowercase everything in ingredients column
+    """
+    print("\n\n" + "="*80)
+    print("CONSOLIDATING INGREDIENTS COLUMNS")
+    print("="*80)
+
+    # Check if both columns exist
+    has_ingredients = 'ingredients' in df.columns
+    has_ingredients_english = 'ingredients_english' in df.columns
+
+    if not has_ingredients and not has_ingredients_english:
+        print("No ingredients columns found")
+        return df
+
+    # Ensure both columns exist (create if missing)
+    if not has_ingredients:
+        df['ingredients'] = None
+    if not has_ingredients_english:
+        df['ingredients_english'] = None
+
+    # Convert to string and handle NaN/None
+    df['ingredients'] = df['ingredients'].astype(str).replace('nan', '').replace('None', '')
+    df['ingredients_english'] = df['ingredients_english'].astype(str).replace('nan', '').replace('None', '')
+
+    # Check for non-empty values
+    ing_nonempty = (df['ingredients'] != '') & (df['ingredients'].notna())
+    ing_eng_nonempty = (df['ingredients_english'] != '') & (df['ingredients_english'].notna())
+
+    # Case 1: ingredients non-empty, ingredients_english empty
+    case1 = ing_nonempty & ~ing_eng_nonempty
+    n_case1 = case1.sum()
+    if n_case1 > 0:
+        print(f"\nCase 1: {n_case1:,} rows have ingredients but not ingredients_english")
+        print("  Action: Copying ingredients -> ingredients_english")
+        df.loc[case1, 'ingredients_english'] = df.loc[case1, 'ingredients']
+
+    # Case 2: ingredients_english non-empty, ingredients empty
+    case2 = ~ing_nonempty & ing_eng_nonempty
+    n_case2 = case2.sum()
+    if n_case2 > 0:
+        print(f"\nCase 2: {n_case2:,} rows have ingredients_english but not ingredients")
+        print("  Action: Copying ingredients_english -> ingredients")
+        df.loc[case2, 'ingredients'] = df.loc[case2, 'ingredients_english']
+
+    # Case 3: Both non-empty - FLAG
+    case3 = ing_nonempty & ing_eng_nonempty
+    n_case3 = case3.sum()
+    if n_case3 > 0:
+        print(f"\nCase 3 (FLAG): {n_case3:,} rows have BOTH ingredients AND ingredients_english")
+        print("  Action: Keeping both columns, will show sample")
+
+        # Show sample of rows with both
+        sample_both = df[case3].head(5)[['gtin_upc', 'ingredients', 'ingredients_english']]
+        print("\n  Sample rows with both columns populated:")
+        for _, row in sample_both.iterrows():
+            print(f"\n  gtin_upc: {row['gtin_upc']}")
+            print(f"    ingredients: {row['ingredients'][:100]}...")
+            print(f"    ingredients_english: {row['ingredients_english'][:100]}...")
+
+    # Case 4: Both empty
+    case4 = ~ing_nonempty & ~ing_eng_nonempty
+    n_case4 = case4.sum()
+    print(f"\nCase 4: {n_case4:,} rows have neither ingredients nor ingredients_english")
+
+    # Lowercase the ingredients column
+    print(f"\nLowercasing 'ingredients' column...")
+    df['ingredients'] = df['ingredients'].str.lower()
+
+    # Replace empty strings with NaN for cleaner data
+    df['ingredients'] = df['ingredients'].replace('', None)
+    df['ingredients_english'] = df['ingredients_english'].replace('', None)
+
+    print(f"\n✓ Ingredients consolidation complete")
+
+    return df
+
+
 if __name__ == "__main__":
     base_path = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/raw/usda'
     result_df = explore_usda_zips(base_path)
 
     if result_df is not None:
+        # Consolidate ingredients columns
+        result_df = consolidate_ingredients(result_df)
         print("\n\n" + "="*80)
         print("FINAL DATASET INFO")
         print("="*80)
