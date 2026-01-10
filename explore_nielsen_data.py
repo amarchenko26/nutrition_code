@@ -211,7 +211,6 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered, products
 
     # First, load trips data to get household information
     trips_df = load_trips(tarball_path, year)
-
     if trips_df is None:
         print("ERROR: Could not load trips data")
         return None
@@ -225,7 +224,6 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered, products
                 break
 
         if not purchases_file:
-            # Try alternative naming
             for member in tar.getmembers():
                 if f'{year}' in member.name and 'purchase' in member.name.lower() and member.name.endswith('.tsv'):
                     purchases_file = member
@@ -242,123 +240,52 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered, products
         f = tar.extractfile(purchases_file)
 
         print("\nReading first chunk to explore structure...")
-        df_sample = pd.read_csv(f, delimiter='\t', nrows=10000,
-                               low_memory=False, encoding='latin-1')
-
+        df_sample = pd.read_csv(f, delimiter='\t', nrows=10000, low_memory=False, encoding='latin-1')
         print(f"Columns: {df_sample.columns.tolist()}")
-        print(f"\nSample data:")
-        print(df_sample.head())
 
-        # Check for key columns
-        required_cols = ['household_cd', 'upc']
-        missing_cols = [col for col in required_cols if col not in df_sample.columns]
+        # Detect column names once
+        df_sample.columns = df_sample.columns.str.lower()
+        upc_col = next((col for col in df_sample.columns if 'upc' in col and 'ver' not in col), None)
+        trip_col = next((col for col in df_sample.columns if 'trip_code' in col), None)
 
-        if missing_cols:
-            # Try case-insensitive match
-            print(f"\nColumn name variations found:")
-            for req_col in required_cols:
-                matches = [col for col in df_sample.columns if req_col.lower() in col.lower()]
-                if matches:
-                    print(f"  {req_col} -> {matches}")
+        if not upc_col or not trip_col:
+            print(f"ERROR: Missing required columns. Found: {df_sample.columns.tolist()}")
+            return None
 
-        # Now load full file and merge with products
-        print("\n\nLoading full purchases file and merging with filtered products...")
+        print(f"\nKey columns: upc={upc_col}, trip_code={trip_col}")
+        print("\nProcessing full file...")
         f.seek(0)
 
-        # Read in chunks and filter
-        chunk_size = 100000
+        # Define standardized columns to keep from purchases
+        standard_purchase_cols = ['trip_code_uc', 'upc', 'quantity', 'total_price_paid',
+                                 'coupon_value', 'deal_flag_uc']
+
+        # Prepare products dataframes - keep only needed columns
+        products_df_food = products_df_filtered.copy()
+        products_df_food.columns = products_df_food.columns.str.lower()
+        upc_col_products = next(col for col in products_df_food.columns if 'upc' in col and 'ver' not in col)
+
+        print(f"Processing in chunks of 100,000 rows...")
+        print(f"Standardizing to columns: {standard_purchase_cols}")
+
+        # Track stats
         filtered_chunks = []
         total_rows = 0
         kept_rows = 0
 
-        print(f"\nProcessing in chunks of {chunk_size:,} rows...")
-
-        # Prepare both filtered and full products dataframes
-        products_df_food = products_df_filtered.copy()
-        products_df_food.columns = products_df_food.columns.str.lower()
-
-        products_df_all = products_df_full.copy()
-        products_df_all.columns = products_df_all.columns.str.lower()
-
-        # Find UPC column name
-        upc_col_products = None
-        for col in products_df_food.columns:
-            if 'upc' in col.lower():
-                upc_col_products = col
-                break
-
-        if upc_col_products is None:
-            print("ERROR: No UPC column found in products dataframe")
-            return None
-
-        # Get sets of UPCs
-        food_upcs = set(products_df_food[upc_col_products].dropna())
-        all_upcs = set(products_df_all[upc_col_products].dropna())
-
-        print(f"Food product UPCs: {len(food_upcs):,}")
-        print(f"All product UPCs: {len(all_upcs):,}")
-
-        # Track unmatched FOOD UPCs only
-        unmatched_food_upcs = set()
-        non_food_count = 0
-
-        for i, chunk in enumerate(pd.read_csv(f, delimiter='\t', chunksize=chunk_size,
+        for i, chunk in enumerate(pd.read_csv(f, delimiter='\t', chunksize=100000,
                                              low_memory=False, encoding='latin-1')):
             total_rows += len(chunk)
-
-            # Standardize column names (handle case variations)
             chunk.columns = chunk.columns.str.lower()
 
-            # Find UPC column in purchases
-            upc_col = None
-            for col in chunk.columns:
-                if 'upc' in col:
-                    upc_col = col
-                    break
+            # Keep only standard purchase columns (drop everything else including HMS columns)
+            available_std_cols = [col for col in standard_purchase_cols if col in chunk.columns]
+            chunk = chunk[available_std_cols]
 
-            if upc_col is None:
-                print(f"Warning: No UPC column found in purchases. Columns: {chunk.columns.tolist()}")
-                continue
+            # Merge with food products only (inner join = keep only matched)
+            filtered = chunk.merge(products_df_food, left_on=upc_col, right_on=upc_col_products, how='inner')
 
-            # Find trip_code column in purchases
-            trip_col = None
-            for col in chunk.columns:
-                if 'trip_code' in col:
-                    trip_col = col
-                    break
-
-            if trip_col is None:
-                print(f"Warning: No trip_code column found in purchases. Columns: {chunk.columns.tolist()}")
-                continue
-
-            # Step 1: Identify food vs non-food purchases
-            # First merge with FULL products to categorize
-            chunk_with_full = chunk.merge(products_df_all[[upc_col_products, 'department_code']],
-                                          on=upc_col, how='left', suffixes=('', '_full'))
-
-            # Separate food purchases (those in food departments) from non-food
-            is_in_all_products = chunk_with_full['department_code'].notna()
-
-            # Count non-food items (in products file but filtered out)
-            non_food_in_chunk = len(chunk_with_full[is_in_all_products & ~chunk_with_full[upc_col].isin(food_upcs)])
-            non_food_count += non_food_in_chunk
-
-            # Step 2: Merge with filtered products (food only)
-            merged = chunk.merge(products_df_food, on=upc_col, how='left', indicator=True)
-
-            # Track UPCs that didn't match in food products
-            unmatched_in_chunk = merged[merged['_merge'] == 'left_only'][upc_col].unique()
-
-            # Only track as "unmatched food" if the UPC is NOT in the full products file
-            # (i.e., it's truly missing, not just filtered out)
-            for upc in unmatched_in_chunk:
-                if upc not in all_upcs:
-                    unmatched_food_upcs.add(upc)
-
-            # Keep only matched rows (food items)
-            filtered = merged[merged['_merge'] == 'both'].drop(columns=['_merge'])
-
-            # Step 3: Merge with trips data to get household and trip information
+            # Merge with trips to get household information
             filtered = filtered.merge(trips_df, on=trip_col, how='left')
 
             kept_rows += len(filtered)
@@ -370,18 +297,7 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered, products
         print(f"\n\nFinal results:")
         print(f"  Total rows processed: {total_rows:,}")
         print(f"  Rows kept (food only): {kept_rows:,}")
-        print(f"  Non-food rows dropped: {non_food_count:,}")
-        print(f"  Rows dropped (other): {total_rows - kept_rows - non_food_count:,}")
         print(f"  Overall reduction: {(1 - kept_rows/total_rows)*100:.1f}%")
-
-        print(f"\n\nUnmatched Food UPCs Analysis:")
-        print(f"  Food product UPCs in master file: {len(food_upcs):,}")
-        print(f"  Food UPCs NOT found in master file: {len(unmatched_food_upcs):,}")
-        if len(food_upcs) > 0:
-            print(f"  Food UPC match rate: {len(food_upcs)/(len(food_upcs) + len(unmatched_food_upcs))*100:.1f}%")
-        print(f"\n  Note: These are food product UPCs in purchases that don't exist in the master products file.")
-        print(f"        This could indicate discontinued products, regional products, or data errors.")
-        print(f"        Non-food products were excluded from this count.")
 
         # Combine all filtered chunks
         if filtered_chunks:
@@ -432,19 +348,7 @@ def process_year(base_path, year, products_df_filtered, products_df_full, explor
     # Step 2: Load and filter purchases using pre-loaded products
     purchases_filtered = load_and_filter_purchases(tarball_path, year, products_df_filtered, products_df_full)
 
-    # Step 3: Save filtered dataset
-    if purchases_filtered is not None:
-        output_path = f'/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_{year}_food_only.parquet'
-        print(f"\n\nSaving filtered data to: {output_path}")
-        purchases_filtered.to_parquet(output_path, index=False, engine='pyarrow', compression='snappy')
-
-        # Calculate file size
-        file_size_mb = os.path.getsize(output_path) / 1024 / 1024
-        print(f"✓ Saved successfully! ({len(purchases_filtered):,} rows, {file_size_mb:.1f} MB)")
-
-        return purchases_filtered
-    else:
-        return None
+    return purchases_filtered
 
 
 def main():
@@ -464,7 +368,8 @@ def main():
     master_products_path = f'{base_path}/Master_Files2004-2020.tgz'
 
     # List of years to process
-    years_to_process = [2004]  # Add more years like [2004, 2005, 2006, ...]
+    # years_to_process = [2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023]
+    years_to_process = [2021, 2022, 2023] 
 
     # Department codes to DROP
     # 0 = HEALTH & BEAUTY CARE
@@ -505,30 +410,75 @@ def main():
 
     print(f"\n✓ Master products loaded and filtered: {len(products_df_filtered):,} food products ready")
 
+    # Output directory for partitioned parquet dataset
+    output_dir = f'/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_all_years_food_only'
+
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+
+    print(f"\nOutput directory: {output_dir}")
+    print("Each year will be saved as a separate partition")
+
     # Process each year using the same master products file
-    results = {}
+    # Write each year to its own partition (no memory accumulation)
+    total_rows_written = 0
+    years_processed = 0
+    years_succeeded = []
+
     for year in years_to_process:
         result = process_year(base_path, year, products_df_filtered, products_df, explore_structure)
-        results[year] = result
+
+        if result is not None:
+            # Ensure panel_year column exists for partitioning
+            if 'panel_year' not in result.columns:
+                print(f"Warning: panel_year not found, adding it manually as {year}")
+                result['panel_year'] = year
+
+            # Fix mixed-type columns that cause PyArrow errors
+            # Convert object-dtype columns to string to handle mixed types
+            for col in result.columns:
+                if result[col].dtype == 'object':
+                    result[col] = result[col].astype(str)
+
+            # Write this year's data to a partition
+            # Each partition is written independently without reading other partitions
+            print(f"\nWriting year {year} to partition...")
+            result.to_parquet(
+                output_dir,
+                partition_cols=['panel_year'],
+                engine='pyarrow',
+                compression='snappy',
+                index=False
+            )
+
+            total_rows_written += len(result)
+            years_processed += 1
+            years_succeeded.append(year)
+            print(f"✓ Year {year}: {len(result):,} rows written (Total so far: {total_rows_written:,})")
+
+            # Free memory
+            del result
+        else:
+            print(f"✗ Year {year}: Failed")
+
         # Only explore structure for first year
         explore_structure = False
 
-    # Summary
-    print("\n\n" + "=" * 80)
-    print("PROCESSING COMPLETE")
-    print("=" * 80)
-    for year, df in results.items():
-        if df is not None:
-            print(f"  {year}: ✓ {len(df):,} food purchase rows saved")
-        else:
-            print(f"  {year}: ✗ Failed")
+    # Final summary
+    if years_processed > 0:
+        print("\n\n" + "=" * 80)
+        print("PROCESSING COMPLETE")
+        print("=" * 80)
 
-    print("\n\nNext steps:")
-    print("1. Review the filtered data")
-    print("2. Update drop_department_codes list if needed (see CONFIGURATION section)")
-    print("3. Add more years to years_to_process list")
-    print("4. Identify corn-derived products using product descriptions/UPCs")
-    print("5. Analyze consumption patterns over time")
+        print(f"Successfully processed {years_processed} year(s): {years_succeeded}")
+        print(f"Total rows written: {total_rows_written:,}")
+        print(f"Output directory: {output_dir}")
+        print("\nTo read the full dataset:")
+        print(f"  df = pd.read_parquet('{output_dir}')")
+        print("\nTo read specific years:")
+        print(f"  df = pd.read_parquet('{output_dir}', filters=[('panel_year', 'in', [2020, 2021])])")
+    else:
+        print("\n\nERROR: No data was successfully processed")
 
 if __name__ == "__main__":
     main()
