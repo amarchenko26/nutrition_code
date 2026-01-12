@@ -69,7 +69,7 @@ def load_usda_ingredients(usda_path):
     return usda_df
 
 
-def merge_year_with_usda(purchases_dir, year, usda_df, output_dir):
+def merge_year_with_usda(purchases_dir, year, usda_df):
     """
     Merge a single year of Nielsen purchases with USDA ingredients
 
@@ -81,13 +81,13 @@ def merge_year_with_usda(purchases_dir, year, usda_df, output_dir):
         Year to process
     usda_df : DataFrame
         USDA ingredients dataframe
-    output_dir : str
-        Directory to save merged output
 
     Returns:
     --------
-    match_stats : dict
+    stats : dict
         Dictionary with match statistics
+    matched_df : DataFrame
+        DataFrame containing only matched rows
     """
     print(f"\n\n{'='*80}")
     print(f"PROCESSING YEAR {year}")
@@ -158,24 +158,23 @@ def merge_year_with_usda(purchases_dir, year, usda_df, output_dir):
         print(f"  12-digit matches: {(~unmatched_mask).sum():,}")
         print(f"  Trying 10-digit match for remaining {n_unmatched_12:,} rows...")
 
-        # Second attempt: match on last 10 digits
-        unmatched_df = merged_df[unmatched_mask].copy()
-        second_merge = unmatched_df.merge(
-            usda_df[['upc_10', 'ingredients']],
-            left_on='upc_10',
-            right_on='upc_10',
-            how='left',
-            suffixes=('', '_10')
-        )
+        # Create a lookup dictionary from USDA for 10-digit UPCs
+        usda_10_lookup = usda_df[['upc_10', 'ingredients']].drop_duplicates(subset=['upc_10'])
+        usda_10_dict = dict(zip(usda_10_lookup['upc_10'], usda_10_lookup['ingredients']))
 
-        # Update ingredients for 10-digit matches
-        has_10_match = second_merge['ingredients_10'].notna()
-        if has_10_match.sum() > 0:
-            print(f"  10-digit matches: {has_10_match.sum():,}")
-            # Update the original merged_df with 10-digit matches
-            matched_indices = unmatched_df.index[has_10_match]
-            merged_df.loc[matched_indices, 'ingredients'] = second_merge.loc[has_10_match, 'ingredients_10'].values
-            merged_df.loc[matched_indices, '_merge'] = 'both'
+        # For unmatched rows, try to find ingredients using 10-digit UPC
+        unmatched_indices = merged_df.index[unmatched_mask]
+        matched_10_count = 0
+
+        for idx in unmatched_indices:
+            upc_10_val = merged_df.at[idx, 'upc_10']
+            if upc_10_val in usda_10_dict:
+                merged_df.at[idx, 'ingredients'] = usda_10_dict[upc_10_val]
+                merged_df.at[idx, '_merge'] = 'both'
+                matched_10_count += 1
+
+        if matched_10_count > 0:
+            print(f"  10-digit matches: {matched_10_count:,}")
 
     # Rename merge indicator for clarity
     merged_df['_merge'] = merged_df['_merge'].replace({'left_only': 'no_match', 'both': 'matched'})
@@ -197,28 +196,19 @@ def merge_year_with_usda(purchases_dir, year, usda_df, output_dir):
     print(f"  Matched UPCs: {matched_upcs:,} ({upc_match_rate:.2f}%)")
     print(f"  Unmatched UPCs: {n_unique_upcs - matched_upcs:,} ({100-upc_match_rate:.2f}%)")
 
+    # Filter to only matched rows
+    matched_df = merged_df[merged_df['_merge'] == 'matched'].copy()
+    print(f"\nFiltered to matched rows: {len(matched_df):,}")
+
     # Drop the merge indicator and temporary UPC columns
-    columns_to_drop = ['_merge', 'upc_str', 'upc_10']
-    # Only drop upc_12 if it exists (it might be the merge key)
-    if 'upc_12' in merged_df.columns:
-        # Keep one upc_12 column (from the merge)
-        pass
-    merged_df = merged_df.drop(columns=[col for col in columns_to_drop if col in merged_df.columns])
+    columns_to_drop = ['_merge', 'upc_str', 'upc_10', 'upc_12']
+    matched_df = matched_df.drop(columns=[col for col in columns_to_drop if col in matched_df.columns])
 
-    # Save merged data
-    output_partition_dir = os.path.join(output_dir, f'panel_year={year}')
-    os.makedirs(output_partition_dir, exist_ok=True)
+    # Add year column to the matched data
+    matched_df['panel_year'] = year
 
-    # output_file = os.path.join(output_partition_dir, 'data.parquet')
-    # print(f"\nSaving merged data to: {output_file}")
-
-    # merged_df.to_parquet(output_file, engine='pyarrow', compression='snappy', index=False)
-
-    # file_size_mb = os.path.getsize(output_file) / 1024 / 1024
-    # print(f"✓ Saved successfully! File size: {file_size_mb:.2f} MB")
-
-    # Return statistics
-    return {
+    # Return statistics and matched dataframe
+    stats = {
         'year': year,
         'total_purchases': n_purchases_before,
         'matched_purchases': n_matched,
@@ -229,6 +219,8 @@ def merge_year_with_usda(purchases_dir, year, usda_df, output_dir):
         'unmatched_upcs': n_unique_upcs - matched_upcs,
         'upc_match_rate': upc_match_rate
     }
+
+    return stats, matched_df
 
 
 def main():
@@ -260,12 +252,15 @@ def main():
 
     # Process each year
     all_stats = []
+    all_matched_dfs = []
 
     for year in years:
-        stats = merge_year_with_usda(purchases_dir, year, usda_df, output_dir)
+        result = merge_year_with_usda(purchases_dir, year, usda_df)
 
-        if stats:
+        if result:
+            stats, matched_df = result
             all_stats.append(stats)
+            all_matched_dfs.append(matched_df)
 
     # Summary report
     print("\n\n" + "="*80)
@@ -307,11 +302,21 @@ def main():
         summary_df.to_csv(summary_path, index=False)
         print(f"\n✓ Summary saved to: {summary_path}")
 
-        print(f"\n✓ All merged data saved to: {output_dir}")
-        print(f"\nTo read the merged dataset:")
-        print(f"  df = pd.read_parquet('{output_dir}')")
-        print(f"\nTo read specific years:")
-        print(f"  df = pd.read_parquet('{output_dir}', filters=[('panel_year', 'in', [2020, 2021])])")
+        # Combine all matched dataframes and save as single parquet file
+        print("\n\nCombining all matched data...")
+        combined_df = pd.concat(all_matched_dfs, ignore_index=True)
+        print(f"Total matched rows across all years: {len(combined_df):,}")
+
+        combined_path = os.path.join(output_dir, 'products_w_usda_ingredients.parquet')
+        print(f"\nSaving combined data to: {combined_path}")
+        combined_df.to_parquet(combined_path, engine='pyarrow', compression='snappy', index=False)
+
+        file_size_mb = os.path.getsize(combined_path) / 1024 / 1024
+        print(f"✓ Saved successfully! File size: {file_size_mb:.2f} MB")
+
+        print(f"\n✓ All output saved to: {output_dir}")
+        print(f"\nTo read the data:")
+        print(f"  df = pd.read_parquet('{combined_path}')")
     else:
         print("\n\nERROR: No data was successfully processed")
 
