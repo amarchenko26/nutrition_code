@@ -77,7 +77,7 @@ def load_products_master(master_tarball_path):
 
         return products_df
 
-def filter_products_by_department(products_df, drop_department_codes):
+def filter_products_by_department(products_df, drop_department_codes, drop_product_group_desc):
     """
     Filter products by department_code
 
@@ -88,6 +88,8 @@ def filter_products_by_department(products_df, drop_department_codes):
     drop_department_codes : list
         List of department_code values to exclude
 
+    drop_product_group_desc : list
+        List of product_group_desc values to exclude
     Returns:
     --------
     products_df_filtered : DataFrame
@@ -111,6 +113,27 @@ def filter_products_by_department(products_df, drop_department_codes):
 
     # Filter out unwanted departments
     products_filtered = products_df[~products_df['department_code'].isin(drop_department_codes)]
+
+    # Further filter by product_group_desc 
+    if 'product_group_desc' in products_filtered.columns:
+        initial_count = len(products_filtered)
+        products_filtered = products_filtered[~products_filtered['product_group_desc'].isin(drop_product_group_desc)]
+        dropped_count = initial_count - len(products_filtered)
+
+        print(f"\nAdditional filtering by product_group_desc:")
+        print(f"  Dropped products: {dropped_count:,}")
+        print(f"  Kept products: {len(products_filtered):,}")
+        print(f"  Additional reduction: {(dropped_count/initial_count)*100:.1f}%")
+    else:
+        print("Warning: product_group_desc column not found; skipping additional filtering.")
+
+    # Now filter to only the columns we're keeping 
+    keep_product_cols = ['upc', 'upc_descr', 
+                         'product_module_code', 'product_module_descr', 'product_group_code', 'product_group_descr',
+                         'department_code', 'department_descr', 'brand_code_uc', 'brand_descr',
+                         'multi', 'size1_amount', 'size1_units']
+
+    products_filtered = products_filtered[keep_product_cols]
 
     print(f"\n\nFiltering results:")
     print(f"  Original products: {len(products_df):,}")
@@ -190,7 +213,7 @@ def load_trips(tarball_path, year):
         return trips_df
 
 
-def load_and_filter_purchases(tarball_path, year, products_df_filtered, products_df_full):
+def load_and_filter_purchases(tarball_path, year, products_df_filtered):
     """
     Load purchases file for a specific year and merge with filtered products and trips
 
@@ -202,8 +225,6 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered, products
         Year to process
     products_df_filtered : DataFrame
         Products dataframe already filtered to only include food departments
-    products_df_full : DataFrame
-        Full products dataframe (before filtering) to identify food vs non-food
     """
     print(f"\n\n" + "=" * 80)
     print(f"LOADING PURCHASES DATA FOR {year}")
@@ -265,7 +286,7 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered, products
         products_df_food.columns = products_df_food.columns.str.lower()
         upc_col_products = next(col for col in products_df_food.columns if 'upc' in col and 'ver' not in col)
 
-        print(f"Processing in chunks of 100,000 rows...")
+        print(f"Processing in chunks of 500,000 rows...")
         print(f"Standardizing to columns: {standard_purchase_cols}")
 
         # Track stats
@@ -273,7 +294,7 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered, products
         total_rows = 0
         kept_rows = 0
 
-        for i, chunk in enumerate(pd.read_csv(f, delimiter='\t', chunksize=100000,
+        for i, chunk in enumerate(pd.read_csv(f, delimiter='\t', chunksize=500000,
                                              low_memory=False, encoding='latin-1')):
             total_rows += len(chunk)
             chunk.columns = chunk.columns.str.lower()
@@ -311,7 +332,8 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered, products
             print("No data remained after filtering")
             return None
 
-def process_year(base_path, year, products_df_filtered, products_df_full, explore_structure=False):
+
+def process_year(base_path, year, products_df_filtered, explore_structure=False):
     """
     Process a single year of Nielsen data
 
@@ -323,8 +345,6 @@ def process_year(base_path, year, products_df_filtered, products_df_full, explor
         Year to process
     products_df_filtered : DataFrame
         Pre-loaded and filtered products master dataframe (food only)
-    products_df_full : DataFrame
-        Full products dataframe (before filtering)
     explore_structure : bool
         Whether to print detailed tarball structure (useful for first run)
     """
@@ -346,7 +366,7 @@ def process_year(base_path, year, products_df_filtered, products_df_full, explor
         explore_tarball_structure(tarball_path)
 
     # Step 2: Load and filter purchases using pre-loaded products
-    purchases_filtered = load_and_filter_purchases(tarball_path, year, products_df_filtered, products_df_full)
+    purchases_filtered = load_and_filter_purchases(tarball_path, year, products_df_filtered)
 
     return purchases_filtered
 
@@ -368,8 +388,8 @@ def main():
     master_products_path = f'{base_path}/Master_Files2004-2020.tgz'
 
     # List of years to process
-    # years_to_process = [2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023]
-    years_to_process = [2021, 2022, 2023] 
+    years_to_process = [2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023]
+    # years_to_process = [2021, 2022, 2023] 
 
     # Department codes to DROP
     # 0 = HEALTH & BEAUTY CARE
@@ -377,6 +397,8 @@ def main():
     # 8 = ALCOHOLIC BEVERAGES
     # 9 = GENERAL MERCHANDISE
     drop_department_codes = [0, 7, 8, 9]
+
+    drop_product_group_desc = ['PET FOOD', 'BABY FOOD', 'GUM', 'nan', 'ICE']
 
     # Whether to show detailed tarball structure (useful for first run)
     explore_structure = True
@@ -402,7 +424,7 @@ def main():
         return
 
     # Filter products by department code
-    products_df_filtered = filter_products_by_department(products_df, drop_department_codes)
+    products_df_filtered = filter_products_by_department(products_df, drop_department_codes, drop_product_group_desc)
 
     if products_df_filtered is None:
         print("ERROR: Could not filter products. Exiting.")
@@ -426,7 +448,7 @@ def main():
     years_succeeded = []
 
     for year in years_to_process:
-        result = process_year(base_path, year, products_df_filtered, products_df, explore_structure)
+        result = process_year(base_path, year, products_df_filtered, explore_structure)
 
         if result is not None:
             # Ensure panel_year column exists for partitioning
