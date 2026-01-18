@@ -11,6 +11,7 @@ This script efficiently explores Nielsen Consumer Panel datasets by:
 import pandas as pd
 import tarfile
 import os
+import shutil
 from io import BytesIO
 import numpy as np
 
@@ -29,6 +30,139 @@ def explore_tarball_structure(tarball_path):
         for member in members:
             if member.isfile():
                 print(f"  {member.name} ({member.size / 1024 / 1024:.2f} MB)")
+
+def load_products_2021_plus(tarball_path, year):
+    """
+    Load products from 2021+ annual files (productdesc.tsv + producthierarchy.tsv)
+    These files have a different structure than the master file.
+
+    Parameters:
+    -----------
+    tarball_path : str
+        Path to Consumer_Panel_Data_YYYY.tgz
+    year : int
+        Year being processed
+
+    Returns:
+    --------
+    products_df : DataFrame
+        Products dataframe with standardized column names matching pre-2020 convention
+    """
+    print(f"\nLoading products from {year} annual files...")
+    print("-" * 80)
+
+    if not os.path.exists(tarball_path):
+        print(f"ERROR: Tarball not found: {tarball_path}")
+        return None
+
+    with tarfile.open(tarball_path, 'r:gz') as tar:
+        # Find productdesc.tsv
+        productdesc_file = None
+        producthierarchy_file = None
+
+        for member in tar.getmembers():
+            if 'productdesc.tsv' in member.name:
+                productdesc_file = member
+            if 'producthierarchy.tsv' in member.name:
+                producthierarchy_file = member
+
+        if not productdesc_file:
+            print("ERROR: Could not find productdesc.tsv")
+            return None
+        if not producthierarchy_file:
+            print("ERROR: Could not find producthierarchy.tsv")
+            return None
+
+        print(f"Found: {productdesc_file.name}")
+        print(f"Found: {producthierarchy_file.name}")
+
+        # Load productdesc.tsv
+        f = tar.extractfile(productdesc_file)
+        productdesc_df = pd.read_csv(f, delimiter='\t', low_memory=False, encoding='latin-1')
+        print(f"productdesc shape: {productdesc_df.shape}")
+
+        # Load producthierarchy.tsv
+        f = tar.extractfile(producthierarchy_file)
+        producthierarchy_df = pd.read_csv(f, delimiter='\t', low_memory=False, encoding='latin-1')
+        print(f"producthierarchy shape: {producthierarchy_df.shape}")
+
+        # Keep only needed columns from each file
+        productdesc_cols = ['upc', 'product_descr', 'product_module_code', 'product_module_descr', 'multi', 'year']
+        producthierarchy_cols = ['upc', 'department', 'super_category']
+
+        productdesc_df = productdesc_df[productdesc_cols]
+        producthierarchy_df = producthierarchy_df[producthierarchy_cols]
+
+        # Merge on upc
+        products_df = productdesc_df.merge(producthierarchy_df, on='upc', how='left')
+        print(f"Merged products shape: {products_df.shape}")
+
+        # Rename columns to match pre-2020 convention
+        products_df = products_df.rename(columns={
+            'product_descr': 'upc_descr',
+            'department': 'department_descr',
+            'super_category': 'product_group_descr'
+        })
+
+        print(f"Columns after rename: {products_df.columns.tolist()}")
+        print(f"\nFirst few rows:")
+        print(products_df.head())
+
+        return products_df
+
+
+def filter_products_2021_plus(products_df, drop_departments):
+    """
+    Filter 2021+ products by department name (not code, since codes differ)
+
+    Parameters:
+    -----------
+    products_df : DataFrame
+        Products dataframe from 2021+ files
+    drop_departments : list
+        List of department_descr values to exclude (e.g., ['ALCOHOL', 'BABY CARE', ...])
+
+    Returns:
+    --------
+    products_df_filtered : DataFrame
+        Filtered products dataframe
+    """
+    print("\n" + "=" * 80)
+    print("FILTERING 2021+ PRODUCTS BY DEPARTMENT")
+    print("=" * 80)
+
+    if 'department_descr' not in products_df.columns:
+        print("ERROR: department_descr column not found")
+        print(f"Available columns: {products_df.columns.tolist()}")
+        return None
+
+    # Show department distribution
+    dept_counts = products_df['department_descr'].value_counts()
+    print(f"\nDepartment distribution:")
+    for dept, count in dept_counts.items():
+        status = "DROP" if dept in drop_departments else "KEEP"
+        print(f"  {dept}: {count:,} products [{status}]")
+
+    # Filter out unwanted departments
+    products_filtered = products_df[~products_df['department_descr'].isin(drop_departments)]
+
+    # Keep only the standardized columns (matching pre-2020 structure where possible)
+    keep_product_cols = ['upc', 'upc_descr',
+                         'product_module_code', 'product_module_descr',
+                         'product_group_descr',
+                         'department_descr',
+                         'multi']
+
+    products_filtered = products_filtered[keep_product_cols]
+
+    print(f"\nFiltering results:")
+    print(f"  Original products: {len(products_df):,}")
+    print(f"  Dropped products: {len(products_df) - len(products_filtered):,}")
+    print(f"  Kept products: {len(products_filtered):,}")
+    print(f"  Reduction: {(1 - len(products_filtered)/len(products_df))*100:.1f}%")
+
+    return products_filtered
+
 
 def load_products_master(master_tarball_path):
     """
@@ -77,7 +211,7 @@ def load_products_master(master_tarball_path):
 
         return products_df
 
-def filter_products_by_department(products_df, drop_department_codes, drop_product_group_desc):
+def filter_products_by_department(products_df, drop_department_desc_pre_2021, drop_product_group_desc):
     """
     Filter products by department_code
 
@@ -85,8 +219,8 @@ def filter_products_by_department(products_df, drop_department_codes, drop_produ
     -----------
     products_df : DataFrame
         Products master data
-    drop_department_codes : list
-        List of department_code values to exclude
+    drop_department_desc_pre_2021 : list
+        List of department_desc values to exclude
 
     drop_product_group_desc : list
         List of product_group_desc values to exclude
@@ -96,24 +230,23 @@ def filter_products_by_department(products_df, drop_department_codes, drop_produ
         Products dataframe with only food departments
     """
     print("\n" + "=" * 80)
-    print("FILTERING BY DEPARTMENT CODE")
+    print("FILTERING BY DEPARTMENT")
     print("=" * 80)
 
-    if 'department_code' not in products_df.columns:
-        print("ERROR: department_code column not found in products.tsv")
+    if 'department_descr' not in products_df.columns:
+        print("ERROR: department_descr column not found in products.tsv")
         print(f"Available columns: {products_df.columns.tolist()}")
         return None
 
     # Show department distribution
-    dept_counts = products_df['department_code'].value_counts().sort_index()
-    print(f"\nDepartment code distribution:")
-    for dept_code, count in dept_counts.items():
-        status = "DROP" if dept_code in drop_department_codes else "KEEP"
-        print(f"  {dept_code}: {count:,} products [{status}]")
+    dept_counts = products_df['department_descr'].value_counts().sort_index()
+    print(f"\nDepartment distribution:")
+    for dept, count in dept_counts.items():
+        status = "DROP" if dept in drop_department_desc_pre_2021 else "KEEP"
+        print(f"  {dept}: {count:,} products [{status}]")
 
     # Filter out unwanted departments
-    products_filtered = products_df[~products_df['department_code'].isin(drop_department_codes)]
-
+    products_filtered = products_df[~products_df['department_descr'].isin(drop_department_desc_pre_2021)]
     # Further filter by product_group_desc 
     if 'product_group_desc' in products_filtered.columns:
         initial_count = len(products_filtered)
@@ -130,7 +263,7 @@ def filter_products_by_department(products_df, drop_department_codes, drop_produ
     # Now filter to only the columns we're keeping 
     keep_product_cols = ['upc', 'upc_descr', 
                          'product_module_code', 'product_module_descr', 'product_group_code', 'product_group_descr',
-                         'department_code', 'department_descr', 'brand_code_uc', 'brand_descr',
+                         'department_descr', 'brand_code_uc', 'brand_descr',
                          'multi', 'size1_amount', 'size1_units']
 
     products_filtered = products_filtered[keep_product_cols]
@@ -278,7 +411,8 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered):
         f.seek(0)
 
         # Define standardized columns to keep from purchases
-        standard_purchase_cols = ['trip_code_uc', 'upc', 'quantity', 'total_price_paid',
+        standard_purchase_cols = ['trip_code_uc', 'upc', 
+                                 'quantity', 'total_price_paid',
                                  'coupon_value', 'deal_flag_uc']
 
         # Prepare products dataframes - keep only needed columns
@@ -388,52 +522,76 @@ def main():
     master_products_path = f'{base_path}/Master_Files2004-2020.tgz'
 
     # List of years to process
-    years_to_process = [2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023]
-    # years_to_process = [2021, 2022, 2023] 
+    # years_to_process = [2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023]
+    years_to_process = [2021, 2022, 2023] 
 
-    # Department codes to DROP
-    # 0 = HEALTH & BEAUTY CARE
-    # 7 = NON-FOOD GROCERY
-    # 8 = ALCOHOLIC BEVERAGES
-    # 9 = GENERAL MERCHANDISE
-    drop_department_codes = [0, 7, 8, 9]
-
+    # Departments to DROP (for pre-2021 master file)
+    drop_department_desc_pre_2021 = [
+        'HEALTH & BEAUTY CARE', 
+        'NON-FOOD GROCERY', 
+        'ALCOHOLIC BEVERAGES', 
+        'GENERAL MERCHANDISE']
+    
     drop_product_group_desc = ['PET FOOD', 'BABY FOOD', 'GUM', 'nan', 'ICE']
 
+    # Departments to DROP for 2021+ 
+    drop_departments_2021_plus = [
+        'ALCOHOL',
+        'BABY CARE',
+        'GENERAL MERCHANDISE',
+        'HEALTH & BEAUTY CARE',
+        'HOUSEHOLD CARE',
+        'PET CARE',
+        'TOBACCO AND TOBACCO ALTERNATIVES', 
+        'FLORAL',
+        'DO NOT RELEASE',
+        'NOT APPLICABLE',
+        'MISCELLANEOUS FRESH'
+    ]
+
     # Whether to show detailed tarball structure (useful for first run)
-    explore_structure = True
+    explore_structure = False
 
     # ========================================================================
 
+    # Split years into pre-2021 (use master file) and 2021+ (use annual files)
+    years_pre_2021 = [y for y in years_to_process if y < 2021]
+    years_2021_plus = [y for y in years_to_process if y >= 2021]
+
     print(f"\nProcessing {len(years_to_process)} year(s): {years_to_process}")
-    print(f"Dropping department codes: {drop_department_codes}")
+    print(f"  Pre-2021 years (using master file): {years_pre_2021}")
+    print(f"  2021+ years (using annual files): {years_2021_plus}")
+    print(f"\nDropping department codes (pre-2021):")
     print("  0 = HEALTH & BEAUTY CARE")
     print("  7 = NON-FOOD GROCERY")
     print("  8 = ALCOHOLIC BEVERAGES")
     print("  9 = GENERAL MERCHANDISE")
+    print(f"\nDropping departments (2021+): {drop_departments_2021_plus}")
 
-    # Load master products file ONCE for all years
-    print("\n" + "=" * 80)
-    print("LOADING MASTER PRODUCTS FILE")
-    print("=" * 80)
+    # Load master products file for pre-2021 years
+    products_df_filtered_master = None
+    if years_pre_2021:
+        print("\n" + "=" * 80)
+        print("LOADING MASTER PRODUCTS FILE (for pre-2021 years)")
+        print("=" * 80)
 
-    products_df = load_products_master(master_products_path)
+        products_df = load_products_master(master_products_path)
 
-    if products_df is None:
-        print("ERROR: Could not load master products file. Exiting.")
-        return
+        if products_df is None:
+            print("ERROR: Could not load master products file. Exiting.")
+            return
 
-    # Filter products by department code
-    products_df_filtered = filter_products_by_department(products_df, drop_department_codes, drop_product_group_desc)
+        # Filter products by department code
+        products_df_filtered_master = filter_products_by_department(products_df, drop_department_desc_pre_2021, drop_product_group_desc)
 
-    if products_df_filtered is None:
-        print("ERROR: Could not filter products. Exiting.")
-        return
+        if products_df_filtered_master is None:
+            print("ERROR: Could not filter products. Exiting.")
+            return
 
-    print(f"\n✓ Master products loaded and filtered: {len(products_df_filtered):,} food products ready")
+        print(f"\n✓ Master products loaded and filtered: {len(products_df_filtered_master):,} food products ready")
 
     # Output directory for partitioned parquet dataset
-    output_dir = f'/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_all_years_food_only'
+    output_dir = f'/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_food'
 
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
@@ -441,13 +599,34 @@ def main():
     print(f"\nOutput directory: {output_dir}")
     print("Each year will be saved as a separate partition")
 
-    # Process each year using the same master products file
+    # Process each year
     # Write each year to its own partition (no memory accumulation)
     total_rows_written = 0
     years_processed = 0
     years_succeeded = []
 
     for year in years_to_process:
+        # For 2021+, load and filter products from annual files
+        if year >= 2021:
+            print("\n" + "=" * 80)
+            print(f"LOADING PRODUCTS FOR {year} (from annual files)")
+            print("=" * 80)
+
+            tarball_path = f'{base_path}/Consumer_Panel_Data_{year}.tgz'
+            products_df_year = load_products_2021_plus(tarball_path, year)
+
+            if products_df_year is None:
+                print(f"ERROR: Could not load products for {year}. Skipping.")
+                continue
+
+            products_df_filtered = filter_products_2021_plus(products_df_year, drop_departments_2021_plus)
+
+            if products_df_filtered is None:
+                print(f"ERROR: Could not filter products for {year}. Skipping.")
+                continue
+        else:
+            products_df_filtered = products_df_filtered_master
+
         result = process_year(base_path, year, products_df_filtered, explore_structure)
 
         if result is not None:
@@ -462,8 +641,13 @@ def main():
                 if result[col].dtype == 'object':
                     result[col] = result[col].astype(str)
 
+            # Delete existing partition if it exists (to avoid appending duplicates)
+            partition_path = os.path.join(output_dir, f'panel_year={year}')
+            if os.path.exists(partition_path):
+                print(f"Removing existing partition: {partition_path}")
+                shutil.rmtree(partition_path)
+
             # Write this year's data to a partition
-            # Each partition is written independently without reading other partitions
             print(f"\nWriting year {year} to partition...")
             result.to_parquet(
                 output_dir,
