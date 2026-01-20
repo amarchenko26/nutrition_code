@@ -209,3 +209,8 @@ output/figs
 output/tabs
 output/
 .DS_Store
+analysis_output/corn_trends_over_time.png
+analysis_output/ingredient_match_analysis.png
+analysis_output/match_rate_by_category_over_time.png
+analysis_output/match_rate_by_category.csv
+analysis_output/match_rate_summary_by_year.csv

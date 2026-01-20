@@ -6,6 +6,7 @@ Reports match rates for each year from 2004-2023
 """
 
 import os
+import shutil
 import pandas as pd
 import pyarrow.parquet as pq
 
@@ -34,8 +35,8 @@ def load_usda_ingredients(usda_path):
 
     print(f"\nReading: {usda_path}")
 
-    # Load only the columns we need
-    usda_df = pd.read_csv(usda_path, usecols=['gtin_upc', 'ingredients'])
+    # Load columns we need (including brand/category for verification)
+    usda_df = pd.read_csv(usda_path, usecols=['gtin_upc', 'ingredients', 'brand_name', 'branded_food_category'], low_memory=False)
 
     print(f"Rows loaded: {len(usda_df):,}")
     print(f"Unique UPCs: {usda_df['gtin_upc'].nunique():,}")
@@ -48,20 +49,21 @@ def load_usda_ingredients(usda_path):
     # Convert to string and remove decimals
     usda_df['gtin_upc'] = usda_df['gtin_upc'].astype(str).str.replace('.0', '', regex=False)
 
-    # Pad to 12 digits (UPC-12 standard) - this handles both UPC-A and shorter codes
+    # Pad to 12 digits (UPC-12 standard)
     usda_df['upc_12'] = usda_df['gtin_upc'].str.zfill(12)
 
-    # Also create version with last 10 digits for matching
-    usda_df['upc_10'] = usda_df['gtin_upc'].str.zfill(12).str[-10:]
+    # Create 11-digit version by removing check digit (last digit of 12-digit UPC)
+    # This is the key for matching with Nielsen data
+    usda_df['upc_11'] = usda_df['upc_12'].str[:-1]
 
-    print(f"\nUPC standardization:")
-    print(f"  Sample original: {usda_df['gtin_upc'].iloc[0]}")
-    print(f"  Sample 12-digit: {usda_df['upc_12'].iloc[0]}")
-    print(f"  Sample 10-digit: {usda_df['upc_10'].iloc[0]}")
+    print(f"\nUPC standardization (check-digit aware):")
+    print(f"  Sample original:  {usda_df['gtin_upc'].iloc[0]}")
+    print(f"  Sample 12-digit:  {usda_df['upc_12'].iloc[0]}")
+    print(f"  Sample 11-digit:  {usda_df['upc_11'].iloc[0]} (without check digit)")
 
-    # Remove duplicates based on 12-digit UPC (keep first occurrence)
+    # Remove duplicates based on 11-digit UPC (keep first occurrence)
     n_before = len(usda_df)
-    usda_df = usda_df.drop_duplicates(subset=['upc_12'], keep='first')
+    usda_df = usda_df.drop_duplicates(subset=['upc_11'], keep='first')
     n_after = len(usda_df)
     print(f"Duplicates removed: {n_before - n_after:,}")
     print(f"Final unique UPCs: {len(usda_df):,}")
@@ -126,55 +128,28 @@ def merge_year_with_usda(purchases_dir, year, usda_df):
     print(f"\nUPC column: {upc_col}")
     print(f"Unique UPCs in purchases: {purchases_df[upc_col].nunique():,}")
 
-    # Standardize Nielsen UPC to 12 digits
+    # Standardize Nielsen UPC to 11 digits (to match USDA without check digit)
+    # Nielsen UPCs are typically 10-11 digits WITHOUT the check digit
     purchases_df['upc_str'] = purchases_df[upc_col].astype(str)
-    purchases_df['upc_12'] = purchases_df['upc_str'].str.zfill(12)
-    purchases_df['upc_10'] = purchases_df['upc_str'].str.zfill(10)
+    purchases_df['upc_11'] = purchases_df['upc_str'].str.zfill(11)
 
-    print(f"\nUPC standardization (Nielsen):")
-    print(f"  Sample original: {purchases_df['upc_str'].iloc[0]}")
-    print(f"  Sample 12-digit: {purchases_df['upc_12'].iloc[0]}")
-    print(f"  Sample 10-digit: {purchases_df['upc_10'].iloc[0]}")
+    print(f"\nUPC standardization (Nielsen, check-digit aware):")
+    print(f"  Sample original:  {purchases_df['upc_str'].iloc[0]}")
+    print(f"  Sample 11-digit:  {purchases_df['upc_11'].iloc[0]} (padded for matching)")
 
     # Before merge statistics
     n_purchases_before = len(purchases_df)
     n_unique_upcs = purchases_df[upc_col].nunique()
 
-    # Try merging on 12-digit UPC first
-    print(f"\nMerging with USDA ingredients (12-digit UPC match)...")
+    # Merge on 11-digit UPC (Nielsen padded to 11 digits, USDA with check digit removed)
+    print(f"\nMerging with USDA ingredients (11-digit UPC match, check-digit aware)...")
     merged_df = purchases_df.merge(
-        usda_df[['upc_12', 'ingredients']],
-        left_on='upc_12',
-        right_on='upc_12',
+        usda_df[['upc_11', 'ingredients', 'brand_name', 'branded_food_category']],
+        left_on='upc_11',
+        right_on='upc_11',
         how='left',
         indicator=True
     )
-
-    # For unmatched, try 10-digit UPC match
-    unmatched_mask = merged_df['_merge'] == 'left_only'
-    n_unmatched_12 = unmatched_mask.sum()
-
-    if n_unmatched_12 > 0:
-        print(f"  12-digit matches: {(~unmatched_mask).sum():,}")
-        print(f"  Trying 10-digit match for remaining {n_unmatched_12:,} rows...")
-
-        # Create a lookup dictionary from USDA for 10-digit UPCs
-        usda_10_lookup = usda_df[['upc_10', 'ingredients']].drop_duplicates(subset=['upc_10'])
-        usda_10_dict = dict(zip(usda_10_lookup['upc_10'], usda_10_lookup['ingredients']))
-
-        # For unmatched rows, try to find ingredients using 10-digit UPC
-        unmatched_indices = merged_df.index[unmatched_mask]
-        matched_10_count = 0
-
-        for idx in unmatched_indices:
-            upc_10_val = merged_df.at[idx, 'upc_10']
-            if upc_10_val in usda_10_dict:
-                merged_df.at[idx, 'ingredients'] = usda_10_dict[upc_10_val]
-                merged_df.at[idx, '_merge'] = 'both'
-                matched_10_count += 1
-
-        if matched_10_count > 0:
-            print(f"  10-digit matches: {matched_10_count:,}")
 
     # Rename merge indicator for clarity
     merged_df['_merge'] = merged_df['_merge'].replace({'left_only': 'no_match', 'both': 'matched'})
@@ -201,7 +176,7 @@ def merge_year_with_usda(purchases_dir, year, usda_df):
     print(f"\nFiltered to matched rows: {len(matched_df):,}")
 
     # Drop the merge indicator and temporary UPC columns
-    columns_to_drop = ['_merge', 'upc_str', 'upc_10', 'upc_12']
+    columns_to_drop = ['_merge', 'upc_str', 'upc_11']
     matched_df = matched_df.drop(columns=[col for col in columns_to_drop if col in matched_df.columns])
 
     # Add year column to the matched data
@@ -232,10 +207,13 @@ def main():
 
     # Paths
     usda_path = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/usda/usda_branded_food_deduped.csv'
-    purchases_dir = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_all_years_food_only'
+    purchases_dir = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_food'
     output_dir = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_with_ingredients'
 
-    # Create output directory
+    # Clear and recreate output directory to avoid stale data
+    if os.path.exists(output_dir):
+        print(f"\nClearing existing output directory: {output_dir}")
+        shutil.rmtree(output_dir)
     os.makedirs(output_dir, exist_ok=True)
 
     # Load USDA ingredients data
@@ -250,9 +228,8 @@ def main():
 
     print(f"\n\nProcessing {len(years)} years: {years[0]}-{years[-1]}")
 
-    # Process each year
+    # Process each year and write immediately to save memory
     all_stats = []
-    all_matched_dfs = []
 
     for year in years:
         result = merge_year_with_usda(purchases_dir, year, usda_df)
@@ -260,7 +237,17 @@ def main():
         if result:
             stats, matched_df = result
             all_stats.append(stats)
-            all_matched_dfs.append(matched_df)
+
+            # Write this year's data immediately to partitioned parquet
+            year_output_path = os.path.join(output_dir, f'panel_year={year}', 'data.parquet')
+            os.makedirs(os.path.dirname(year_output_path), exist_ok=True)
+            matched_df.to_parquet(year_output_path, engine='pyarrow', compression='snappy', index=False)
+
+            file_size_mb = os.path.getsize(year_output_path) / 1024 / 1024
+            print(f"✓ Year {year} saved: {year_output_path} ({file_size_mb:.1f} MB)")
+
+            # Free memory
+            del matched_df
 
     # Summary report
     print("\n\n" + "="*80)
@@ -302,21 +289,11 @@ def main():
         summary_df.to_csv(summary_path, index=False)
         print(f"\n✓ Summary saved to: {summary_path}")
 
-        # Combine all matched dataframes and save as single parquet file
-        print("\n\nCombining all matched data...")
-        combined_df = pd.concat(all_matched_dfs, ignore_index=True)
-        print(f"Total matched rows across all years: {len(combined_df):,}")
-
-        combined_path = os.path.join(output_dir, 'products_w_usda_ingredients.parquet')
-        print(f"\nSaving combined data to: {combined_path}")
-        combined_df.to_parquet(combined_path, engine='pyarrow', compression='snappy', index=False)
-
-        file_size_mb = os.path.getsize(combined_path) / 1024 / 1024
-        print(f"✓ Saved successfully! File size: {file_size_mb:.2f} MB")
-
         print(f"\n✓ All output saved to: {output_dir}")
         print(f"\nTo read the data:")
-        print(f"  df = pd.read_parquet('{combined_path}')")
+        print(f"  df = pd.read_parquet('{output_dir}')")
+        print(f"\nTo read specific years:")
+        print(f"  df = pd.read_parquet('{output_dir}', filters=[('panel_year', 'in', [2020, 2021])])")
     else:
         print("\n\nERROR: No data was successfully processed")
 

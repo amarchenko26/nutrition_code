@@ -211,7 +211,7 @@ def load_products_master(master_tarball_path):
 
         return products_df
 
-def filter_products_by_department(products_df, drop_department_desc_pre_2021, drop_product_group_desc):
+def filter_products_by_department(products_df, drop_department_desc_pre_2021, drop_product_group_desc, drop_product_module_desc):
     """
     Filter products by department_code
 
@@ -221,9 +221,11 @@ def filter_products_by_department(products_df, drop_department_desc_pre_2021, dr
         Products master data
     drop_department_desc_pre_2021 : list
         List of department_desc values to exclude
-
     drop_product_group_desc : list
-        List of product_group_desc values to exclude
+        List of product_group_descr values to exclude
+    drop_product_module_desc : list
+        List of product_module_descr values to exclude
+
     Returns:
     --------
     products_df_filtered : DataFrame
@@ -247,18 +249,31 @@ def filter_products_by_department(products_df, drop_department_desc_pre_2021, dr
 
     # Filter out unwanted departments
     products_filtered = products_df[~products_df['department_descr'].isin(drop_department_desc_pre_2021)]
-    # Further filter by product_group_desc 
-    if 'product_group_desc' in products_filtered.columns:
+    # Further filter by product_group_descr
+    if 'product_group_descr' in products_filtered.columns:
         initial_count = len(products_filtered)
-        products_filtered = products_filtered[~products_filtered['product_group_desc'].isin(drop_product_group_desc)]
+        products_filtered = products_filtered[~products_filtered['product_group_descr'].isin(drop_product_group_desc)]
         dropped_count = initial_count - len(products_filtered)
 
-        print(f"\nAdditional filtering by product_group_desc:")
+        print(f"\nAdditional filtering by product_group_descr:")
         print(f"  Dropped products: {dropped_count:,}")
         print(f"  Kept products: {len(products_filtered):,}")
         print(f"  Additional reduction: {(dropped_count/initial_count)*100:.1f}%")
     else:
-        print("Warning: product_group_desc column not found; skipping additional filtering.")
+        print("Warning: product_group_descr column not found; skipping additional filtering.")
+
+    # Further filter by product_module_descr
+    if 'product_module_descr' in products_filtered.columns:
+        initial_count = len(products_filtered)
+        products_filtered = products_filtered[~products_filtered['product_module_descr'].isin(drop_product_module_desc)]
+        dropped_count = initial_count - len(products_filtered)
+
+        print(f"\nAdditional filtering by product_module_descr:")
+        print(f"  Dropped products: {dropped_count:,}")
+        print(f"  Kept products: {len(products_filtered):,}")
+        print(f"  Additional reduction: {(dropped_count/initial_count)*100:.1f}%")
+    else:
+        print("Warning: product_module_descr column not found; skipping additional filtering.")
 
     # Now filter to only the columns we're keeping 
     keep_product_cols = ['upc', 'upc_descr', 
@@ -534,6 +549,77 @@ def main():
     
     drop_product_group_desc = ['PET FOOD', 'BABY FOOD', 'GUM', 'nan', 'ICE']
 
+    # Product module descriptions to DROP
+    drop_product_module_desc = [
+        'UNCLASSIFIED COOKWARE',
+        'UNCLASSIFIED STATIONARY, SCHOOL SUPPLIES',
+        'UNCLASSIFIED COSMETICS',
+        'CAT FOOD - MOIST TYPE',
+        'UNCLASSIFIED PHOTOGRAPHIC SUPPLIES',
+        'UNCLASSIFIED LAUNDRY SUPPLIES',
+        'UNCLASSIFIED INSECTICDS/PESTICDS/RODENTICDS',
+        'UNCLASSIFIED GLASSWARE, TABLEW',
+        'UNCLASSIFIED KITCHEN GADGETS',
+        'UNCLASSIFIED BABY NEEDS',
+        'UNCLASSIFIED HAIR CARE',
+        'UNCLASSIFIED HOUSEWARES, APPLIANCES',
+        'UNCLASSIFIED ORAL HYGIENE',
+        'DETERGENTS LIGHT DUTY',
+        'UNCLASSIFIED PET CARE',
+        'UNCLASSIFIED AUTOMOTIVE',
+        'UNCLASSIFIED SANITARY PROTECTION',
+        'UNCLASSIFIED SHAVING NEEDS',
+        'UNCLASSIFIED FEMININE HYGIENE',
+        'UNCLASSIFIED PERSONAL SOAP AND BATH ADDITIV',
+        'TOILET TISSUE',
+        'MAGNET DATA',
+        'REFERENCE CARD VEGETABLES',
+        'REFERENCE CARD FRUITS',
+        'REFERENCE CARD MEAT',
+        'REFERENCE CARD TAKE OUT',
+        'REFERENCE CARD PREPARED FOODS',
+        'REFERENCE CARD POULTRY',
+        'REFERENCE CARD BAKED GOODS - ALL OTHER',
+        'REFERENCE CARD GAS',
+        'REFERENCE CARD COLD CUTS - CLERK SERVED',
+        'REFERENCE CARD COFFEE',
+        'REFERENCE CARD FOUNTAIN BEVERAGE',
+        'REFERENCE CARD BAKED GOODS ALL OTHR',
+        'REFERENCE CARD SEAFOOD',
+        'REFERENCE CARD APPAREL',
+        'REFERENCE CARD CANDY/NUTS/SEEDS',
+        'REFERENCE CARD CHEESE - CLERK SERVED',
+        'PET CARE - WILD BIRD FOOD',
+        'REFERENCE CARD RX',
+        'REFERENCE CARD COLD CUTS CLERK SRVD',
+        'REFERENCE CARD CHEESE - SELF SERVED',
+        'REFERENCE CARD COLD CUTS - SELF SERVED',
+        'PET CARE - PET FOOD',
+        'REFERENCE CARD BAKED GOODS - COOKIES',
+        'REFERENCE CARD CANDY NUTS SEEDS',
+        'REFERENCE CARD BAKED GOODS - CAKES',
+        'REFERENCE CARD CHEESE CLERK SERVED',
+        'REFERENCE CARD FLORAL',
+        'PET CARE - DOMESTIC BIRD FOOD',
+        'REFERENCE CARD COLD CUTS SELF SRVD',
+        'REFERENCE CARD CHEESE SELF SERVED',
+        'REFERENCE CARD BAKED GOODS - PIES',
+        'REFERENCE CARD BAKED GOODS COOKIES',
+        'DOG FOOD - MOIST TYPE',
+        'REFERENCE CARD BAKED GOODS CAKES',
+        'PREPAID GIFT CARDS',
+        'REFERENCE CARD',
+        'REFERENCE CARD DVD VIDEO',
+        'REFERENCE CARD BAKED GOODS PIES',
+        'UNCLASSIFIED HOUSEHOLD CLEANERS',
+        'REFERENCE CARD MEAL KIT',
+        'UNCLASSIFIED HOUSEHOLD SUPPLIES',
+        'REFERENCE CARD PHOTO',
+        'UNCLASSIFIED FLORAL GARDENING',
+        'BAKING CUPS AND LINERS',
+        'UNCLASSIFIED MEDICATIONS/REMEDIES/HEALTH AI',
+    ]
+
     # Departments to DROP for 2021+ 
     drop_departments_2021_plus = [
         'ALCOHOL',
@@ -582,7 +668,7 @@ def main():
             return
 
         # Filter products by department code
-        products_df_filtered_master = filter_products_by_department(products_df, drop_department_desc_pre_2021, drop_product_group_desc)
+        products_df_filtered_master = filter_products_by_department(products_df, drop_department_desc_pre_2021, drop_product_group_desc, drop_product_module_desc)
 
         if products_df_filtered_master is None:
             print("ERROR: Could not filter products. Exiting.")
