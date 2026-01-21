@@ -214,3 +214,5 @@ analysis_output/ingredient_match_analysis.png
 analysis_output/match_rate_by_category_over_time.png
 analysis_output/match_rate_by_category.csv
 analysis_output/match_rate_summary_by_year.csv
+analysis_output/hfcs_trends_cache.csv
+analysis_output/yearly_trends_cache.csv

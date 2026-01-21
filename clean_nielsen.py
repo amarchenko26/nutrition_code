@@ -15,6 +15,183 @@ import shutil
 from io import BytesIO
 import numpy as np
 
+def initialize_summary_stats():
+    """Initialize dictionary to accumulate summary statistics across years."""
+    return {
+        'yearly_counts': {},  # {year: n_rows}
+        'department_counts': {},  # {department: count}
+        'product_group_counts': {},  # {product_group: count}
+        'product_module_counts': {},  # {product_module: count}
+        'missing_counts': {},  # {column: missing_count}
+        'total_counts': {},  # {column: total_count}
+        'column_names': None,
+        'column_dtypes': None,
+        'total_rows': 0,
+        'total_spending': 0.0,
+        'total_quantity': 0,
+        'unique_households': set(),
+        'unique_upcs': set(),
+    }
+
+
+def update_summary_stats(stats, df, year):
+    """
+    Update summary statistics with data from one year.
+    This is memory-efficient since we only compute aggregates, not store raw data.
+    """
+    n_rows = len(df)
+    stats['yearly_counts'][year] = n_rows
+    stats['total_rows'] += n_rows
+
+    # Column names and dtypes (only need to capture once)
+    if stats['column_names'] is None:
+        stats['column_names'] = df.columns.tolist()
+        stats['column_dtypes'] = {col: str(df[col].dtype) for col in df.columns}
+
+    # Department counts
+    if 'department_descr' in df.columns:
+        dept_counts = df['department_descr'].value_counts()
+        for dept, count in dept_counts.items():
+            stats['department_counts'][dept] = stats['department_counts'].get(dept, 0) + count
+
+    # Product group counts
+    if 'product_group_descr' in df.columns:
+        pg_counts = df['product_group_descr'].value_counts()
+        for pg, count in pg_counts.items():
+            stats['product_group_counts'][pg] = stats['product_group_counts'].get(pg, 0) + count
+
+    # Product module counts (top 100 only to avoid huge dict)
+    if 'product_module_descr' in df.columns:
+        pm_counts = df['product_module_descr'].value_counts()
+        for pm, count in pm_counts.items():
+            stats['product_module_counts'][pm] = stats['product_module_counts'].get(pm, 0) + count
+
+    # Missing counts per column
+    for col in df.columns:
+        missing = df[col].isna().sum()
+        stats['missing_counts'][col] = stats['missing_counts'].get(col, 0) + missing
+        stats['total_counts'][col] = stats['total_counts'].get(col, 0) + n_rows
+
+    # Spending and quantity totals
+    if 'total_price_paid' in df.columns:
+        stats['total_spending'] += df['total_price_paid'].sum()
+    if 'quantity' in df.columns:
+        stats['total_quantity'] += df['quantity'].sum()
+
+    # Unique households and UPCs (sample to avoid memory issues)
+    if 'household_code' in df.columns:
+        stats['unique_households'].update(df['household_code'].dropna().unique()[:10000])
+    if 'upc' in df.columns:
+        stats['unique_upcs'].update(df['upc'].dropna().unique()[:50000])
+
+    return stats
+
+
+def save_summary_stats(stats, output_dir):
+    """Save summary statistics to CSV files in the output directory."""
+    print("\n" + "=" * 80)
+    print("SAVING SUMMARY STATISTICS")
+    print("=" * 80)
+
+    # 1. Yearly counts
+    yearly_df = pd.DataFrame([
+        {'year': year, 'n_purchases': count}
+        for year, count in sorted(stats['yearly_counts'].items())
+    ])
+    yearly_path = os.path.join(output_dir, 'summary_yearly_counts.csv')
+    yearly_df.to_csv(yearly_path, index=False)
+    print(f"✓ Saved yearly counts: {yearly_path}")
+
+    # 2. Department counts
+    dept_df = pd.DataFrame([
+        {'department_descr': dept, 'n_purchases': count, 'pct_of_total': count / stats['total_rows'] * 100}
+        for dept, count in sorted(stats['department_counts'].items(), key=lambda x: -x[1])
+    ])
+    dept_path = os.path.join(output_dir, 'summary_department_counts.csv')
+    dept_df.to_csv(dept_path, index=False)
+    print(f"✓ Saved department counts: {dept_path}")
+
+    # 3. Product group counts
+    pg_df = pd.DataFrame([
+        {'product_group_descr': pg, 'n_purchases': count, 'pct_of_total': count / stats['total_rows'] * 100}
+        for pg, count in sorted(stats['product_group_counts'].items(), key=lambda x: -x[1])
+    ])
+    pg_path = os.path.join(output_dir, 'summary_product_group_counts.csv')
+    pg_df.to_csv(pg_path, index=False)
+    print(f"✓ Saved product group counts: {pg_path}")
+
+    # 4. Product module counts (top 200)
+    pm_sorted = sorted(stats['product_module_counts'].items(), key=lambda x: -x[1])[:200]
+    pm_df = pd.DataFrame([
+        {'product_module_descr': pm, 'n_purchases': count, 'pct_of_total': count / stats['total_rows'] * 100}
+        for pm, count in pm_sorted
+    ])
+    pm_path = os.path.join(output_dir, 'summary_product_module_counts_top200.csv')
+    pm_df.to_csv(pm_path, index=False)
+    print(f"✓ Saved product module counts (top 200): {pm_path}")
+
+    # 5. Missing values per column
+    missing_df = pd.DataFrame([
+        {
+            'column': col,
+            'n_missing': stats['missing_counts'].get(col, 0),
+            'n_total': stats['total_counts'].get(col, 0),
+            'pct_missing': stats['missing_counts'].get(col, 0) / stats['total_counts'].get(col, 1) * 100,
+            'dtype': stats['column_dtypes'].get(col, 'unknown')
+        }
+        for col in stats['column_names']
+    ])
+    missing_path = os.path.join(output_dir, 'summary_missing_values.csv')
+    missing_df.to_csv(missing_path, index=False)
+    print(f"✓ Saved missing values summary: {missing_path}")
+
+    # 6. Overall summary stats
+    overall = {
+        'total_purchases': stats['total_rows'],
+        'total_spending': stats['total_spending'],
+        'total_quantity': stats['total_quantity'],
+        'avg_price_per_purchase': stats['total_spending'] / stats['total_rows'] if stats['total_rows'] > 0 else 0,
+        'n_unique_households_sampled': len(stats['unique_households']),
+        'n_unique_upcs_sampled': len(stats['unique_upcs']),
+        'n_years': len(stats['yearly_counts']),
+        'year_min': min(stats['yearly_counts'].keys()) if stats['yearly_counts'] else None,
+        'year_max': max(stats['yearly_counts'].keys()) if stats['yearly_counts'] else None,
+        'n_departments': len(stats['department_counts']),
+        'n_product_groups': len(stats['product_group_counts']),
+        'n_product_modules': len(stats['product_module_counts']),
+        'n_columns': len(stats['column_names']) if stats['column_names'] else 0,
+    }
+    overall_df = pd.DataFrame([overall])
+    overall_path = os.path.join(output_dir, 'summary_overall.csv')
+    overall_df.to_csv(overall_path, index=False)
+    print(f"✓ Saved overall summary: {overall_path}")
+
+    # 7. Column info
+    col_df = pd.DataFrame([
+        {'column': col, 'dtype': stats['column_dtypes'].get(col, 'unknown')}
+        for col in stats['column_names']
+    ])
+    col_path = os.path.join(output_dir, 'summary_columns.csv')
+    col_df.to_csv(col_path, index=False)
+    print(f"✓ Saved column info: {col_path}")
+
+    # Print summary to console
+    print("\n" + "-" * 80)
+    print("DATASET SUMMARY")
+    print("-" * 80)
+    print(f"Total purchases: {stats['total_rows']:,}")
+    print(f"Total spending: ${stats['total_spending']:,.2f}")
+    print(f"Years covered: {overall['year_min']} - {overall['year_max']} ({overall['n_years']} years)")
+    print(f"Unique households (sampled): {len(stats['unique_households']):,}")
+    print(f"Unique UPCs (sampled): {len(stats['unique_upcs']):,}")
+    print(f"Departments: {overall['n_departments']}")
+    print(f"Product groups: {overall['n_product_groups']}")
+    print(f"Product modules: {overall['n_product_modules']}")
+    print(f"Columns: {overall['n_columns']}")
+
+    return overall
+
+
 def explore_tarball_structure(tarball_path):
     """
     Explore the structure of the tarball to understand nested folders
@@ -87,8 +264,13 @@ def load_products_2021_plus(tarball_path, year):
         print(f"producthierarchy shape: {producthierarchy_df.shape}")
 
         # Keep only needed columns from each file
-        productdesc_cols = ['upc', 'product_descr', 'product_module_code', 'product_module_descr', 'multi', 'year']
-        producthierarchy_cols = ['upc', 'department', 'super_category']
+        productdesc_cols = ['upc', 
+                            'product_descr', 'product_module_descr', 
+                            'multi', 
+                            'year']
+        producthierarchy_cols = ['upc', 
+                                 'department', 
+                                 'super_category']
 
         productdesc_df = productdesc_df[productdesc_cols]
         producthierarchy_df = producthierarchy_df[producthierarchy_cols]
@@ -147,8 +329,9 @@ def filter_products_2021_plus(products_df, drop_departments):
     products_filtered = products_df[~products_df['department_descr'].isin(drop_departments)]
 
     # Keep only the standardized columns (matching pre-2020 structure where possible)
-    keep_product_cols = ['upc', 'upc_descr',
-                         'product_module_code', 'product_module_descr',
+    keep_product_cols = ['upc', 
+                         'upc_descr',
+                         'product_module_descr',
                          'product_group_descr',
                          'department_descr',
                          'multi']
@@ -276,10 +459,16 @@ def filter_products_by_department(products_df, drop_department_desc_pre_2021, dr
         print("Warning: product_module_descr column not found; skipping additional filtering.")
 
     # Now filter to only the columns we're keeping 
-    keep_product_cols = ['upc', 'upc_descr', 
-                         'product_module_code', 'product_module_descr', 'product_group_code', 'product_group_descr',
-                         'department_descr', 'brand_code_uc', 'brand_descr',
-                         'multi', 'size1_amount', 'size1_units']
+    keep_product_cols = ['upc',
+                         'upc_ver_uc',
+                         'upc_descr',
+                         'product_module_descr',
+                         'product_group_descr',
+                         'department_descr',
+                         'brand_descr',
+                         'multi',
+                         'size1_amount',
+                         'size1_units']
 
     products_filtered = products_filtered[keep_product_cols]
 
@@ -415,6 +604,7 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered):
         # Detect column names once
         df_sample.columns = df_sample.columns.str.lower()
         upc_col = next((col for col in df_sample.columns if 'upc' in col and 'ver' not in col), None)
+        upc_ver_col = next((col for col in df_sample.columns if 'upc_ver' in col), None)
         trip_col = next((col for col in df_sample.columns if 'trip_code' in col), None)
 
         if not upc_col or not trip_col:
@@ -426,7 +616,7 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered):
         f.seek(0)
 
         # Define standardized columns to keep from purchases
-        standard_purchase_cols = ['trip_code_uc', 'upc', 
+        standard_purchase_cols = ['trip_code_uc', 'upc', 'upc_ver_uc',
                                  'quantity', 'total_price_paid',
                                  'coupon_value', 'deal_flag_uc']
 
@@ -434,6 +624,7 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered):
         products_df_food = products_df_filtered.copy()
         products_df_food.columns = products_df_food.columns.str.lower()
         upc_col_products = next(col for col in products_df_food.columns if 'upc' in col and 'ver' not in col)
+        upc_ver_col_products = next((col for col in products_df_food.columns if 'upc_ver' in col), None)
 
         print(f"Processing in chunks of 500,000 rows...")
         print(f"Standardizing to columns: {standard_purchase_cols}")
@@ -453,7 +644,20 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered):
             chunk = chunk[available_std_cols]
 
             # Merge with food products only (inner join = keep only matched)
-            filtered = chunk.merge(products_df_food, left_on=upc_col, right_on=upc_col_products, how='inner')
+            if upc_ver_col and upc_ver_col_products and upc_ver_col in chunk.columns:
+                filtered = chunk.merge(
+                    products_df_food,
+                    left_on=[upc_col, upc_ver_col],
+                    right_on=[upc_col_products, upc_ver_col_products],
+                    how='inner'
+                )
+            else:
+                filtered = chunk.merge(products_df_food, left_on=upc_col, right_on=upc_col_products, how='inner')
+
+            # Drop UPC version from final output
+            for col in [upc_ver_col, upc_ver_col_products, 'upc_ver_uc']:
+                if col in filtered.columns:
+                    filtered = filtered.drop(columns=col)
 
             # Merge with trips to get household information
             filtered = filtered.merge(trips_df, on=trip_col, how='left')
@@ -537,8 +741,8 @@ def main():
     master_products_path = f'{base_path}/Master_Files2004-2020.tgz'
 
     # List of years to process
-    # years_to_process = [2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023]
-    years_to_process = [2021, 2022, 2023] 
+    years_to_process = [2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023]
+    # years_to_process = [2011, 2012] 
 
     # Departments to DROP (for pre-2021 master file)
     drop_department_desc_pre_2021 = [
@@ -547,7 +751,7 @@ def main():
         'ALCOHOLIC BEVERAGES', 
         'GENERAL MERCHANDISE']
     
-    drop_product_group_desc = ['PET FOOD', 'BABY FOOD', 'GUM', 'nan', 'ICE']
+    drop_product_group_desc = ['PET FOOD', 'BABY FOOD', 'GUM', 'nan', 'ICE', 'TEA', 'COFFEE']
 
     # Product module descriptions to DROP
     drop_product_module_desc = [
@@ -691,6 +895,9 @@ def main():
     years_processed = 0
     years_succeeded = []
 
+    # Initialize summary statistics tracker
+    summary_stats = initialize_summary_stats()
+
     for year in years_to_process:
         # For 2021+, load and filter products from annual files
         if year >= 2021:
@@ -733,6 +940,9 @@ def main():
                 print(f"Removing existing partition: {partition_path}")
                 shutil.rmtree(partition_path)
 
+            # Update summary statistics before writing (while data is in memory)
+            summary_stats = update_summary_stats(summary_stats, result, year)
+
             # Write this year's data to a partition
             print(f"\nWriting year {year} to partition...")
             result.to_parquet(
@@ -765,6 +975,10 @@ def main():
         print(f"Successfully processed {years_processed} year(s): {years_succeeded}")
         print(f"Total rows written: {total_rows_written:,}")
         print(f"Output directory: {output_dir}")
+
+        # Save summary statistics
+        save_summary_stats(summary_stats, output_dir)
+
         print("\nTo read the full dataset:")
         print(f"  df = pd.read_parquet('{output_dir}')")
         print("\nTo read specific years:")
