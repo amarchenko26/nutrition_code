@@ -19,7 +19,7 @@ from glob import glob
 # ============================================================================
 # Set to True to load from cache where available (faster)
 # Set to False to always recalculate from raw data (ignores all caches)
-USE_CACHE = False
+USE_CACHE = True
 
 # ============================================================================
 # CACHE PATHS
@@ -34,12 +34,18 @@ DEMOGRAPHIC_CACHE_DIR = os.path.join(CACHE_DIR, 'demographic_trends_cache')
 MODULE_TRENDS_CACHE = os.path.join(CACHE_DIR, 'module_trends_cache.csv')
 BALANCED_PANEL_UPCS_CACHE = os.path.join(CACHE_DIR, 'balanced_panel_upcs.parquet')
 BALANCED_PANEL_TRENDS_CACHE = os.path.join(CACHE_DIR, 'balanced_panel_trends.csv')
+EXPENDITURE_TRENDS_CACHE = os.path.join(CACHE_DIR, 'expenditure_trends_cache.csv')
+WEIGHT_TRENDS_CACHE = os.path.join(CACHE_DIR, 'weight_trends_cache.csv')
+HH_SPENDING_TRENDS_CACHE = os.path.join(CACHE_DIR, 'hh_spending_trends_cache.csv')
 
 # ============================================================================
 # DATA PATHS
 # ============================================================================
 NIELSEN_RAW_PATH = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/raw/consumer'
 PURCHASES_PATH = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_with_corn_classification'
+PURCHASES_DEFLATED_PATH = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_deflated'
+CPI_PATH = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/raw/price_deflator/CPIEBEV.csv'
+TARGET_YEAR = 2013  # Target year for deflation
 
 
 # HFCS variations to exclude
@@ -303,12 +309,14 @@ def compute_trends_by_demographic(demographic_vars='household_income', panelists
         # Keep only needed columns from panelists
         panelists_subset = panelists_df[panelists_cols].copy()
 
-        # Load purchases for this year
+        # Load purchases for this year (including quantity)
         try:
-            df_year = pd.read_parquet(year_dir, columns=['household_code'] + corn_vars)
+            df_year = pd.read_parquet(year_dir, columns=['household_code', 'quantity'] + corn_vars)
         except Exception as e:
             print(f"  Error loading purchases: {e}")
             continue
+
+        df_year['quantity'] = df_year['quantity'].fillna(1)
 
         print(f"  Loaded {len(df_year):,} purchases, {len(panelists_subset):,} households")
 
@@ -318,11 +326,16 @@ def compute_trends_by_demographic(demographic_vars='household_income', panelists
         n_matched = df_merged[demographic_vars].notna().all(axis=1).sum()
         print(f"  Matched {n_matched:,} purchases ({n_matched/len(df_merged)*100:.1f}%)")
 
-        # Compute means by demographic group
-        grouped = df_merged.groupby(demographic_vars)[corn_vars].mean() * 100
-        grouped['n_purchases'] = df_merged.groupby(demographic_vars).size()
+        # Compute quantity-weighted means by demographic group
+        def weighted_agg(group):
+            total_qty = group['quantity'].sum()
+            result = {'n_purchases': len(group), 'n_units': total_qty}
+            for var in corn_vars:
+                result[var] = (group[var] * group['quantity']).sum() / total_qty * 100
+            return pd.Series(result)
+
+        grouped = df_merged.groupby(demographic_vars).apply(weighted_agg).reset_index()
         grouped['panel_year'] = year
-        grouped = grouped.reset_index()
 
         results.append(grouped)
 
@@ -412,28 +425,30 @@ def compute_trends_by_product_module(years_to_process=None, use_cache=None, min_
         print(f"Processing year {year}...", end=' ')
 
         try:
-            df_year = pd.read_parquet(year_dir, columns=['product_module_descr'] + corn_vars)
+            df_year = pd.read_parquet(year_dir, columns=['product_module_descr', 'quantity'] + corn_vars)
         except Exception as e:
             print(f"Error: {e}")
             continue
 
-        # Group by product module
-        grouped = df_year.groupby('product_module_descr').agg(
-            n_purchases=('product_module_descr', 'size'),
-            **{var: (var, 'mean') for var in corn_vars}
-        ).reset_index()
+        df_year['quantity'] = df_year['quantity'].fillna(1)
 
-        # Convert to percentages
-        for var in corn_vars:
-            grouped[var] = grouped[var] * 100
+        # Group by product module with quantity weighting
+        def weighted_agg(group):
+            total_qty = group['quantity'].sum()
+            result = {'n_purchases': len(group), 'n_units': total_qty}
+            for var in corn_vars:
+                result[var] = (group[var] * group['quantity']).sum() / total_qty * 100
+            return pd.Series(result)
 
-        # Filter by minimum purchases
-        grouped = grouped[grouped['n_purchases'] >= min_purchases]
+        grouped = df_year.groupby('product_module_descr').apply(weighted_agg).reset_index()
+
+        # Filter by minimum units (not purchases)
+        grouped = grouped[grouped['n_units'] >= min_purchases]
 
         grouped['panel_year'] = year
         results.append(grouped)
 
-        print(f"{len(df_year):,} purchases, {len(grouped)} modules with >={min_purchases:,} purchases")
+        print(f"{len(df_year):,} purchases, {int(df_year['quantity'].sum()):,} units, {len(grouped)} modules")
 
         del df_year
 
@@ -619,33 +634,46 @@ def compute_balanced_panel_trends(balanced_upcs=None, start_year=2004, end_year=
         print(f"Processing {year}...", end=' ')
 
         try:
-            df_year = pd.read_parquet(year_dir, columns=['upc'] + corn_vars)
+            df_year = pd.read_parquet(year_dir, columns=['upc', 'quantity'] + corn_vars)
         except Exception as e:
             print(f"Error: {e}")
             continue
 
+        df_year['quantity'] = df_year['quantity'].fillna(1)
+
         n_all = len(df_year)
+        n_all_units = df_year['quantity'].sum()
         n_all_upcs = df_year['upc'].nunique()
 
         # Filter to balanced panel
         df_balanced = df_year[df_year['upc'].isin(balanced_upcs)]
 
         n_balanced = len(df_balanced)
+        n_balanced_units = df_balanced['quantity'].sum() if len(df_balanced) > 0 else 0
         n_balanced_upcs = df_balanced['upc'].nunique()
 
-        # Compute means for all purchases
-        all_means = df_year[corn_vars].mean() * 100
+        # Compute quantity-weighted means for all purchases
+        all_means = pd.Series()
+        for var in corn_vars:
+            all_means[var] = (df_year[var] * df_year['quantity']).sum() / n_all_units * 100
 
-        # Compute means for balanced panel
-        balanced_means = df_balanced[corn_vars].mean() * 100 if len(df_balanced) > 0 else pd.Series({v: None for v in corn_vars})
+        # Compute quantity-weighted means for balanced panel
+        if len(df_balanced) > 0 and n_balanced_units > 0:
+            balanced_means = pd.Series()
+            for var in corn_vars:
+                balanced_means[var] = (df_balanced[var] * df_balanced['quantity']).sum() / n_balanced_units * 100
+        else:
+            balanced_means = pd.Series({v: None for v in corn_vars})
 
         year_result = {
             'panel_year': year,
             'n_purchases_all': n_all,
+            'n_units_all': int(n_all_units),
             'n_purchases_balanced': n_balanced,
+            'n_units_balanced': int(n_balanced_units),
             'n_upcs_all': n_all_upcs,
             'n_upcs_balanced': n_balanced_upcs,
-            'pct_purchases_in_balanced': n_balanced / n_all * 100 if n_all > 0 else 0,
+            'pct_units_in_balanced': n_balanced_units / n_all_units * 100 if n_all_units > 0 else 0,
             'pct_upcs_in_balanced': n_balanced_upcs / n_all_upcs * 100 if n_all_upcs > 0 else 0,
         }
 
@@ -656,8 +684,8 @@ def compute_balanced_panel_trends(balanced_upcs=None, start_year=2004, end_year=
 
         results.append(year_result)
 
-        print(f"All: {n_all:,} purchases ({n_all_upcs:,} UPCs), "
-              f"Balanced: {n_balanced:,} ({n_balanced/n_all*100:.1f}%) purchases ({n_balanced_upcs:,} UPCs)")
+        print(f"All: {int(n_all_units):,} units ({n_all_upcs:,} UPCs), "
+              f"Balanced: {int(n_balanced_units):,} ({n_balanced_units/n_all_units*100:.1f}%) units ({n_balanced_upcs:,} UPCs)")
 
         del df_year, df_balanced
 
@@ -669,17 +697,17 @@ def compute_balanced_panel_trends(balanced_upcs=None, start_year=2004, end_year=
     print("="*80)
     print(f"Total unique UPCs in balanced panel: {len(balanced_upcs):,}")
     print(f"\nCoverage by year:")
-    print(f"{'Year':<6} {'All Purchases':>15} {'Balanced':>15} {'% Purchases':>12} {'% UPCs':>10}")
+    print(f"{'Year':<6} {'All Units':>15} {'Balanced Units':>15} {'% Units':>12} {'% UPCs':>10}")
     print("-" * 65)
     for _, row in trends_df.iterrows():
-        print(f"{int(row['panel_year']):<6} {int(row['n_purchases_all']):>15,} {int(row['n_purchases_balanced']):>15,} "
-              f"{row['pct_purchases_in_balanced']:>11.1f}% {row['pct_upcs_in_balanced']:>9.1f}%")
+        print(f"{int(row['panel_year']):<6} {int(row['n_units_all']):>15,} {int(row['n_units_balanced']):>15,} "
+              f"{row['pct_units_in_balanced']:>11.1f}% {row['pct_upcs_in_balanced']:>9.1f}%")
 
     # Overall averages
-    avg_pct_purchases = trends_df['pct_purchases_in_balanced'].mean()
+    avg_pct_units = trends_df['pct_units_in_balanced'].mean()
     avg_pct_upcs = trends_df['pct_upcs_in_balanced'].mean()
     print("-" * 65)
-    print(f"{'Average':<6} {'':<15} {'':<15} {avg_pct_purchases:>11.1f}% {avg_pct_upcs:>9.1f}%")
+    print(f"{'Average':<6} {'':<15} {'':<15} {avg_pct_units:>11.1f}% {avg_pct_upcs:>9.1f}%")
 
     # Save to cache
     if use_cache:
@@ -690,7 +718,635 @@ def compute_balanced_panel_trends(balanced_upcs=None, start_year=2004, end_year=
     return trends_df
 
 
-def plot_balanced_panel_comparison(trends_df, corn_var='any_ing_is_corn_usual_or_literal',
+def load_cpi_data():
+    """
+    Load CPI data and return target year CPI and lookup dictionary.
+
+    Returns:
+    --------
+    tuple: (target_cpi, cpi_lookup dict mapping (year, month) -> CPI)
+    """
+    cpi_df = pd.read_csv(CPI_PATH)
+    cpi_df['date'] = pd.to_datetime(cpi_df['observation_date'])
+    cpi_df['year'] = cpi_df['date'].dt.year
+    cpi_df['month'] = cpi_df['date'].dt.month
+    cpi_df = cpi_df.dropna(subset=['CPIEBEV'])
+
+    cpi_lookup = dict(zip(
+        zip(cpi_df['year'], cpi_df['month']),
+        cpi_df['CPIEBEV']
+    ))
+
+    target_cpi = cpi_df[cpi_df['year'] == TARGET_YEAR]['CPIEBEV'].mean()
+
+    return target_cpi, cpi_lookup
+
+
+def deflate_column(df, col_name, target_cpi, cpi_lookup, year_col='panel_year'):
+    """
+    Deflate a price column in place using CPI data.
+
+    Parameters:
+    -----------
+    df : DataFrame
+        Data with price column and date info
+    col_name : str
+        Name of column to deflate
+    target_cpi : float
+        CPI value for target year
+    cpi_lookup : dict
+        Mapping of (year, month) -> CPI
+    year_col : str
+        Name of year column in df
+
+    Returns:
+    --------
+    Series with deflated values
+    """
+    if 'purchase_date' in df.columns:
+        df['_purchase_date'] = pd.to_datetime(df['purchase_date'])
+        df['_year'] = df['_purchase_date'].dt.year
+        df['_month'] = df['_purchase_date'].dt.month
+    else:
+        df['_year'] = df[year_col]
+        df['_month'] = 6  # Use June as midpoint
+
+    # Map to CPI
+    df['_cpi'] = df.apply(
+        lambda row: cpi_lookup.get((row['_year'], row['_month'])),
+        axis=1
+    )
+
+    # Fill missing with annual average
+    for y in df[df['_cpi'].isna()]['_year'].unique():
+        avg_cpi = sum(cpi_lookup.get((y, m), 0) for m in range(1, 13)) / 12
+        if avg_cpi == 0:
+            # Use closest available year
+            available_years = sorted(set(k[0] for k in cpi_lookup.keys()))
+            closest = min(available_years, key=lambda x: abs(x - y))
+            avg_cpi = sum(cpi_lookup.get((closest, m), 0) for m in range(1, 13)) / 12
+        df.loc[df['_cpi'].isna() & (df['_year'] == y), '_cpi'] = avg_cpi
+
+    # Calculate deflated values
+    deflated = df[col_name] * (target_cpi / df['_cpi'])
+
+    # Clean up temp columns
+    df.drop(columns=['_year', '_month', '_cpi'], inplace=True, errors='ignore')
+    if '_purchase_date' in df.columns:
+        df.drop(columns=['_purchase_date'], inplace=True)
+
+    return deflated
+
+
+def compute_expenditure_weighted_trends(years_to_process=None, use_cache=None, use_deflated=True):
+    """
+    Compute cornification trends weighted by expenditure (price paid).
+
+    This answers: "What share of household food spending goes to corn products?"
+
+    Parameters:
+    -----------
+    years_to_process : list, optional
+        List of years to include. If None, processes all available years.
+    use_cache : bool, optional
+        Whether to use/save cached results. If None, uses global USE_CACHE setting.
+    use_deflated : bool
+        If True, use deflated prices. If False, use nominal prices.
+
+    Returns:
+    --------
+    DataFrame with year and expenditure-weighted cornification rates
+    """
+    if use_cache is None:
+        use_cache = USE_CACHE
+
+    print(f"\n{'='*80}")
+    print("COMPUTING EXPENDITURE-WEIGHTED CORNIFICATION TRENDS")
+    print("="*80)
+
+    # Check cache
+    if use_cache and os.path.exists(EXPENDITURE_TRENDS_CACHE):
+        print(f"Loading expenditure trends from cache: {EXPENDITURE_TRENDS_CACHE}")
+        return pd.read_csv(EXPENDITURE_TRENDS_CACHE)
+
+    # Determine which price column to use
+    if use_deflated:
+        price_col = f'total_price_paid_real_{TARGET_YEAR}'
+        data_path = PURCHASES_DEFLATED_PATH
+        print(f"Using deflated prices (real {TARGET_YEAR} $)")
+    else:
+        price_col = 'total_price_paid'
+        data_path = PURCHASES_PATH
+        print("Using nominal prices")
+
+    # Check if deflated data exists
+    if use_deflated and not os.path.exists(data_path):
+        print(f"WARNING: Deflated data not found at {data_path}")
+        print("Falling back to nominal prices with in-memory deflation")
+        use_deflated = False
+        price_col = 'total_price_paid'
+        data_path = PURCHASES_PATH
+
+    corn_var = 'first_ing_is_corn_usual_or_literal'
+
+    # Find all year partitions
+    year_dirs = sorted(glob(os.path.join(data_path, 'panel_year=*')))
+
+    if not year_dirs:
+        print(f"ERROR: No year partitions found in {data_path}")
+        return None
+
+    print(f"Found {len(year_dirs)} year partitions")
+
+    # Load CPI if we need to deflate in memory
+    target_cpi, cpi_lookup = None, None
+    if not use_deflated:
+        target_cpi, cpi_lookup = load_cpi_data()
+        print(f"Loaded CPI data, target year {TARGET_YEAR} CPI: {target_cpi:.2f}")
+
+    results = []
+
+    for year_dir in year_dirs:
+        year = int(os.path.basename(year_dir).replace('panel_year=', ''))
+
+        if years_to_process is not None and year not in years_to_process:
+            continue
+
+        print(f"Processing year {year}...", end=' ')
+
+        # Columns to load (always include quantity for count-based rate)
+        cols_to_load = [corn_var, 'quantity']
+        if use_deflated:
+            cols_to_load.append(price_col)
+        else:
+            cols_to_load.extend(['total_price_paid', 'purchase_date'])
+
+        try:
+            df_year = pd.read_parquet(year_dir, columns=cols_to_load)
+        except Exception as e:
+            print(f"Error: {e}")
+            continue
+
+        df_year['quantity'] = df_year['quantity'].fillna(1)
+
+        # Deflate in memory if needed
+        if not use_deflated:
+            df_year['panel_year'] = year
+            df_year[f'total_price_paid_real_{TARGET_YEAR}'] = deflate_column(
+                df_year, 'total_price_paid', target_cpi, cpi_lookup
+            )
+            price_col = f'total_price_paid_real_{TARGET_YEAR}'
+
+        # Filter to rows with valid prices
+        df_valid = df_year[(df_year[price_col] > 0) & (df_year[price_col].notna())].copy()
+
+        n_total = len(df_valid)
+        total_units = df_valid['quantity'].sum()
+        total_spending = df_valid[price_col].sum()
+
+        # Calculate corn vs non-corn spending
+        corn_spending = df_valid[df_valid[corn_var] == True][price_col].sum()
+        non_corn_spending = total_spending - corn_spending
+
+        # Quantity-weighted count rate (for fair comparison with expenditure)
+        corn_units = df_valid[df_valid[corn_var] == True]['quantity'].sum()
+        count_rate = (corn_units / total_units) * 100 if total_units > 0 else 0
+
+        # Expenditure-weighted rate
+        expenditure_rate = (corn_spending / total_spending) * 100 if total_spending > 0 else 0
+
+        year_result = {
+            'panel_year': year,
+            'n_purchases': n_total,
+            'n_units': int(total_units),
+            'total_spending_real_2013': total_spending,
+            'corn_spending_real_2013': corn_spending,
+            'non_corn_spending_real_2013': non_corn_spending,
+            'count_based_rate': count_rate,
+            'expenditure_weighted_rate': expenditure_rate,
+        }
+
+        results.append(year_result)
+
+        print(f"{int(total_units):,} units, Count: {count_rate:.1f}%, Expenditure: {expenditure_rate:.1f}%")
+
+        del df_year, df_valid
+
+    trends_df = pd.DataFrame(results)
+
+    # Save to cache
+    if use_cache:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        trends_df.to_csv(EXPENDITURE_TRENDS_CACHE, index=False)
+        print(f"\nSaved expenditure trends to: {EXPENDITURE_TRENDS_CACHE}")
+
+    return trends_df
+
+
+def compute_weight_based_trends(years_to_process=None, use_cache=None):
+    """
+    Compute cornification trends weighted by product weight/size.
+
+    This answers: "What share of food weight/volume purchased contains corn?"
+
+    Parameters:
+    -----------
+    years_to_process : list, optional
+        List of years to include. If None, processes all available years.
+    use_cache : bool, optional
+        Whether to use/save cached results. If None, uses global USE_CACHE setting.
+
+    Returns:
+    --------
+    DataFrame with year and weight-based cornification rates
+    """
+    if use_cache is None:
+        use_cache = USE_CACHE
+
+    print(f"\n{'='*80}")
+    print("COMPUTING WEIGHT-BASED CORNIFICATION TRENDS")
+    print("="*80)
+
+    # Check cache
+    if use_cache and os.path.exists(WEIGHT_TRENDS_CACHE):
+        print(f"Loading weight trends from cache: {WEIGHT_TRENDS_CACHE}")
+        return pd.read_csv(WEIGHT_TRENDS_CACHE)
+
+    corn_var = 'first_ing_is_corn_usual_or_literal'
+    weight_col = 'size1_amount'
+
+    # Find all year partitions
+    year_dirs = sorted(glob(os.path.join(PURCHASES_PATH, 'panel_year=*')))
+
+    if not year_dirs:
+        print(f"ERROR: No year partitions found in {PURCHASES_PATH}")
+        return None
+
+    print(f"Found {len(year_dirs)} year partitions")
+
+    results = []
+
+    for year_dir in year_dirs:
+        year = int(os.path.basename(year_dir).replace('panel_year=', ''))
+
+        if years_to_process is not None and year not in years_to_process:
+            continue
+
+        print(f"Processing year {year}...", end=' ')
+
+        try:
+            df_year = pd.read_parquet(year_dir, columns=[corn_var, weight_col, 'size1_units', 'quantity'])
+        except Exception as e:
+            print(f"Error: {e}")
+            continue
+
+        df_year['quantity'] = df_year['quantity'].fillna(1)
+
+        # Calculate total weight per purchase (size * quantity)
+        df_year['total_weight'] = df_year[weight_col] * df_year['quantity']
+
+        # Filter to rows with valid weights
+        df_valid = df_year[(df_year['total_weight'] > 0) & (df_year['total_weight'].notna())].copy()
+
+        n_total = len(df_valid)
+        total_units = df_valid['quantity'].sum()
+        total_weight = df_valid['total_weight'].sum()
+
+        # Calculate corn vs non-corn weight
+        corn_weight = df_valid[df_valid[corn_var] == True]['total_weight'].sum()
+        non_corn_weight = total_weight - corn_weight
+
+        # Quantity-weighted count rate (for fair comparison)
+        corn_units = df_valid[df_valid[corn_var] == True]['quantity'].sum()
+        count_rate = (corn_units / total_units) * 100 if total_units > 0 else 0
+
+        # Weight-based rate
+        weight_rate = (corn_weight / total_weight) * 100 if total_weight > 0 else 0
+
+        # Unit breakdown
+        unit_counts = df_valid['size1_units'].value_counts().head(5).to_dict()
+
+        year_result = {
+            'panel_year': year,
+            'n_purchases': n_total,
+            'n_units': int(total_units),
+            'total_weight': total_weight,
+            'corn_weight': corn_weight,
+            'non_corn_weight': non_corn_weight,
+            'count_based_rate': count_rate,
+            'weight_based_rate': weight_rate,
+            'top_units': str(unit_counts),
+        }
+
+        results.append(year_result)
+
+        print(f"{int(total_units):,} units, Count: {count_rate:.1f}%, Weight: {weight_rate:.1f}%")
+
+        del df_year, df_valid
+
+    trends_df = pd.DataFrame(results)
+
+    # Save to cache
+    if use_cache:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        trends_df.to_csv(WEIGHT_TRENDS_CACHE, index=False)
+        print(f"\nSaved weight trends to: {WEIGHT_TRENDS_CACHE}")
+
+    return trends_df
+
+
+def compute_household_spending_trends(years_to_process=None, use_cache=None, use_deflated=True):
+    """
+    Compute household-level annual spending on corn vs non-corn products.
+
+    This answers: "What share of each household's annual grocery budget goes to corn products?"
+
+    Parameters:
+    -----------
+    years_to_process : list, optional
+        List of years to include. If None, processes all available years.
+    use_cache : bool, optional
+        Whether to use/save cached results. If None, uses global USE_CACHE setting.
+    use_deflated : bool
+        If True, use deflated prices. If False, use nominal prices.
+
+    Returns:
+    --------
+    DataFrame with year, mean HH corn share, median HH corn share, etc.
+    """
+    if use_cache is None:
+        use_cache = USE_CACHE
+
+    print(f"\n{'='*80}")
+    print("COMPUTING HOUSEHOLD-LEVEL SPENDING TRENDS")
+    print("="*80)
+
+    # Check cache
+    if use_cache and os.path.exists(HH_SPENDING_TRENDS_CACHE):
+        print(f"Loading HH spending trends from cache: {HH_SPENDING_TRENDS_CACHE}")
+        return pd.read_csv(HH_SPENDING_TRENDS_CACHE)
+
+    # Determine which price column to use
+    if use_deflated:
+        price_col = f'total_price_paid_real_{TARGET_YEAR}'
+        data_path = PURCHASES_DEFLATED_PATH
+        print(f"Using deflated prices (real {TARGET_YEAR} $)")
+    else:
+        price_col = 'total_price_paid'
+        data_path = PURCHASES_PATH
+        print("Using nominal prices")
+
+    # Check if deflated data exists
+    if use_deflated and not os.path.exists(data_path):
+        print(f"WARNING: Deflated data not found at {data_path}")
+        print("Falling back to nominal prices with in-memory deflation")
+        use_deflated = False
+        price_col = 'total_price_paid'
+        data_path = PURCHASES_PATH
+
+    corn_var = 'first_ing_is_corn_usual_or_literal'
+
+    # Find all year partitions
+    year_dirs = sorted(glob(os.path.join(data_path, 'panel_year=*')))
+
+    if not year_dirs:
+        print(f"ERROR: No year partitions found in {data_path}")
+        return None
+
+    print(f"Found {len(year_dirs)} year partitions")
+
+    # Load CPI if we need to deflate in memory
+    target_cpi, cpi_lookup = None, None
+    if not use_deflated:
+        target_cpi, cpi_lookup = load_cpi_data()
+        print(f"Loaded CPI data, target year {TARGET_YEAR} CPI: {target_cpi:.2f}")
+
+    results = []
+
+    for year_dir in year_dirs:
+        year = int(os.path.basename(year_dir).replace('panel_year=', ''))
+
+        if years_to_process is not None and year not in years_to_process:
+            continue
+
+        print(f"Processing year {year}...", end=' ')
+
+        # Columns to load (include quantity for count-based comparison)
+        cols_to_load = ['household_code', corn_var, 'quantity']
+        if use_deflated:
+            cols_to_load.append(price_col)
+        else:
+            cols_to_load.extend(['total_price_paid', 'purchase_date'])
+
+        try:
+            df_year = pd.read_parquet(year_dir, columns=cols_to_load)
+        except Exception as e:
+            print(f"Error: {e}")
+            continue
+
+        df_year['quantity'] = df_year['quantity'].fillna(1)
+
+        # Deflate in memory if needed
+        if not use_deflated:
+            df_year['panel_year'] = year
+            df_year[f'total_price_paid_real_{TARGET_YEAR}'] = deflate_column(
+                df_year, 'total_price_paid', target_cpi, cpi_lookup
+            )
+            price_col = f'total_price_paid_real_{TARGET_YEAR}'
+
+        # Filter to valid prices
+        df_valid = df_year[(df_year[price_col] > 0) & (df_year[price_col].notna())].copy()
+
+        # Calculate corn quantity for each row
+        df_valid['corn_quantity'] = df_valid['quantity'] * df_valid[corn_var].astype(int)
+
+        # Aggregate to household level
+        hh_spending = df_valid.groupby('household_code').agg(
+            total_spending=(price_col, 'sum'),
+            corn_spending=(price_col, lambda x: x[df_valid.loc[x.index, corn_var] == True].sum()),
+            n_units=('quantity', 'sum'),
+            n_corn_units=('corn_quantity', 'sum'),
+        ).reset_index()
+
+        hh_spending['corn_share'] = hh_spending['corn_spending'] / hh_spending['total_spending'] * 100
+        hh_spending['corn_share_count'] = hh_spending['n_corn_units'] / hh_spending['n_units'] * 100
+
+        # Summary statistics across households
+        n_households = len(hh_spending)
+
+        year_result = {
+            'panel_year': year,
+            'n_households': n_households,
+            'mean_hh_total_spending_real_2013': hh_spending['total_spending'].mean(),
+            'median_hh_total_spending_real_2013': hh_spending['total_spending'].median(),
+            'mean_hh_corn_share': hh_spending['corn_share'].mean(),
+            'median_hh_corn_share': hh_spending['corn_share'].median(),
+            'p10_hh_corn_share': hh_spending['corn_share'].quantile(0.10),
+            'p90_hh_corn_share': hh_spending['corn_share'].quantile(0.90),
+            'mean_hh_corn_share_count': hh_spending['corn_share_count'].mean(),
+        }
+
+        results.append(year_result)
+
+        print(f"{n_households:,} HHs, Mean corn share: {year_result['mean_hh_corn_share']:.1f}%, "
+              f"Median: {year_result['median_hh_corn_share']:.1f}%")
+
+        del df_year, df_valid, hh_spending
+
+    trends_df = pd.DataFrame(results)
+
+    # Save to cache
+    if use_cache:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        trends_df.to_csv(HH_SPENDING_TRENDS_CACHE, index=False)
+        print(f"\nSaved HH spending trends to: {HH_SPENDING_TRENDS_CACHE}")
+
+    return trends_df
+
+
+def plot_expenditure_and_weight_trends(expenditure_df, weight_df, hh_spending_df=None,
+                                        output_path_exp=None, output_path_weight=None,
+                                        output_path_hh=None):
+    """
+    Plot expenditure-weighted and weight-based cornification trends.
+
+    Parameters:
+    -----------
+    expenditure_df : DataFrame
+        Output from compute_expenditure_weighted_trends()
+    weight_df : DataFrame
+        Output from compute_weight_based_trends()
+    hh_spending_df : DataFrame, optional
+        Output from compute_household_spending_trends()
+    output_path_exp : str, optional
+        Path to save expenditure figure
+    output_path_weight : str, optional
+        Path to save weight figure
+    output_path_hh : str, optional
+        Path to save household spending figure
+    """
+    figures = []
+
+    # --- Figure 1: Expenditure-weighted vs Count-based ---
+    if expenditure_df is not None:
+        fig1, ax1 = plt.subplots(figsize=(12, 7))
+
+        ax1.plot(expenditure_df['panel_year'], expenditure_df['count_based_rate'],
+                 marker='o', linewidth=2, label='Count-based (% of units)', color='#1f77b4')
+        ax1.plot(expenditure_df['panel_year'], expenditure_df['expenditure_weighted_rate'],
+                 marker='s', linewidth=2, label='Expenditure-weighted (% of $)', color='#ff7f0e')
+
+        ax1.set_xlabel('Year')
+        ax1.set_ylabel('% of Units / Spending')
+        ax1.set_title(f'Cornification Trends: Count-Based vs Expenditure-Weighted\n(Real {TARGET_YEAR} dollars, quantity-weighted)')
+        ax1.legend(loc='best')
+        ax1.grid(True, alpha=0.3)
+        ax1.tick_params(axis='x', rotation=45)
+
+        plt.tight_layout()
+
+        if output_path_exp:
+            plt.savefig(output_path_exp, dpi=150, bbox_inches='tight')
+            print(f"\nSaved expenditure trends to: {output_path_exp}")
+
+        plt.show()
+        figures.append(fig1)
+
+        # Print interpretation
+        start_count = expenditure_df['count_based_rate'].iloc[0]
+        end_count = expenditure_df['count_based_rate'].iloc[-1]
+        start_exp = expenditure_df['expenditure_weighted_rate'].iloc[0]
+        end_exp = expenditure_df['expenditure_weighted_rate'].iloc[-1]
+
+        print(f"\nEXPENDITURE-WEIGHTED INTERPRETATION:")
+        print(f"  Count-based: {start_count:.1f}% -> {end_count:.1f}% (change: {end_count - start_count:+.1f} pp)")
+        print(f"  Expenditure: {start_exp:.1f}% -> {end_exp:.1f}% (change: {end_exp - start_exp:+.1f} pp)")
+
+        if end_exp > end_count:
+            print(f"\n-> Corn products have HIGHER average prices than non-corn products")
+        else:
+            print(f"\n-> Corn products have LOWER average prices than non-corn products")
+
+    # --- Figure 2: Weight-based vs Count-based ---
+    if weight_df is not None:
+        fig2, ax2 = plt.subplots(figsize=(12, 7))
+
+        ax2.plot(weight_df['panel_year'], weight_df['count_based_rate'],
+                 marker='o', linewidth=2, label='Count-based (% of units)', color='#1f77b4')
+        ax2.plot(weight_df['panel_year'], weight_df['weight_based_rate'],
+                 marker='s', linewidth=2, label='Weight-based (% of volume)', color='#2ca02c')
+
+        ax2.set_xlabel('Year')
+        ax2.set_ylabel('% of Units / Weight')
+        ax2.set_title('Cornification Trends: Count-Based vs Weight-Based\n(Quantity-weighted)')
+        ax2.legend(loc='best')
+        ax2.grid(True, alpha=0.3)
+        ax2.tick_params(axis='x', rotation=45)
+
+        plt.tight_layout()
+
+        if output_path_weight:
+            plt.savefig(output_path_weight, dpi=150, bbox_inches='tight')
+            print(f"\nSaved weight trends to: {output_path_weight}")
+
+        plt.show()
+        figures.append(fig2)
+
+        # Print interpretation
+        start_count = weight_df['count_based_rate'].iloc[0]
+        end_count = weight_df['count_based_rate'].iloc[-1]
+        start_wt = weight_df['weight_based_rate'].iloc[0]
+        end_wt = weight_df['weight_based_rate'].iloc[-1]
+
+        print(f"\nWEIGHT-BASED INTERPRETATION:")
+        print(f"  Count-based: {start_count:.1f}% -> {end_count:.1f}% (change: {end_count - start_count:+.1f} pp)")
+        print(f"  Weight-based: {start_wt:.1f}% -> {end_wt:.1f}% (change: {end_wt - start_wt:+.1f} pp)")
+
+        if end_wt > end_count:
+            print(f"\n-> Corn products tend to be HEAVIER/LARGER than non-corn products")
+        else:
+            print(f"\n-> Corn products tend to be LIGHTER/SMALLER than non-corn products")
+
+    # --- Figure 3: Household-level spending ---
+    if hh_spending_df is not None:
+        fig3, ax3 = plt.subplots(figsize=(12, 7))
+
+        ax3.plot(hh_spending_df['panel_year'], hh_spending_df['mean_hh_corn_share'],
+                 marker='o', linewidth=2, label='Mean HH corn share', color='#1f77b4')
+        ax3.plot(hh_spending_df['panel_year'], hh_spending_df['median_hh_corn_share'],
+                 marker='s', linewidth=2, label='Median HH corn share', color='#ff7f0e')
+
+        # Add shaded area for 10th-90th percentile
+        ax3.fill_between(hh_spending_df['panel_year'],
+                         hh_spending_df['p10_hh_corn_share'],
+                         hh_spending_df['p90_hh_corn_share'],
+                         alpha=0.2, color='#1f77b4', label='10th-90th percentile')
+
+        ax3.set_xlabel('Year')
+        ax3.set_ylabel('% of HH Annual Spending on Corn Products')
+        ax3.set_title(f'Household Corn Spending Share\n(Real {TARGET_YEAR} dollars)')
+        ax3.legend(loc='best')
+        ax3.grid(True, alpha=0.3)
+        ax3.tick_params(axis='x', rotation=45)
+
+        plt.tight_layout()
+
+        if output_path_hh:
+            plt.savefig(output_path_hh, dpi=150, bbox_inches='tight')
+            print(f"\nSaved HH spending trends to: {output_path_hh}")
+
+        plt.show()
+        figures.append(fig3)
+
+        # Print summary
+        print(f"\nHOUSEHOLD-LEVEL SUMMARY (Real {TARGET_YEAR}$):")
+        print(f"  Average HH annual food spending: ${hh_spending_df['mean_hh_total_spending_real_2013'].mean():.0f}")
+        print(f"  Average share going to corn: {hh_spending_df['mean_hh_corn_share'].mean():.1f}%")
+
+    return figures
+
+
+def plot_balanced_panel_comparison(trends_df, corn_var='first_ing_is_corn_usual_or_literal',
                                     output_path_trends=None, output_path_coverage=None):
     """
     Plot cornification trends comparing all purchases vs balanced panel.
@@ -720,9 +1376,9 @@ def plot_balanced_panel_comparison(trends_df, corn_var='any_ing_is_corn_usual_or
              marker='s', linewidth=2, label='Balanced panel (same UPCs)', color='#ff7f0e')
 
     ax1.set_xlabel('Year')
-    ax1.set_ylabel('% of Purchases with Corn Ingredient')
-    ax1.set_title('Cornification Trends: All Purchases vs Balanced Panel\n'
-                  '(Any ingredient is corn - usual or literal)')
+    ax1.set_ylabel('% of Units with Corn Ingredient (quantity-weighted)')
+    ax1.set_title('Cornification Trends: All Units vs Balanced Panel\n'
+                  '(Any ingredient is corn - usual or literal, quantity-weighted)')
     ax1.legend(loc='best')
     ax1.grid(True, alpha=0.3)
     ax1.tick_params(axis='x', rotation=45)
@@ -739,14 +1395,14 @@ def plot_balanced_panel_comparison(trends_df, corn_var='any_ing_is_corn_usual_or
     # --- Figure 2: Coverage statistics ---
     fig2, ax2 = plt.subplots(figsize=(12, 7))
 
-    ax2.plot(trends_df['panel_year'], trends_df['pct_purchases_in_balanced'],
-             marker='o', linewidth=2, label='% of Purchases', color='#2ca02c')
+    ax2.plot(trends_df['panel_year'], trends_df['pct_units_in_balanced'],
+             marker='o', linewidth=2, label='% of Units', color='#2ca02c')
     ax2.plot(trends_df['panel_year'], trends_df['pct_upcs_in_balanced'],
              marker='s', linewidth=2, label='% of UPCs', color='#d62728')
 
     ax2.set_xlabel('Year')
     ax2.set_ylabel('Percentage')
-    ax2.set_title('Balanced Panel Coverage\n(UPCs present in all years 2004-2020)')
+    ax2.set_title('Balanced Panel Coverage\n(UPCs present in all years 2004-2020, quantity-weighted)')
     ax2.legend(loc='best')
     ax2.grid(True, alpha=0.3)
     ax2.tick_params(axis='x', rotation=45)
@@ -790,7 +1446,7 @@ def plot_balanced_panel_comparison(trends_df, corn_var='any_ing_is_corn_usual_or
     return figures
 
 
-def get_top_cornified_modules(module_trends_df, corn_var='any_ing_is_corn_usual_or_literal', top_n=10):
+def get_top_cornified_modules(module_trends_df, corn_var='first_ing_is_corn_usual_or_literal', top_n=10):
     """
     Get the top N most cornified product modules (weighted average across years).
 
@@ -828,7 +1484,7 @@ def get_top_cornified_modules(module_trends_df, corn_var='any_ing_is_corn_usual_
     return top_modules
 
 
-def get_modules_with_biggest_changes(module_trends_df, corn_var='any_ing_is_corn_usual_or_literal',
+def get_modules_with_biggest_changes(module_trends_df, corn_var='first_ing_is_corn_usual_or_literal',
                                      top_n=10, start_year=2004, end_year=2020, direction='both'):
     """
     Get modules with the biggest changes (increase or decrease) in cornification.
@@ -887,7 +1543,7 @@ def get_modules_with_biggest_changes(module_trends_df, corn_var='any_ing_is_corn
     return top_changers
 
 
-def plot_cornification_by_module(module_trends_df, top_modules=None, corn_var='any_ing_is_corn_usual_or_literal',
+def plot_cornification_by_module(module_trends_df, top_modules=None, corn_var='first_ing_is_corn_usual_or_literal',
                                   top_n=10, output_path_bar=None, output_path_timeseries=None):
     """
     Create plots showing cornification by product module.
@@ -975,7 +1631,7 @@ def plot_cornification_by_module(module_trends_df, top_modules=None, corn_var='a
     return fig1, fig2
 
 
-def plot_biggest_cornification_changes(module_trends_df, corn_var='any_ing_is_corn_usual_or_literal',
+def plot_biggest_cornification_changes(module_trends_df, corn_var='first_ing_is_corn_usual_or_literal',
                                         top_n=10, start_year=2004, end_year=2020,
                                         output_path_increases_bar=None, output_path_increases_ts=None,
                                         output_path_decreases_bar=None, output_path_decreases_ts=None):
@@ -1113,7 +1769,7 @@ def plot_biggest_cornification_changes(module_trends_df, corn_var='any_ing_is_co
     return figures
 
 
-def plot_trends_by_demographic(trends_df, demographic_var, corn_var='any_ing_is_corn_usual_or_literal',
+def plot_trends_by_demographic(trends_df, demographic_var, corn_var='first_ing_is_corn_usual_or_literal',
                                 title=None, output_path=None, n_bins=None, bin_labels=None):
     """
     Plot corn trends over time, with separate lines for each demographic group.
@@ -1273,18 +1929,28 @@ def compute_yearly_trends(years_to_process=None, use_cache=None):
 
         # Load only the columns we need for this year
         try:
-            df_year = pd.read_parquet(year_dir, columns=corn_vars)
+            df_year = pd.read_parquet(year_dir, columns=corn_vars + ['quantity'])
         except Exception as e:
             print(f"Error: {e}")
             continue
 
-        # Compute means for this year
-        year_means = df_year.mean() * 100  # Convert to percentage
+        # Fill missing quantity with 1
+        df_year['quantity'] = df_year['quantity'].fillna(1)
+
+        # Compute quantity-weighted means for this year
+        total_quantity = df_year['quantity'].sum()
+        year_means = pd.Series()
+        for var in corn_vars:
+            # Weighted mean: sum(corn_flag * quantity) / sum(quantity)
+            weighted_sum = (df_year[var] * df_year['quantity']).sum()
+            year_means[var] = (weighted_sum / total_quantity) * 100
+
         year_means['panel_year'] = year
         year_means['n_purchases'] = len(df_year)
+        year_means['n_units'] = int(total_quantity)
         results.append(year_means)
 
-        print(f"{len(df_year):,} purchases")
+        print(f"{len(df_year):,} purchases, {int(total_quantity):,} units")
 
         # Free memory
         del df_year
@@ -1292,8 +1958,8 @@ def compute_yearly_trends(years_to_process=None, use_cache=None):
     # Combine into DataFrame
     yearly_trends = pd.DataFrame(results).set_index('panel_year').sort_index()
 
-    print("\nYearly trends (% of purchases):")
-    print(yearly_trends.drop(columns=['n_purchases']).round(2))
+    print("\nYearly trends (% of units, quantity-weighted):")
+    print(yearly_trends.drop(columns=['n_purchases', 'n_units'], errors='ignore').round(2))
 
     # Save to cache
     if use_cache:
@@ -1340,17 +2006,20 @@ def compute_yearly_trends_excluding_hfcs(years_to_process=None, use_cache=None):
         print(f"Processing year {year} (excluding HFCS)...", end=' ')
 
         try:
-            # Load corn vars plus ingredients column
+            # Load corn vars plus ingredients column and quantity
             df_year = pd.read_parquet(year_dir, columns=[
                 'first_ing_is_corn_literal',
                 'first_ing_is_corn_usual_or_literal',
-                'ingredients'
+                'ingredients',
+                'quantity'
             ])
         except Exception as e:
             print(f"Error: {e}")
             continue
 
         n_total = len(df_year)
+        df_year['quantity'] = df_year['quantity'].fillna(1)
+        total_quantity = df_year['quantity'].sum()
 
         # Get first ingredient and check if HFCS
         df_year['first_ingredient'] = df_year['ingredients'].apply(get_first_ingredient)
@@ -1369,18 +2038,23 @@ def compute_yearly_trends_excluding_hfcs(years_to_process=None, use_cache=None):
             df_year['first_ing_is_corn_literal'] & df_year['first_ing_is_hfcs']
         )
 
+        # Compute quantity-weighted means
+        def weighted_mean(col):
+            return (df_year[col] * df_year['quantity']).sum() / total_quantity * 100
+
         year_results = {
             'panel_year': year,
             'n_purchases': n_total,
-            'first_ing_corn_literal': df_year['first_ing_is_corn_literal'].mean() * 100,
-            'first_ing_corn_literal_no_hfcs': df_year['first_ing_corn_literal_no_hfcs'].mean() * 100,
-            'first_ing_corn_usual': df_year['first_ing_is_corn_usual_or_literal'].mean() * 100,
-            'first_ing_corn_usual_no_hfcs': df_year['first_ing_corn_usual_no_hfcs'].mean() * 100,
-            'first_ing_hfcs': df_year['first_ing_is_hfcs_and_corn'].mean() * 100,
+            'n_units': int(total_quantity),
+            'first_ing_corn_literal': weighted_mean('first_ing_is_corn_literal'),
+            'first_ing_corn_literal_no_hfcs': weighted_mean('first_ing_corn_literal_no_hfcs'),
+            'first_ing_corn_usual': weighted_mean('first_ing_is_corn_usual_or_literal'),
+            'first_ing_corn_usual_no_hfcs': weighted_mean('first_ing_corn_usual_no_hfcs'),
+            'first_ing_hfcs': weighted_mean('first_ing_is_hfcs_and_corn'),
         }
         results.append(year_results)
 
-        print(f"{n_total:,} purchases, HFCS as first ing: {year_results['first_ing_hfcs']:.2f}%")
+        print(f"{n_total:,} purchases, {int(total_quantity):,} units, HFCS: {year_results['first_ing_hfcs']:.2f}%")
 
         del df_year
 
@@ -1567,16 +2241,41 @@ def main():
         )
 
     # Compute and plot balanced panel analysis (new products vs reformulation)
+    # print("\n" + "=" * 80)
+    # print("BALANCED PANEL ANALYSIS: NEW PRODUCTS VS REFORMULATION")
+    # print("=" * 80)
+    # balanced_trends = compute_balanced_panel_trends(start_year=2004, end_year=2020)
+    # if balanced_trends is not None:
+    #     plot_balanced_panel_comparison(
+    #         balanced_trends,
+    #         corn_var='any_ing_is_corn_usual_or_literal',
+    #         output_path_trends='/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/farm bill/figs/balanced_panel_trends.png',
+    #         output_path_coverage='/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/farm bill/figs/balanced_panel_coverage.png'
+    #     )
+
+    # Compute and plot expenditure-weighted and weight-based trends
     print("\n" + "=" * 80)
-    print("BALANCED PANEL ANALYSIS: NEW PRODUCTS VS REFORMULATION")
+    print("EXPENDITURE AND WEIGHT-BASED CORNIFICATION ANALYSIS")
     print("=" * 80)
-    balanced_trends = compute_balanced_panel_trends(start_year=2004, end_year=2020)
-    if balanced_trends is not None:
-        plot_balanced_panel_comparison(
-            balanced_trends,
-            corn_var='any_ing_is_corn_usual_or_literal',
-            output_path_trends='/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/farm bill/figs/balanced_panel_trends.png',
-            output_path_coverage='/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/farm bill/figs/balanced_panel_coverage.png'
+
+    # Expenditure-weighted trends
+    expenditure_trends = compute_expenditure_weighted_trends(years_to_process=years_to_process, use_deflated=True)
+
+    # Weight-based trends
+    weight_trends = compute_weight_based_trends(years_to_process=years_to_process)
+
+    # Household-level spending trends
+    hh_spending_trends = compute_household_spending_trends(years_to_process=years_to_process, use_deflated=True)
+
+    # Plot all three
+    if expenditure_trends is not None or weight_trends is not None:
+        plot_expenditure_and_weight_trends(
+            expenditure_trends,
+            weight_trends,
+            hh_spending_trends,
+            output_path_exp='/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/farm bill/figs/cornification_expenditure_weighted.png',
+            output_path_weight='/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/farm bill/figs/cornification_weight_based.png',
+            output_path_hh='/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/farm bill/figs/cornification_hh_spending.png'
         )
 
     print("\nDone!")

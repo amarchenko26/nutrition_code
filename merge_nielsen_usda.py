@@ -86,8 +86,8 @@ def get_usda_for_nielsen_year(usda_df, nielsen_year, year_mapping):
     """
     Get the appropriate USDA ingredients for a given Nielsen year.
 
-    For products that were reformulated, uses the version from the appropriate USDA release.
-    For products that were never reformulated, uses the latest version.
+    For each UPC, selects the USDA release year closest to the mapped year.
+    If no exact match exists for that UPC, falls back to the next closest year.
 
     Parameters:
     -----------
@@ -109,26 +109,14 @@ def get_usda_for_nielsen_year(usda_df, nielsen_year, year_mapping):
         # Fall back to earliest available year
         usda_year = usda_df['usda_release_year'].min()
 
-    # Get ingredients for this USDA year
-    # For UPCs that don't have data for this specific year, use the closest prior year
-    usda_years_available = sorted(usda_df['usda_release_year'].unique())
+    # For each UPC, choose the closest USDA release year to the mapped year.
+    # If there is a tie, prefer the earlier release year for determinism.
+    year_specific = usda_df.assign(
+        _year_diff=(usda_df['usda_release_year'] - usda_year).abs()
+    ).sort_values(['upc_11', '_year_diff', 'usda_release_year']) \
+     .groupby('upc_11', as_index=False).first()
 
-    # Strategy: For each UPC, get the most recent data <= usda_year
-    # If no prior data exists, use the earliest available
-
-    # Filter to rows <= usda_year
-    prior_data = usda_df[usda_df['usda_release_year'] <= usda_year]
-
-    if len(prior_data) == 0:
-        # No data available for this year or prior, use earliest
-        earliest_year = min(usda_years_available)
-        prior_data = usda_df[usda_df['usda_release_year'] == earliest_year]
-
-    # For each UPC, get the most recent row
-    prior_data = prior_data.sort_values(['upc_11', 'usda_release_year'])
-    year_specific = prior_data.groupby('upc_11').last().reset_index()
-
-    return year_specific
+    return year_specific.drop(columns=['_year_diff'])
 
 
 def merge_year_with_usda(purchases_dir, year, usda_df, year_mapping):
@@ -158,10 +146,10 @@ def merge_year_with_usda(purchases_dir, year, usda_df, year_mapping):
 
     # Get the appropriate USDA data for this year
     usda_year = year_mapping.get(year, min(usda_df['usda_release_year'].unique()))
-    print(f"Using USDA release year: {usda_year}")
+    print(f"Target USDA release year: {usda_year}")
 
     usda_for_year = get_usda_for_nielsen_year(usda_df, year, year_mapping)
-    print(f"USDA UPCs available: {len(usda_for_year):,}")
+    print(f"USDA UPCs available (closest-year per UPC): {len(usda_for_year):,}")
 
     # Read Nielsen purchases for this year
     partition_path = os.path.join(purchases_dir, f'panel_year={year}')
