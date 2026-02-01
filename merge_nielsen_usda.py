@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """
-Nielsen-USDA Merger
-Merges Nielsen purchase data with USDA ingredients data based on UPC codes
-Reports match rates for each year from 2004-2023
+Nielsen-USDA Merger with Year-Based Matching
+
+This script merges Nielsen purchase data with USDA ingredients data based on:
+1. UPC codes
+2. Closest available USDA release year to the Nielsen purchase year
+
+This allows tracking of ingredient reformulations over time.
 """
 
 import os
@@ -11,91 +15,155 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 
-def load_usda_ingredients(usda_path):
+def load_year_mapping(usda_dir):
     """
-    Load USDA ingredients data
+    Load the Nielsen year -> USDA release year mapping.
 
     Parameters:
     -----------
-    usda_path : str
-        Path to USDA branded food CSV file
+    usda_dir : str
+        Path to USDA interim directory
 
     Returns:
     --------
-    usda_df : DataFrame
-        USDA data with gtin_upc and ingredients columns
+    dict : Mapping of Nielsen year -> USDA release year
     """
-    print("="*80)
-    print("LOADING USDA INGREDIENTS DATA")
-    print("="*80)
+    mapping_path = os.path.join(usda_dir, 'nielsen_usda_year_mapping.csv')
 
-    if not os.path.exists(usda_path):
-        print(f"ERROR: USDA file not found: {usda_path}")
+    if not os.path.exists(mapping_path):
+        print(f"ERROR: Year mapping file not found: {mapping_path}")
+        print("Run clean_usda.py first to generate this file.")
         return None
 
-    print(f"\nReading: {usda_path}")
+    mapping_df = pd.read_csv(mapping_path)
+    year_mapping = dict(zip(mapping_df['nielsen_year'], mapping_df['usda_release_year']))
 
-    # Load columns we need (including brand/category for verification)
-    usda_df = pd.read_csv(usda_path, usecols=['gtin_upc', 'ingredients', 'brand_name', 'branded_food_category'], low_memory=False)
+    print(f"Loaded year mapping for {len(year_mapping)} Nielsen years")
+    return year_mapping
+
+
+def load_usda_ingredients_by_year(usda_dir):
+    """
+    Load the time-varying USDA ingredients data.
+
+    Parameters:
+    -----------
+    usda_dir : str
+        Path to USDA interim directory
+
+    Returns:
+    --------
+    DataFrame with ingredients indexed by upc_11 and usda_release_year
+    """
+    print("="*80)
+    print("LOADING USDA INGREDIENTS DATA (TIME-VARYING)")
+    print("="*80)
+
+    parquet_path = os.path.join(usda_dir, 'usda_ingredients_by_year.parquet')
+
+    if not os.path.exists(parquet_path):
+        print(f"ERROR: Time-varying ingredients file not found: {parquet_path}")
+        print("Run clean_usda.py first to generate this file.")
+        return None
+
+    print(f"\nReading: {parquet_path}")
+    usda_df = pd.read_parquet(parquet_path)
 
     print(f"Rows loaded: {len(usda_df):,}")
-    print(f"Unique UPCs: {usda_df['gtin_upc'].nunique():,}")
+    print(f"Unique UPCs: {usda_df['upc_11'].nunique():,}")
+    print(f"USDA release years: {sorted(usda_df['usda_release_year'].unique())}")
 
-    # Remove rows with missing UPC or ingredients
-    usda_df = usda_df.dropna(subset=['gtin_upc'])
-    print(f"Rows after removing missing UPC: {len(usda_df):,}")
-
-    # Standardize UPC format
-    # Convert to string and remove decimals
-    usda_df['gtin_upc'] = usda_df['gtin_upc'].astype(str).str.replace('.0', '', regex=False)
-
-    # Pad to 12 digits (UPC-12 standard)
-    usda_df['upc_12'] = usda_df['gtin_upc'].str.zfill(12)
-
-    # Create 11-digit version by removing check digit (last digit of 12-digit UPC)
-    # This is the key for matching with Nielsen data
-    usda_df['upc_11'] = usda_df['upc_12'].str[:-1]
-
-    print(f"\nUPC standardization (check-digit aware):")
-    print(f"  Sample original:  {usda_df['gtin_upc'].iloc[0]}")
-    print(f"  Sample 12-digit:  {usda_df['upc_12'].iloc[0]}")
-    print(f"  Sample 11-digit:  {usda_df['upc_11'].iloc[0]} (without check digit)")
-
-    # Remove duplicates based on 11-digit UPC (keep first occurrence)
-    n_before = len(usda_df)
-    usda_df = usda_df.drop_duplicates(subset=['upc_11'], keep='first')
-    n_after = len(usda_df)
-    print(f"Duplicates removed: {n_before - n_after:,}")
-    print(f"Final unique UPCs: {len(usda_df):,}")
+    # Show distribution by year
+    print("\nRows by USDA release year:")
+    for year in sorted(usda_df['usda_release_year'].unique()):
+        n = len(usda_df[usda_df['usda_release_year'] == year])
+        print(f"  {year}: {n:,}")
 
     return usda_df
 
 
-def merge_year_with_usda(purchases_dir, year, usda_df):
+def get_usda_for_nielsen_year(usda_df, nielsen_year, year_mapping):
     """
-    Merge a single year of Nielsen purchases with USDA ingredients
+    Get the appropriate USDA ingredients for a given Nielsen year.
+
+    For products that were reformulated, uses the version from the appropriate USDA release.
+    For products that were never reformulated, uses the latest version.
+
+    Parameters:
+    -----------
+    usda_df : DataFrame
+        Time-varying USDA ingredients data
+    nielsen_year : int
+        Nielsen purchase year
+    year_mapping : dict
+        Mapping of Nielsen year -> USDA release year
+
+    Returns:
+    --------
+    DataFrame with ingredients for the given Nielsen year
+    """
+    usda_year = year_mapping.get(nielsen_year)
+
+    if usda_year is None:
+        print(f"  WARNING: No USDA year mapping for Nielsen year {nielsen_year}")
+        # Fall back to earliest available year
+        usda_year = usda_df['usda_release_year'].min()
+
+    # Get ingredients for this USDA year
+    # For UPCs that don't have data for this specific year, use the closest prior year
+    usda_years_available = sorted(usda_df['usda_release_year'].unique())
+
+    # Strategy: For each UPC, get the most recent data <= usda_year
+    # If no prior data exists, use the earliest available
+
+    # Filter to rows <= usda_year
+    prior_data = usda_df[usda_df['usda_release_year'] <= usda_year]
+
+    if len(prior_data) == 0:
+        # No data available for this year or prior, use earliest
+        earliest_year = min(usda_years_available)
+        prior_data = usda_df[usda_df['usda_release_year'] == earliest_year]
+
+    # For each UPC, get the most recent row
+    prior_data = prior_data.sort_values(['upc_11', 'usda_release_year'])
+    year_specific = prior_data.groupby('upc_11').last().reset_index()
+
+    return year_specific
+
+
+def merge_year_with_usda(purchases_dir, year, usda_df, year_mapping):
+    """
+    Merge a single year of Nielsen purchases with USDA ingredients.
+
+    Uses the appropriate USDA release for the given Nielsen year.
 
     Parameters:
     -----------
     purchases_dir : str
         Directory containing partitioned parquet files
     year : int
-        Year to process
+        Nielsen year to process
     usda_df : DataFrame
-        USDA ingredients dataframe
+        Time-varying USDA ingredients dataframe
+    year_mapping : dict
+        Nielsen year -> USDA release year mapping
 
     Returns:
     --------
-    stats : dict
-        Dictionary with match statistics
-    matched_df : DataFrame
-        DataFrame containing only matched rows
+    tuple : (stats dict, matched DataFrame)
     """
     print(f"\n\n{'='*80}")
-    print(f"PROCESSING YEAR {year}")
+    print(f"PROCESSING NIELSEN YEAR {year}")
     print("="*80)
 
-    # Read the specific year partition
+    # Get the appropriate USDA data for this year
+    usda_year = year_mapping.get(year, min(usda_df['usda_release_year'].unique()))
+    print(f"Using USDA release year: {usda_year}")
+
+    usda_for_year = get_usda_for_nielsen_year(usda_df, year, year_mapping)
+    print(f"USDA UPCs available: {len(usda_for_year):,}")
+
+    # Read Nielsen purchases for this year
     partition_path = os.path.join(purchases_dir, f'panel_year={year}')
 
     if not os.path.exists(partition_path):
@@ -104,7 +172,6 @@ def merge_year_with_usda(purchases_dir, year, usda_df):
 
     print(f"\nReading: {partition_path}")
 
-    # Read all parquet files in this partition
     try:
         purchases_df = pd.read_parquet(partition_path)
     except Exception as e:
@@ -112,9 +179,8 @@ def merge_year_with_usda(purchases_dir, year, usda_df):
         return None
 
     print(f"Purchases loaded: {len(purchases_df):,}")
-    print(f"Columns: {purchases_df.columns.tolist()}")
 
-    # Check for UPC column
+    # Find UPC column
     upc_col = None
     for col in purchases_df.columns:
         if 'upc' in col.lower() and 'ver' not in col.lower():
@@ -125,33 +191,32 @@ def merge_year_with_usda(purchases_dir, year, usda_df):
         print(f"ERROR: No UPC column found in purchases data")
         return None
 
-    print(f"\nUPC column: {upc_col}")
+    print(f"UPC column: {upc_col}")
     print(f"Unique UPCs in purchases: {purchases_df[upc_col].nunique():,}")
 
-    # Standardize Nielsen UPC to 11 digits (to match USDA without check digit)
-    # Nielsen UPCs are typically 10-11 digits WITHOUT the check digit
+    # Standardize Nielsen UPC to 11 digits
     purchases_df['upc_str'] = purchases_df[upc_col].astype(str)
     purchases_df['upc_11'] = purchases_df['upc_str'].str.zfill(11)
-
-    print(f"\nUPC standardization (Nielsen, check-digit aware):")
-    print(f"  Sample original:  {purchases_df['upc_str'].iloc[0]}")
-    print(f"  Sample 11-digit:  {purchases_df['upc_11'].iloc[0]} (padded for matching)")
 
     # Before merge statistics
     n_purchases_before = len(purchases_df)
     n_unique_upcs = purchases_df[upc_col].nunique()
 
-    # Merge on 11-digit UPC (Nielsen padded to 11 digits, USDA with check digit removed)
-    print(f"\nMerging with USDA ingredients (11-digit UPC match, check-digit aware)...")
+    # Select columns to merge from USDA
+    usda_cols = ['upc_11', 'ingredients', 'brand_name', 'branded_food_category',
+                 'usda_release_year', 'was_reformulated']
+    usda_cols = [c for c in usda_cols if c in usda_for_year.columns]
+
+    # Merge
+    print(f"\nMerging with USDA ingredients (year-matched)...")
     merged_df = purchases_df.merge(
-        usda_df[['upc_11', 'ingredients', 'brand_name', 'branded_food_category']],
-        left_on='upc_11',
-        right_on='upc_11',
+        usda_for_year[usda_cols],
+        on='upc_11',
         how='left',
         indicator=True
     )
 
-    # Rename merge indicator for clarity
+    # Rename merge indicator
     merged_df['_merge'] = merged_df['_merge'].replace({'left_only': 'no_match', 'both': 'matched'})
 
     # Calculate match statistics
@@ -159,9 +224,13 @@ def merge_year_with_usda(purchases_dir, year, usda_df):
     n_unmatched = (merged_df['_merge'] == 'no_match').sum()
     match_rate = (n_matched / n_purchases_before) * 100 if n_purchases_before > 0 else 0
 
-    # UPC-level match rate
     matched_upcs = merged_df[merged_df['_merge'] == 'matched'][upc_col].nunique()
     upc_match_rate = (matched_upcs / n_unique_upcs) * 100 if n_unique_upcs > 0 else 0
+
+    # Count reformulated products
+    n_reformulated = 0
+    if 'was_reformulated' in merged_df.columns:
+        n_reformulated = merged_df[merged_df['was_reformulated'] == True][upc_col].nunique()
 
     print(f"\nMatch Results:")
     print(f"  Total purchases: {n_purchases_before:,}")
@@ -169,22 +238,23 @@ def merge_year_with_usda(purchases_dir, year, usda_df):
     print(f"  Unmatched purchases: {n_unmatched:,} ({100-match_rate:.2f}%)")
     print(f"\n  Unique UPCs: {n_unique_upcs:,}")
     print(f"  Matched UPCs: {matched_upcs:,} ({upc_match_rate:.2f}%)")
-    print(f"  Unmatched UPCs: {n_unique_upcs - matched_upcs:,} ({100-upc_match_rate:.2f}%)")
+    print(f"  Reformulated UPCs in matches: {n_reformulated:,}")
 
     # Filter to only matched rows
     matched_df = merged_df[merged_df['_merge'] == 'matched'].copy()
     print(f"\nFiltered to matched rows: {len(matched_df):,}")
 
-    # Drop the merge indicator and temporary UPC columns
+    # Drop temporary columns
     columns_to_drop = ['_merge', 'upc_str', 'upc_11']
     matched_df = matched_df.drop(columns=[col for col in columns_to_drop if col in matched_df.columns])
 
-    # Add year column to the matched data
+    # Add year column
     matched_df['panel_year'] = year
 
-    # Return statistics and matched dataframe
+    # Return statistics
     stats = {
         'year': year,
+        'usda_release_year_used': usda_year,
         'total_purchases': n_purchases_before,
         'matched_purchases': n_matched,
         'unmatched_purchases': n_unmatched,
@@ -192,7 +262,8 @@ def merge_year_with_usda(purchases_dir, year, usda_df):
         'total_upcs': n_unique_upcs,
         'matched_upcs': matched_upcs,
         'unmatched_upcs': n_unique_upcs - matched_upcs,
-        'upc_match_rate': upc_match_rate
+        'upc_match_rate': upc_match_rate,
+        'reformulated_upcs': n_reformulated,
     }
 
     return stats, matched_df
@@ -200,53 +271,57 @@ def merge_year_with_usda(purchases_dir, year, usda_df):
 
 def main():
     """
-    Main function to merge all years of Nielsen data with USDA ingredients
+    Main function to merge all years of Nielsen data with time-varying USDA ingredients.
     """
-    print("NIELSEN-USDA INGREDIENTS MERGER")
+    print("NIELSEN-USDA INGREDIENTS MERGER (YEAR-MATCHED)")
     print("="*80)
 
     # Paths
-    usda_path = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/usda/usda_branded_food_deduped.csv'
+    usda_dir = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/usda'
     purchases_dir = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_food'
     output_dir = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_with_ingredients'
 
-    # Clear and recreate output directory to avoid stale data
+    # Load year mapping
+    year_mapping = load_year_mapping(usda_dir)
+    if year_mapping is None:
+        print("ERROR: Could not load year mapping. Run clean_usda.py first.")
+        return
+
+    # Load USDA data
+    usda_df = load_usda_ingredients_by_year(usda_dir)
+    if usda_df is None:
+        print("ERROR: Could not load USDA data. Run clean_usda.py first.")
+        return
+
+    # Clear and recreate output directory
     if os.path.exists(output_dir):
         print(f"\nClearing existing output directory: {output_dir}")
         shutil.rmtree(output_dir)
     os.makedirs(output_dir, exist_ok=True)
-
-    # Load USDA ingredients data
-    usda_df = load_usda_ingredients(usda_path)
-
-    if usda_df is None:
-        print("ERROR: Could not load USDA data. Exiting.")
-        return
 
     # Years to process
     years = list(range(2004, 2024))  # 2004-2023
 
     print(f"\n\nProcessing {len(years)} years: {years[0]}-{years[-1]}")
 
-    # Process each year and write immediately to save memory
+    # Process each year
     all_stats = []
 
     for year in years:
-        result = merge_year_with_usda(purchases_dir, year, usda_df)
+        result = merge_year_with_usda(purchases_dir, year, usda_df, year_mapping)
 
         if result:
             stats, matched_df = result
             all_stats.append(stats)
 
-            # Write this year's data immediately to partitioned parquet
+            # Write this year's data
             year_output_path = os.path.join(output_dir, f'panel_year={year}', 'data.parquet')
             os.makedirs(os.path.dirname(year_output_path), exist_ok=True)
             matched_df.to_parquet(year_output_path, engine='pyarrow', compression='snappy', index=False)
 
             file_size_mb = os.path.getsize(year_output_path) / 1024 / 1024
-            print(f"✓ Year {year} saved: {year_output_path} ({file_size_mb:.1f} MB)")
+            print(f"Saved: {year_output_path} ({file_size_mb:.1f} MB)")
 
-            # Free memory
             del matched_df
 
     # Summary report
@@ -255,45 +330,36 @@ def main():
     print("="*80)
 
     if all_stats:
-        # Create summary dataframe
         summary_df = pd.DataFrame(all_stats)
 
-        print("\nPURCHASE-LEVEL MATCH RATES:")
-        print("-" * 80)
-        print(f"{'Year':<6} {'Total':>12} {'Matched':>12} {'Unmatched':>12} {'Match %':>10}")
-        print("-" * 80)
+        print("\nYEAR-BY-YEAR RESULTS:")
+        print("-" * 100)
+        print(f"{'Year':<6} {'USDA Yr':<8} {'Purchases':>12} {'Matched':>12} {'Match %':>10} {'Reformulated':>12}")
+        print("-" * 100)
 
         for _, row in summary_df.iterrows():
-            print(f"{row['year']:<6} {row['total_purchases']:>12,} {row['matched_purchases']:>12,} "
-                  f"{row['unmatched_purchases']:>12,} {row['purchase_match_rate']:>9.2f}%")
+            print(f"{row['year']:<6} {row['usda_release_year_used']:<8} "
+                  f"{row['total_purchases']:>12,} {row['matched_purchases']:>12,} "
+                  f"{row['purchase_match_rate']:>9.2f}% {row['reformulated_upcs']:>12,}")
 
-        print("-" * 80)
-        print(f"{'Total':<6} {summary_df['total_purchases'].sum():>12,} "
-              f"{summary_df['matched_purchases'].sum():>12,} "
-              f"{summary_df['unmatched_purchases'].sum():>12,} "
-              f"{(summary_df['matched_purchases'].sum() / summary_df['total_purchases'].sum() * 100):>9.2f}%")
+        print("-" * 100)
 
-        print("\n\nUPC-LEVEL MATCH RATES:")
-        print("-" * 80)
-        print(f"{'Year':<6} {'Total UPCs':>12} {'Matched':>12} {'Unmatched':>12} {'Match %':>10}")
-        print("-" * 80)
+        # Totals
+        total_purchases = summary_df['total_purchases'].sum()
+        total_matched = summary_df['matched_purchases'].sum()
+        total_reformulated = summary_df['reformulated_upcs'].sum()
 
-        for _, row in summary_df.iterrows():
-            print(f"{row['year']:<6} {row['total_upcs']:>12,} {row['matched_upcs']:>12,} "
-                  f"{row['unmatched_upcs']:>12,} {row['upc_match_rate']:>9.2f}%")
+        print(f"{'Total':<6} {'':<8} {total_purchases:>12,} {total_matched:>12,} "
+              f"{total_matched/total_purchases*100:>9.2f}% {total_reformulated:>12,}")
 
-        print("-" * 80)
-
-        # Save summary to CSV
+        # Save summary
         summary_path = os.path.join(output_dir, 'match_rate_summary.csv')
         summary_df.to_csv(summary_path, index=False)
-        print(f"\n✓ Summary saved to: {summary_path}")
+        print(f"\nSaved summary to: {summary_path}")
 
-        print(f"\n✓ All output saved to: {output_dir}")
+        print(f"\nAll output saved to: {output_dir}")
         print(f"\nTo read the data:")
         print(f"  df = pd.read_parquet('{output_dir}')")
-        print(f"\nTo read specific years:")
-        print(f"  df = pd.read_parquet('{output_dir}', filters=[('panel_year', 'in', [2020, 2021])])")
     else:
         print("\n\nERROR: No data was successfully processed")
 
