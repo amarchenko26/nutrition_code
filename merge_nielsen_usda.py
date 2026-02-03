@@ -11,6 +11,7 @@ This allows tracking of ingredient reformulations over time.
 
 import os
 import shutil
+from glob import glob
 import pandas as pd
 import pyarrow.parquet as pq
 
@@ -281,16 +282,22 @@ def main():
         print("ERROR: Could not load USDA data. Run clean_usda.py first.")
         return
 
+    # Years to process (based on available partitions)
+    year_dirs = sorted(glob(os.path.join(purchases_dir, 'panel_year=*')))
+    if not year_dirs:
+        print(f"ERROR: No year partitions found in {purchases_dir}")
+        return
+
+    years = [int(os.path.basename(d).replace('panel_year=', '')) for d in year_dirs]
+    years = sorted(years)
+
+    print(f"\n\nProcessing {len(years)} years: {years[0]}-{years[-1]}")
+
     # Clear and recreate output directory
     if os.path.exists(output_dir):
         print(f"\nClearing existing output directory: {output_dir}")
         shutil.rmtree(output_dir)
     os.makedirs(output_dir, exist_ok=True)
-
-    # Years to process
-    years = list(range(2004, 2024))  # 2004-2023
-
-    print(f"\n\nProcessing {len(years)} years: {years[0]}-{years[-1]}")
 
     # Process each year
     all_stats = []

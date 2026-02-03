@@ -19,7 +19,7 @@ from glob import glob
 # ============================================================================
 # Set to True to load from cache where available (faster)
 # Set to False to always recalculate from raw data (ignores all caches)
-USE_CACHE = True
+USE_CACHE = False
 
 # ============================================================================
 # CACHE PATHS
@@ -210,7 +210,7 @@ def load_panelists_for_year(year, panelists_cols=None, use_cache=None):
             print(f"  WARNING: Panelists missing columns: {missing_cols}")
         panelists_df = panelists_df[available_cols]
 
-    if use_cache and panelists_cols:
+    if use_cache is not None and panelists_cols:
         cache_path = _panelists_cache_path(year, panelists_cols)
         panelists_df.to_parquet(cache_path, index=False)
 
@@ -359,7 +359,7 @@ def compute_trends_by_demographic(demographic_vars='household_income', panelists
     else:
         print(f"Demographic groups: {len(trends_df[demographic_vars].drop_duplicates()):,}")
 
-    if use_cache:
+    if use_cache is not None:
         trends_df.to_csv(cache_path, index=False)
         with open(meta_path, 'w', encoding='utf-8') as f:
             json.dump(cache_payload, f, indent=2, sort_keys=True)
@@ -466,7 +466,7 @@ def compute_trends_by_product_module(years_to_process=None, use_cache=None, min_
     print(f"Unique modules: {trends_df['product_module_descr'].nunique()}")
 
     # Save to cache
-    if use_cache:
+    if use_cache is not None:
         os.makedirs(CACHE_DIR, exist_ok=True)
         trends_df.to_csv(MODULE_TRENDS_CACHE, index=False)
         print(f"Saved module trends cache to: {MODULE_TRENDS_CACHE}")
@@ -557,7 +557,7 @@ def compute_balanced_panel_upcs(start_year=2004, end_year=2020, use_cache=None):
     print(f"\nBalanced panel: {len(balanced_upcs):,} UPCs present in all years")
 
     # Save to cache
-    if use_cache and balanced_upcs:
+    if use_cache is not None and balanced_upcs:
         os.makedirs(CACHE_DIR, exist_ok=True)
         # Convert to DataFrame for parquet storage
         cache_df = pd.DataFrame({'upc': list(balanced_upcs)})
@@ -710,7 +710,7 @@ def compute_balanced_panel_trends(balanced_upcs=None, start_year=2004, end_year=
     print(f"{'Average':<6} {'':<15} {'':<15} {avg_pct_units:>11.1f}% {avg_pct_upcs:>9.1f}%")
 
     # Save to cache
-    if use_cache:
+    if use_cache is not None:
         os.makedirs(CACHE_DIR, exist_ok=True)
         trends_df.to_csv(BALANCED_PANEL_TRENDS_CACHE, index=False)
         print(f"\nSaved balanced panel trends to: {BALANCED_PANEL_TRENDS_CACHE}")
@@ -935,7 +935,7 @@ def compute_expenditure_weighted_trends(years_to_process=None, use_cache=None, u
     trends_df = pd.DataFrame(results)
 
     # Save to cache
-    if use_cache:
+    if use_cache is not None:
         os.makedirs(CACHE_DIR, exist_ok=True)
         trends_df.to_csv(EXPENDITURE_TRENDS_CACHE, index=False)
         print(f"\nSaved expenditure trends to: {EXPENDITURE_TRENDS_CACHE}")
@@ -1047,7 +1047,7 @@ def compute_weight_based_trends(years_to_process=None, use_cache=None):
     trends_df = pd.DataFrame(results)
 
     # Save to cache
-    if use_cache:
+    if use_cache is not None:
         os.makedirs(CACHE_DIR, exist_ok=True)
         trends_df.to_csv(WEIGHT_TRENDS_CACHE, index=False)
         print(f"\nSaved weight trends to: {WEIGHT_TRENDS_CACHE}")
@@ -1196,7 +1196,7 @@ def compute_household_spending_trends(years_to_process=None, use_cache=None, use
     trends_df = pd.DataFrame(results)
 
     # Save to cache
-    if use_cache:
+    if use_cache is not None:
         os.makedirs(CACHE_DIR, exist_ok=True)
         trends_df.to_csv(HH_SPENDING_TRENDS_CACHE, index=False)
         print(f"\nSaved HH spending trends to: {HH_SPENDING_TRENDS_CACHE}")
@@ -1227,18 +1227,16 @@ def plot_expenditure_and_weight_trends(expenditure_df, weight_df, hh_spending_df
     """
     figures = []
 
-    # --- Figure 1: Expenditure-weighted vs Count-based ---
+    # --- Figure 1: Expenditure-weighted only ---
     if expenditure_df is not None:
         fig1, ax1 = plt.subplots(figsize=(12, 7))
 
-        ax1.plot(expenditure_df['panel_year'], expenditure_df['count_based_rate'],
-                 marker='o', linewidth=2, label='Count-based (% of units)', color='#1f77b4')
         ax1.plot(expenditure_df['panel_year'], expenditure_df['expenditure_weighted_rate'],
                  marker='s', linewidth=2, label='Expenditure-weighted (% of $)', color='#ff7f0e')
 
         ax1.set_xlabel('Year')
         ax1.set_ylabel('% of Units / Spending')
-        ax1.set_title(f'Cornification Trends: Count-Based vs Expenditure-Weighted\n(Real {TARGET_YEAR} dollars, quantity-weighted)')
+        ax1.set_title(f'Cornification Trends: Expenditure-Weighted\n(Real {TARGET_YEAR} dollars, quantity-weighted)')
         ax1.legend(loc='best')
         ax1.grid(True, alpha=0.3)
         ax1.tick_params(axis='x', rotation=45)
@@ -1253,32 +1251,22 @@ def plot_expenditure_and_weight_trends(expenditure_df, weight_df, hh_spending_df
         figures.append(fig1)
 
         # Print interpretation
-        start_count = expenditure_df['count_based_rate'].iloc[0]
-        end_count = expenditure_df['count_based_rate'].iloc[-1]
         start_exp = expenditure_df['expenditure_weighted_rate'].iloc[0]
         end_exp = expenditure_df['expenditure_weighted_rate'].iloc[-1]
 
         print(f"\nEXPENDITURE-WEIGHTED INTERPRETATION:")
-        print(f"  Count-based: {start_count:.1f}% -> {end_count:.1f}% (change: {end_count - start_count:+.1f} pp)")
         print(f"  Expenditure: {start_exp:.1f}% -> {end_exp:.1f}% (change: {end_exp - start_exp:+.1f} pp)")
 
-        if end_exp > end_count:
-            print(f"\n-> Corn products have HIGHER average prices than non-corn products")
-        else:
-            print(f"\n-> Corn products have LOWER average prices than non-corn products")
-
-    # --- Figure 2: Weight-based vs Count-based ---
+    # --- Figure 2: Weight-based only ---
     if weight_df is not None:
         fig2, ax2 = plt.subplots(figsize=(12, 7))
 
-        ax2.plot(weight_df['panel_year'], weight_df['count_based_rate'],
-                 marker='o', linewidth=2, label='Count-based (% of units)', color='#1f77b4')
         ax2.plot(weight_df['panel_year'], weight_df['weight_based_rate'],
                  marker='s', linewidth=2, label='Weight-based (% of volume)', color='#2ca02c')
 
         ax2.set_xlabel('Year')
         ax2.set_ylabel('% of Units / Weight')
-        ax2.set_title('Cornification Trends: Count-Based vs Weight-Based\n(Quantity-weighted)')
+        ax2.set_title('Cornification Trends: Weight-Based\n(Quantity-weighted)')
         ax2.legend(loc='best')
         ax2.grid(True, alpha=0.3)
         ax2.tick_params(axis='x', rotation=45)
@@ -1293,19 +1281,11 @@ def plot_expenditure_and_weight_trends(expenditure_df, weight_df, hh_spending_df
         figures.append(fig2)
 
         # Print interpretation
-        start_count = weight_df['count_based_rate'].iloc[0]
-        end_count = weight_df['count_based_rate'].iloc[-1]
         start_wt = weight_df['weight_based_rate'].iloc[0]
         end_wt = weight_df['weight_based_rate'].iloc[-1]
 
         print(f"\nWEIGHT-BASED INTERPRETATION:")
-        print(f"  Count-based: {start_count:.1f}% -> {end_count:.1f}% (change: {end_count - start_count:+.1f} pp)")
         print(f"  Weight-based: {start_wt:.1f}% -> {end_wt:.1f}% (change: {end_wt - start_wt:+.1f} pp)")
-
-        if end_wt > end_count:
-            print(f"\n-> Corn products tend to be HEAVIER/LARGER than non-corn products")
-        else:
-            print(f"\n-> Corn products tend to be LIGHTER/SMALLER than non-corn products")
 
     # --- Figure 3: Household-level spending ---
     if hh_spending_df is not None:
@@ -1962,7 +1942,7 @@ def compute_yearly_trends(years_to_process=None, use_cache=None):
     print(yearly_trends.drop(columns=['n_purchases', 'n_units'], errors='ignore').round(2))
 
     # Save to cache
-    if use_cache:
+    if use_cache is not None:
         os.makedirs(CACHE_DIR, exist_ok=True)
         yearly_trends.to_csv(YEARLY_TRENDS_CACHE)
         print(f"Saved yearly trends cache to: {YEARLY_TRENDS_CACHE}")
@@ -2066,7 +2046,7 @@ def compute_yearly_trends_excluding_hfcs(years_to_process=None, use_cache=None):
     print(yearly_trends[['first_ing_corn_literal', 'first_ing_corn_literal_no_hfcs', 'first_ing_hfcs']].round(2))
 
     # Save to cache
-    if use_cache:
+    if use_cache is not None:
         os.makedirs(CACHE_DIR, exist_ok=True)
         yearly_trends.to_csv(HFCS_TRENDS_CACHE)
         print(f"Saved HFCS trends cache to: {HFCS_TRENDS_CACHE}")
