@@ -5,7 +5,8 @@ This script efficiently explores Nielsen Consumer Panel datasets by:
 1. Extracting nested .tsv files from .tgz archives
 2. Merging purchases with product master data
 3. Filtering out non-food categories
-4. Analyzing corn-derived food consumption
+4. Deflating prices to real values using CPI data
+5. Analyzing corn-derived food consumption
 """
 
 import pandas as pd
@@ -14,6 +15,153 @@ import os
 import shutil
 from io import BytesIO
 import numpy as np
+
+# ============================================================================
+# PRICE DEFLATION CONFIGURATION
+# ============================================================================
+# Target year for deflation (will use annual average CPI for this year)
+TARGET_YEAR = 2013
+
+# CPI data path (FRED CPIEBEV - Food and Beverages CPI)
+CPI_PATH = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/raw/price_deflator/CPIEBEV.csv'
+
+# Columns to deflate
+COLUMNS_TO_DEFLATE = ['total_price_paid', 'total_spent']
+
+
+def load_cpi_data(cpi_path=CPI_PATH):
+    """
+    Load CPI data and create year-month to CPI mapping.
+
+    Parameters:
+    -----------
+    cpi_path : str
+        Path to CPI CSV file
+
+    Returns:
+    --------
+    tuple: (cpi_df with year/month columns, dict mapping (year, month) -> CPI value)
+    """
+    print(f"Loading CPI data from: {cpi_path}")
+    cpi_df = pd.read_csv(cpi_path)
+
+    # Parse dates
+    cpi_df['date'] = pd.to_datetime(cpi_df['observation_date'])
+    cpi_df['year'] = cpi_df['date'].dt.year
+    cpi_df['month'] = cpi_df['date'].dt.month
+
+    # Remove rows with missing CPI values
+    cpi_df = cpi_df.dropna(subset=['CPIEBEV'])
+
+    # Create lookup dictionary: (year, month) -> CPI
+    cpi_lookup = dict(zip(
+        zip(cpi_df['year'], cpi_df['month']),
+        cpi_df['CPIEBEV']
+    ))
+
+    print(f"  Loaded {len(cpi_lookup)} monthly CPI values")
+    print(f"  Years covered: {cpi_df['year'].min()} - {cpi_df['year'].max()}")
+
+    return cpi_df, cpi_lookup
+
+
+def get_target_cpi(cpi_df, target_year=TARGET_YEAR):
+    """
+    Get the average CPI for the target year.
+
+    Parameters:
+    -----------
+    cpi_df : DataFrame
+        CPI data with year column
+    target_year : int
+        Year to use as target for deflation
+
+    Returns:
+    --------
+    float: Average CPI for the target year
+    """
+    target_cpi = cpi_df[cpi_df['year'] == target_year]['CPIEBEV'].mean()
+    print(f"  Target year {target_year} average CPI: {target_cpi:.3f}")
+    return target_cpi
+
+
+def deflate_prices(df, cpi_lookup, target_cpi, year, columns_to_deflate=COLUMNS_TO_DEFLATE):
+    """
+    Deflate prices in a DataFrame using CPI data.
+
+    Parameters:
+    -----------
+    df : DataFrame
+        DataFrame with price columns and purchase_date
+    cpi_lookup : dict
+        Mapping of (year, month) -> CPI value
+    target_cpi : float
+        Target year CPI value
+    year : int
+        Panel year (fallback if purchase_date missing)
+    columns_to_deflate : list
+        List of column names to deflate
+
+    Returns:
+    --------
+    DataFrame with deflated price columns added
+    """
+    n_rows = len(df)
+
+    # Parse purchase_date to get year and month
+    if 'purchase_date' in df.columns:
+        df['purchase_date'] = pd.to_datetime(df['purchase_date'])
+        df['purchase_year'] = df['purchase_date'].dt.year
+        df['purchase_month'] = df['purchase_date'].dt.month
+    else:
+        # Fall back to panel year
+        print(f"  WARNING: No purchase_date column, using panel year for all rows")
+        df['purchase_year'] = year
+        df['purchase_month'] = 6  # Use June as midpoint
+
+    # Create deflator column: target_cpi / current_month_cpi
+    # First, map (year, month) to CPI
+    df['current_cpi'] = df.apply(
+        lambda row: cpi_lookup.get((row['purchase_year'], row['purchase_month'])),
+        axis=1
+    )
+
+    # Check for missing CPI values
+    n_missing = df['current_cpi'].isna().sum()
+    if n_missing > 0:
+        print(f"  WARNING: {n_missing:,} rows ({n_missing/n_rows*100:.1f}%) missing CPI value")
+        # Fill with annual average for that year
+        for y in df[df['current_cpi'].isna()]['purchase_year'].unique():
+            year_cpi = df[(df['purchase_year'] == y) & (df['current_cpi'].notna())]['current_cpi'].mean()
+            if pd.isna(year_cpi):
+                # If no CPI for this year at all, use closest year
+                available_years = sorted([k[0] for k in cpi_lookup.keys()])
+                closest_year = min(available_years, key=lambda x: abs(x - y))
+                year_cpi = sum(cpi_lookup[(closest_year, m)] for m in range(1, 13) if (closest_year, m) in cpi_lookup) / 12
+            df.loc[(df['purchase_year'] == y) & (df['current_cpi'].isna()), 'current_cpi'] = year_cpi
+
+    # Calculate deflator
+    df['deflator'] = target_cpi / df['current_cpi']
+
+    # Deflate each column
+    for col in columns_to_deflate:
+        if col in df.columns:
+            real_col = f'{col}_real_{TARGET_YEAR}'
+            df[real_col] = df[col] * df['deflator']
+            print(f"  Deflated {col} -> {real_col}")
+
+            # Summary stats
+            if df[col].notna().sum() > 0:
+                nominal_mean = df[col].mean()
+                real_mean = df[real_col].mean()
+                print(f"    Mean: ${nominal_mean:.2f} (nominal) -> ${real_mean:.2f} (real {TARGET_YEAR}$)")
+        else:
+            print(f"  WARNING: Column {col} not found in data")
+
+    # Drop temporary columns
+    df = df.drop(columns=['current_cpi', 'deflator', 'purchase_year', 'purchase_month'])
+
+    return df
 
 def initialize_summary_stats():
     """Initialize dictionary to accumulate summary statistics across years."""
@@ -93,15 +241,6 @@ def save_summary_stats(stats, output_dir):
     print("SAVING SUMMARY STATISTICS")
     print("=" * 80)
 
-    # 1. Yearly counts
-    yearly_df = pd.DataFrame([
-        {'year': year, 'n_purchases': count}
-        for year, count in sorted(stats['yearly_counts'].items())
-    ])
-    yearly_path = os.path.join(output_dir, 'summary_yearly_counts.csv')
-    yearly_df.to_csv(yearly_path, index=False)
-    print(f"✓ Saved yearly counts: {yearly_path}")
-
     # 2. Department counts
     dept_df = pd.DataFrame([
         {'department_descr': dept, 'n_purchases': count, 'pct_of_total': count / stats['total_rows'] * 100}
@@ -165,15 +304,6 @@ def save_summary_stats(stats, output_dir):
     overall_path = os.path.join(output_dir, 'summary_overall.csv')
     overall_df.to_csv(overall_path, index=False)
     print(f"✓ Saved overall summary: {overall_path}")
-
-    # 7. Column info
-    col_df = pd.DataFrame([
-        {'column': col, 'dtype': stats['column_dtypes'].get(col, 'unknown')}
-        for col in stats['column_names']
-    ])
-    col_path = os.path.join(output_dir, 'summary_columns.csv')
-    col_df.to_csv(col_path, index=False)
-    print(f"✓ Saved column info: {col_path}")
 
     # Print summary to console
     print("\n" + "-" * 80)
@@ -293,9 +423,9 @@ def load_products_2021_plus(tarball_path, year):
         return products_df
 
 
-def filter_products_2021_plus(products_df, drop_departments):
+def filter_products_2021_plus(products_df, drop_departments, drop_product_group_desc, drop_product_module_desc):
     """
-    Filter 2021+ products by department name (not code, since codes differ)
+    Filter 2021+ products by department, product group, and product module
 
     Parameters:
     -----------
@@ -303,6 +433,10 @@ def filter_products_2021_plus(products_df, drop_departments):
         Products dataframe from 2021+ files
     drop_departments : list
         List of department_descr values to exclude (e.g., ['ALCOHOL', 'BABY CARE', ...])
+    drop_product_group_desc : list
+        List of product_group_descr values to exclude
+    drop_product_module_desc : list
+        List of product_module_descr values to exclude
 
     Returns:
     --------
@@ -310,7 +444,7 @@ def filter_products_2021_plus(products_df, drop_departments):
         Filtered products dataframe
     """
     print("\n" + "=" * 80)
-    print("FILTERING 2021+ PRODUCTS BY DEPARTMENT")
+    print("FILTERING 2021+ PRODUCTS")
     print("=" * 80)
 
     if 'department_descr' not in products_df.columns:
@@ -328,8 +462,36 @@ def filter_products_2021_plus(products_df, drop_departments):
     # Filter out unwanted departments
     products_filtered = products_df[~products_df['department_descr'].isin(drop_departments)]
 
+    print(f"\nAfter department filtering:")
+    print(f"  Original products: {len(products_df):,}")
+    print(f"  Kept products: {len(products_filtered):,}")
+
+    # Filter by product_group_descr
+    if 'product_group_descr' in products_filtered.columns:
+        initial_count = len(products_filtered)
+        products_filtered = products_filtered[~products_filtered['product_group_descr'].isin(drop_product_group_desc)]
+        dropped_count = initial_count - len(products_filtered)
+
+        print(f"\nAfter product_group_descr filtering:")
+        print(f"  Dropped products: {dropped_count:,}")
+        print(f"  Kept products: {len(products_filtered):,}")
+    else:
+        print("Warning: product_group_descr column not found; skipping product group filtering.")
+
+    # Filter by product_module_descr
+    if 'product_module_descr' in products_filtered.columns:
+        initial_count = len(products_filtered)
+        products_filtered = products_filtered[~products_filtered['product_module_descr'].isin(drop_product_module_desc)]
+        dropped_count = initial_count - len(products_filtered)
+
+        print(f"\nAfter product_module_descr filtering:")
+        print(f"  Dropped products: {dropped_count:,}")
+        print(f"  Kept products: {len(products_filtered):,}")
+    else:
+        print("Warning: product_module_descr column not found; skipping product module filtering.")
+
     # Keep only the standardized columns (matching pre-2020 structure where possible)
-    keep_product_cols = ['upc', 
+    keep_product_cols = ['upc',
                          'upc_descr',
                          'product_module_descr',
                          'product_group_descr',
@@ -338,7 +500,7 @@ def filter_products_2021_plus(products_df, drop_departments):
 
     products_filtered = products_filtered[keep_product_cols]
 
-    print(f"\nFiltering results:")
+    print(f"\nFinal filtering results:")
     print(f"  Original products: {len(products_df):,}")
     print(f"  Dropped products: {len(products_df) - len(products_filtered):,}")
     print(f"  Kept products: {len(products_filtered):,}")
@@ -751,10 +913,46 @@ def main():
         'ALCOHOLIC BEVERAGES', 
         'GENERAL MERCHANDISE']
     
-    drop_product_group_desc = ['PET FOOD', 'BABY FOOD', 'GUM', 'nan', 'ICE', 'TEA', 'COFFEE']
+    # Product groups to DROP across both pre-2021 and 2021+
+    drop_product_group_desc = [
+        'PET FOOD', 
+        'BABY FOOD', 
+        'GUM', 
+        'nan', 
+        'ICE', 
+        'TEA', 
+        'SPICES, SEASONING, EXTRACTS', #pre 2021
+        'EXTRACTS, HERBS, SPICES AND SEASONINGS', #2021+
+        'SHORTENING, OIL',
+        'YEAST',
+        'COFFEE']
 
-    # Product module descriptions to DROP
+    # Product modules to DROP across both pre-2021 and 2021+
     drop_product_module_desc = [
+        'NUTRITIONAL SUPPLEMENTS',
+        'PROTEIN SUPPLEMENTS',
+        'DIETING AIDS COMPLETE NUTRITIONAL',
+        'COOKING SPRAYS',
+        'BAKING SODA',
+        'BAKING POWDER',
+        'COOKING WINE & SHERRY',
+        'FOOD COLORING',
+        'FRUIT PECTINS',
+        'CONFECTIONERY PASTE',
+        'SALT SUBSTITUTES',
+        'GELATIN - DIET - MIX',
+        'YEAST-REFRIGERATED',
+        'UNCLASSIFIED PAPER PRODUCTS',
+        'UNCLASSIFIED HARDWARE,TOOLS',
+        'UNCLASSIFIED GROOMING AIDS',
+        'UNCLASSIFIED MENS TOILETRIES',
+        'UNCLASSIFIED COUGH AND COLD REMIDIES',
+        'UNCLASSIFIED DIET AIDS',
+        'UNCLASSIFIED TOBACCO & ACCESSORIES',
+        'UNCLASSIFIED DETERGENTS',
+        'SALT - COOKING/EDIBLE/SEASONED',
+        'EXTRACTS',
+        'YEAST - DRY',
         'UNCLASSIFIED COOKWARE',
         'UNCLASSIFIED STATIONARY, SCHOOL SUPPLIES',
         'UNCLASSIFIED COSMETICS',
@@ -777,44 +975,44 @@ def main():
         'UNCLASSIFIED PERSONAL SOAP AND BATH ADDITIV',
         'TOILET TISSUE',
         'MAGNET DATA',
-        'REFERENCE CARD VEGETABLES',
-        'REFERENCE CARD FRUITS',
-        'REFERENCE CARD MEAT',
+        # 'REFERENCE CARD VEGETABLES',
+        # 'REFERENCE CARD FRUITS',
+        # 'REFERENCE CARD MEAT',
         'REFERENCE CARD TAKE OUT',
-        'REFERENCE CARD PREPARED FOODS',
-        'REFERENCE CARD POULTRY',
-        'REFERENCE CARD BAKED GOODS - ALL OTHER',
+        # 'REFERENCE CARD PREPARED FOODS',
+        # 'REFERENCE CARD POULTRY',
+        # 'REFERENCE CARD BAKED GOODS - ALL OTHER',
         'REFERENCE CARD GAS',
-        'REFERENCE CARD COLD CUTS - CLERK SERVED',
+        # 'REFERENCE CARD COLD CUTS - CLERK SERVED',
         'REFERENCE CARD COFFEE',
         'REFERENCE CARD FOUNTAIN BEVERAGE',
-        'REFERENCE CARD BAKED GOODS ALL OTHR',
-        'REFERENCE CARD SEAFOOD',
+        # 'REFERENCE CARD BAKED GOODS ALL OTHR',
+        # 'REFERENCE CARD SEAFOOD',
         'REFERENCE CARD APPAREL',
-        'REFERENCE CARD CANDY/NUTS/SEEDS',
-        'REFERENCE CARD CHEESE - CLERK SERVED',
+        # 'REFERENCE CARD CANDY/NUTS/SEEDS',
+        # 'REFERENCE CARD CHEESE - CLERK SERVED',
         'PET CARE - WILD BIRD FOOD',
         'REFERENCE CARD RX',
-        'REFERENCE CARD COLD CUTS CLERK SRVD',
-        'REFERENCE CARD CHEESE - SELF SERVED',
-        'REFERENCE CARD COLD CUTS - SELF SERVED',
+        # 'REFERENCE CARD COLD CUTS CLERK SRVD',
+        # 'REFERENCE CARD CHEESE - SELF SERVED',
+        # 'REFERENCE CARD COLD CUTS - SELF SERVED',
         'PET CARE - PET FOOD',
-        'REFERENCE CARD BAKED GOODS - COOKIES',
-        'REFERENCE CARD CANDY NUTS SEEDS',
-        'REFERENCE CARD BAKED GOODS - CAKES',
-        'REFERENCE CARD CHEESE CLERK SERVED',
+        # 'REFERENCE CARD BAKED GOODS - COOKIES',
+        # 'REFERENCE CARD CANDY NUTS SEEDS',
+        # 'REFERENCE CARD BAKED GOODS - CAKES',
+        # 'REFERENCE CARD CHEESE CLERK SERVED',
         'REFERENCE CARD FLORAL',
         'PET CARE - DOMESTIC BIRD FOOD',
-        'REFERENCE CARD COLD CUTS SELF SRVD',
-        'REFERENCE CARD CHEESE SELF SERVED',
-        'REFERENCE CARD BAKED GOODS - PIES',
-        'REFERENCE CARD BAKED GOODS COOKIES',
+        # 'REFERENCE CARD COLD CUTS SELF SRVD',
+        # 'REFERENCE CARD CHEESE SELF SERVED',
+        # 'REFERENCE CARD BAKED GOODS - PIES',
+        # 'REFERENCE CARD BAKED GOODS COOKIES',
         'DOG FOOD - MOIST TYPE',
-        'REFERENCE CARD BAKED GOODS CAKES',
+        # 'REFERENCE CARD BAKED GOODS CAKES',
         'PREPAID GIFT CARDS',
         'REFERENCE CARD',
         'REFERENCE CARD DVD VIDEO',
-        'REFERENCE CARD BAKED GOODS PIES',
+        # 'REFERENCE CARD BAKED GOODS PIES',
         'UNCLASSIFIED HOUSEHOLD CLEANERS',
         'REFERENCE CARD MEAL KIT',
         'UNCLASSIFIED HOUSEHOLD SUPPLIES',
@@ -857,6 +1055,13 @@ def main():
     print("  8 = ALCOHOLIC BEVERAGES")
     print("  9 = GENERAL MERCHANDISE")
     print(f"\nDropping departments (2021+): {drop_departments_2021_plus}")
+
+    # Load CPI data for price deflation
+    print("\n" + "=" * 80)
+    print("LOADING CPI DATA FOR PRICE DEFLATION")
+    print("=" * 80)
+    cpi_df, cpi_lookup = load_cpi_data()
+    target_cpi = get_target_cpi(cpi_df, TARGET_YEAR)
 
     # Load master products file for pre-2021 years
     products_df_filtered_master = None
@@ -912,7 +1117,7 @@ def main():
                 print(f"ERROR: Could not load products for {year}. Skipping.")
                 continue
 
-            products_df_filtered = filter_products_2021_plus(products_df_year, drop_departments_2021_plus)
+            products_df_filtered = filter_products_2021_plus(products_df_year, drop_departments_2021_plus, drop_product_group_desc, drop_product_module_desc)
 
             if products_df_filtered is None:
                 print(f"ERROR: Could not filter products for {year}. Skipping.")
@@ -927,6 +1132,10 @@ def main():
             if 'panel_year' not in result.columns:
                 print(f"Warning: panel_year not found, adding it manually as {year}")
                 result['panel_year'] = year
+
+            # Deflate prices before saving
+            print(f"\nDeflating prices for year {year}...")
+            result = deflate_prices(result, cpi_lookup, target_cpi, year)
 
             # Fix mixed-type columns that cause PyArrow errors
             # Convert object-dtype columns to string to handle mixed types
@@ -975,6 +1184,8 @@ def main():
         print(f"Successfully processed {years_processed} year(s): {years_succeeded}")
         print(f"Total rows written: {total_rows_written:,}")
         print(f"Output directory: {output_dir}")
+        print(f"Prices deflated to {TARGET_YEAR} dollars using CPI for Food and Beverages")
+        print(f"Deflated columns: {COLUMNS_TO_DEFLATE}")
 
         # Save summary statistics
         save_summary_stats(summary_stats, output_dir)

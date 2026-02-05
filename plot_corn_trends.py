@@ -19,7 +19,17 @@ from glob import glob
 # ============================================================================
 # Set to True to load from cache where available (faster)
 # Set to False to always recalculate from raw data (ignores all caches)
-USE_CACHE = False
+USE_CACHE = True
+
+# Presentation-friendly font sizes
+plt.rcParams.update({
+    'axes.titlesize': 18,
+    'axes.labelsize': 14,
+    'legend.fontsize': 12,
+    'legend.title_fontsize': 12,
+    'xtick.labelsize': 12,
+    'ytick.labelsize': 12,
+})
 
 # ============================================================================
 # CACHE PATHS
@@ -1240,6 +1250,7 @@ def plot_expenditure_and_weight_trends(expenditure_df, weight_df, hh_spending_df
         ax1.legend(loc='best')
         ax1.grid(True, alpha=0.3)
         ax1.tick_params(axis='x', rotation=45)
+        ax1.set_ylim(2, 3.5)
 
         plt.tight_layout()
 
@@ -1270,6 +1281,7 @@ def plot_expenditure_and_weight_trends(expenditure_df, weight_df, hh_spending_df
         ax2.legend(loc='best')
         ax2.grid(True, alpha=0.3)
         ax2.tick_params(axis='x', rotation=45)
+        ax2.set_ylim(2, 3.5)
 
         plt.tight_layout()
 
@@ -1750,7 +1762,7 @@ def plot_biggest_cornification_changes(module_trends_df, corn_var='first_ing_is_
 
 
 def plot_trends_by_demographic(trends_df, demographic_var, corn_var='first_ing_is_corn_usual_or_literal',
-                                title=None, output_path=None, n_bins=None, bin_labels=None):
+                                title=None, output_path=None, n_bins=None, bin_labels=None, y_limits=None):
     """
     Plot corn trends over time, with separate lines for each demographic group.
 
@@ -1842,6 +1854,8 @@ def plot_trends_by_demographic(trends_df, demographic_var, corn_var='first_ing_i
     ax.legend(loc='best', title=legend_title)
     ax.grid(True, alpha=0.3)
     ax.tick_params(axis='x', rotation=45)
+    if y_limits is not None:
+        ax.set_ylim(y_limits)
 
     plt.tight_layout()
 
@@ -2081,6 +2095,7 @@ def plot_trends(yearly_trends, hfcs_trends=None):
     ax1.grid(True, alpha=0.3)
     ax1.set_xticks(yearly_trends.index)
     ax1.tick_params(axis='x', rotation=45)
+    ax1.set_ylim(1, 4)
     plt.tight_layout()
     output_path_first = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/farm bill/figs/corn_trends_first_ingredient.png'
     plt.savefig(output_path_first, dpi=150, bbox_inches='tight')
@@ -2126,6 +2141,7 @@ def plot_trends(yearly_trends, hfcs_trends=None):
         ax3.legend(loc='best')
         ax3.grid(True, alpha=0.3)
         ax3.set_xticks(hfcs_trends.index)
+        ax3.set_ylim(0, 4)
         plt.tight_layout()
         output_path_hfcs = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/farm bill/figs/corn_trends_first_ingredient_hfcs.png'
         plt.savefig(output_path_hfcs, dpi=150, bbox_inches='tight')
@@ -2187,18 +2203,21 @@ def main():
             grouped, 'income_group',
             corn_var='first_ing_is_corn_literal',
             title='First Ingredient is Corn (Literal) by Household Income',
+            y_limits=(1, 3.5),
             output_path='/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/farm bill/figs/income_trends_first_ing_literal.png'
         )
         plot_trends_by_demographic(
             grouped, 'income_group',
             corn_var='any_ing_is_corn_literal',
             title='Any Ingredient is Corn (Literal) by Household Income',
+            y_limits=(0, 4),
             output_path='/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/farm bill/figs/income_trends_any_ing_literal.png'
         )
         plot_trends_by_demographic(
             grouped, 'income_group',
             corn_var='any_ing_is_corn_usual_or_literal',
             title='Any Ingredient is Corn (Usual or Literal) by Household Income',
+            y_limits=(0, 4),
             output_path='/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/farm bill/figs/income_trends_any_ing_usual_or_literal.png'
         )
 
