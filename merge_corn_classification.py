@@ -11,6 +11,27 @@ import shutil
 import pandas as pd
 
 
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+# Set to True to use sample data (faster iteration during development)
+# Set to False to use full data (for production runs)
+USE_SAMPLE = True
+
+# Base paths (will be modified based on USE_SAMPLE)
+BASE_DATA_DIR = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim'
+
+
+def get_paths():
+    """Get input/output paths based on USE_SAMPLE setting."""
+    suffix = '_sample' if USE_SAMPLE else ''
+    return {
+        'corn_path': '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/raw/corn/corn_classification.csv',
+        'purchases_path': os.path.join(BASE_DATA_DIR, f'purchases_with_ingredients{suffix}'),
+        'output_dir': os.path.join(BASE_DATA_DIR, f'purchases_with_corn_classification{suffix}'),
+    }
+
+
 def load_corn_classification(corn_path):
     """
     Load and clean corn classification data
@@ -287,10 +308,15 @@ def main():
     print("CORN CLASSIFICATION MERGER")
     print("="*80)
 
-    # Paths
-    corn_path = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/raw/corn/corn_classification.csv'
-    purchases_path = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_with_ingredients'
-    output_dir = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_with_corn_classification'
+    # Get paths based on USE_SAMPLE setting
+    paths = get_paths()
+    corn_path = paths['corn_path']
+    purchases_path = paths['purchases_path']
+    output_dir = paths['output_dir']
+
+    print(f"USE_SAMPLE: {USE_SAMPLE}")
+    print(f"Input: {purchases_path}")
+    print(f"Output: {output_dir}")
 
     # Clear and recreate output directory
     if os.path.exists(output_dir):

@@ -24,12 +24,33 @@ import matplotlib.pyplot as plt
 
 
 # ============================================================================
-# PATHS
+# CONFIGURATION
 # ============================================================================
-PURCHASES_PATH = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_with_corn_classification'
-AILMENTS_PATH = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/ailments/dietary_ailments_by_household.parquet'
+# Set to True to use sample data (faster iteration during development)
+# Set to False to use full data (for production runs)
+USE_SAMPLE = True
+
+# Base paths
+BASE_DATA_DIR = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim'
+
+
+def get_paths():
+    """Get input/output paths based on USE_SAMPLE setting."""
+    suffix = '_sample' if USE_SAMPLE else ''
+    return {
+        'purchases_path': os.path.join(BASE_DATA_DIR, f'purchases_with_corn_classification{suffix}'),
+        'ailments_path': os.path.join(BASE_DATA_DIR, f'ailments{suffix}/dietary_ailments_by_household.parquet'),
+        'cpi_path': '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/raw/price_deflator/CPIEBEV.csv',
+        'output_dir': os.path.join(BASE_DATA_DIR, f'ailments_corn_analysis{suffix}'),
+        'figs_dir': '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/farm bill/figs',
+    }
+
+
+# Legacy paths for backward compatibility (will be overwritten in main)
+PURCHASES_PATH = os.path.join(BASE_DATA_DIR, 'purchases_with_corn_classification')
+AILMENTS_PATH = os.path.join(BASE_DATA_DIR, 'ailments/dietary_ailments_by_household.parquet')
 CPI_PATH = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/raw/price_deflator/CPIEBEV.csv'
-OUTPUT_DIR = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/ailments_corn_analysis'
+OUTPUT_DIR = os.path.join(BASE_DATA_DIR, 'ailments_corn_analysis')
 FIGS_DIR = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/farm bill/figs'
 
 
@@ -264,9 +285,22 @@ def compute_household_cornification(year, cpi_lookup, base_cpi):
 
 def main():
     """Main function to analyze ailments-cornification correlation."""
+    global PURCHASES_PATH, AILMENTS_PATH, CPI_PATH, OUTPUT_DIR, FIGS_DIR
+
+    # Get paths based on USE_SAMPLE setting
+    paths = get_paths()
+    PURCHASES_PATH = paths['purchases_path']
+    AILMENTS_PATH = paths['ailments_path']
+    CPI_PATH = paths['cpi_path']
+    OUTPUT_DIR = paths['output_dir']
+    FIGS_DIR = paths['figs_dir']
+
     print("="*80)
     print("ANALYZING AILMENTS AND CORNIFICATION CORRELATION")
     print("="*80)
+    print(f"USE_SAMPLE: {USE_SAMPLE}")
+    print(f"Purchases: {PURCHASES_PATH}")
+    print(f"Output: {OUTPUT_DIR}")
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 

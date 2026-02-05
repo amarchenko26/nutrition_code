@@ -17,9 +17,16 @@ from glob import glob
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
+# Set to True to use sample data (faster iteration during development)
+# Set to False to use full data (for production runs)
+USE_SAMPLE = True
+
 # Set to True to load from cache where available (faster)
 # Set to False to always recalculate from raw data (ignores all caches)
 USE_CACHE = True
+
+# Base paths
+BASE_DATA_DIR = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim'
 
 # Presentation-friendly font sizes
 plt.rcParams.update({
@@ -31,29 +38,55 @@ plt.rcParams.update({
     'ytick.labelsize': 12,
 })
 
+def get_plot_paths():
+    """Get input/output paths based on USE_SAMPLE setting."""
+    suffix = '_sample' if USE_SAMPLE else ''
+    purchases_path = os.path.join(BASE_DATA_DIR, f'purchases_with_corn_classification{suffix}')
+    cache_dir = os.path.join(purchases_path, 'cache')
+    return {
+        'cache_dir': cache_dir,
+        'purchases_path': purchases_path,
+        'purchases_deflated_path': os.path.join(BASE_DATA_DIR, f'purchases_food{suffix}'),
+        'yearly_trends_cache': os.path.join(cache_dir, 'yearly_trends_cache.csv'),
+        'hfcs_trends_cache': os.path.join(cache_dir, 'hfcs_trends_cache.csv'),
+        'demographic_trends_cache': os.path.join(cache_dir, 'demographic_trends_cache.csv'),
+        'panelists_cache_dir': os.path.join(cache_dir, 'panelists_cache'),
+        'demographic_cache_dir': os.path.join(cache_dir, 'demographic_trends_cache'),
+        'module_trends_cache': os.path.join(cache_dir, 'module_trends_cache.csv'),
+        'balanced_panel_upcs_cache': os.path.join(cache_dir, 'balanced_panel_upcs.parquet'),
+        'balanced_panel_trends_cache': os.path.join(cache_dir, 'balanced_panel_trends.csv'),
+        'expenditure_trends_cache': os.path.join(cache_dir, 'expenditure_trends_cache.csv'),
+        'weight_trends_cache': os.path.join(cache_dir, 'weight_trends_cache.csv'),
+        'hh_spending_trends_cache': os.path.join(cache_dir, 'hh_spending_trends_cache.csv'),
+    }
+
+
+# Initialize paths (will be updated when main() is called)
+_plot_paths = get_plot_paths()
+
 # ============================================================================
 # CACHE PATHS
 # ============================================================================
 # Cache files go in the data directory, not the code directory
-CACHE_DIR = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_with_corn_classification/cache'
-YEARLY_TRENDS_CACHE = os.path.join(CACHE_DIR, 'yearly_trends_cache.csv')
-HFCS_TRENDS_CACHE = os.path.join(CACHE_DIR, 'hfcs_trends_cache.csv')
-DEMOGRAPHIC_TRENDS_CACHE = os.path.join(CACHE_DIR, 'demographic_trends_cache.csv')
-PANELISTS_CACHE_DIR = os.path.join(CACHE_DIR, 'panelists_cache')
-DEMOGRAPHIC_CACHE_DIR = os.path.join(CACHE_DIR, 'demographic_trends_cache')
-MODULE_TRENDS_CACHE = os.path.join(CACHE_DIR, 'module_trends_cache.csv')
-BALANCED_PANEL_UPCS_CACHE = os.path.join(CACHE_DIR, 'balanced_panel_upcs.parquet')
-BALANCED_PANEL_TRENDS_CACHE = os.path.join(CACHE_DIR, 'balanced_panel_trends.csv')
-EXPENDITURE_TRENDS_CACHE = os.path.join(CACHE_DIR, 'expenditure_trends_cache.csv')
-WEIGHT_TRENDS_CACHE = os.path.join(CACHE_DIR, 'weight_trends_cache.csv')
-HH_SPENDING_TRENDS_CACHE = os.path.join(CACHE_DIR, 'hh_spending_trends_cache.csv')
+CACHE_DIR = _plot_paths['cache_dir']
+YEARLY_TRENDS_CACHE = _plot_paths['yearly_trends_cache']
+HFCS_TRENDS_CACHE = _plot_paths['hfcs_trends_cache']
+DEMOGRAPHIC_TRENDS_CACHE = _plot_paths['demographic_trends_cache']
+PANELISTS_CACHE_DIR = _plot_paths['panelists_cache_dir']
+DEMOGRAPHIC_CACHE_DIR = _plot_paths['demographic_cache_dir']
+MODULE_TRENDS_CACHE = _plot_paths['module_trends_cache']
+BALANCED_PANEL_UPCS_CACHE = _plot_paths['balanced_panel_upcs_cache']
+BALANCED_PANEL_TRENDS_CACHE = _plot_paths['balanced_panel_trends_cache']
+EXPENDITURE_TRENDS_CACHE = _plot_paths['expenditure_trends_cache']
+WEIGHT_TRENDS_CACHE = _plot_paths['weight_trends_cache']
+HH_SPENDING_TRENDS_CACHE = _plot_paths['hh_spending_trends_cache']
 
 # ============================================================================
 # DATA PATHS
 # ============================================================================
 NIELSEN_RAW_PATH = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/raw/consumer'
-PURCHASES_PATH = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_with_corn_classification'
-PURCHASES_DEFLATED_PATH = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_food'
+PURCHASES_PATH = _plot_paths['purchases_path']
+PURCHASES_DEFLATED_PATH = _plot_paths['purchases_deflated_path']
 CPI_PATH = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/raw/price_deflator/CPIEBEV.csv'
 TARGET_YEAR = 2013  # Target year for deflation
 
@@ -2154,10 +2187,35 @@ def plot_trends(yearly_trends, hfcs_trends=None):
 
 def main():
     """Main function to compute trends and plot."""
+    global CACHE_DIR, YEARLY_TRENDS_CACHE, HFCS_TRENDS_CACHE, DEMOGRAPHIC_TRENDS_CACHE
+    global PANELISTS_CACHE_DIR, DEMOGRAPHIC_CACHE_DIR, MODULE_TRENDS_CACHE
+    global BALANCED_PANEL_UPCS_CACHE, BALANCED_PANEL_TRENDS_CACHE
+    global EXPENDITURE_TRENDS_CACHE, WEIGHT_TRENDS_CACHE, HH_SPENDING_TRENDS_CACHE
+    global PURCHASES_PATH, PURCHASES_DEFLATED_PATH
+
+    # Update paths based on USE_SAMPLE setting
+    paths = get_plot_paths()
+    CACHE_DIR = paths['cache_dir']
+    YEARLY_TRENDS_CACHE = paths['yearly_trends_cache']
+    HFCS_TRENDS_CACHE = paths['hfcs_trends_cache']
+    DEMOGRAPHIC_TRENDS_CACHE = paths['demographic_trends_cache']
+    PANELISTS_CACHE_DIR = paths['panelists_cache_dir']
+    DEMOGRAPHIC_CACHE_DIR = paths['demographic_cache_dir']
+    MODULE_TRENDS_CACHE = paths['module_trends_cache']
+    BALANCED_PANEL_UPCS_CACHE = paths['balanced_panel_upcs_cache']
+    BALANCED_PANEL_TRENDS_CACHE = paths['balanced_panel_trends_cache']
+    EXPENDITURE_TRENDS_CACHE = paths['expenditure_trends_cache']
+    WEIGHT_TRENDS_CACHE = paths['weight_trends_cache']
+    HH_SPENDING_TRENDS_CACHE = paths['hh_spending_trends_cache']
+    PURCHASES_PATH = paths['purchases_path']
+    PURCHASES_DEFLATED_PATH = paths['purchases_deflated_path']
+
     print("=" * 80)
     print("CORN-DERIVED FOOD TRENDS OVER TIME")
     print("=" * 80)
+    print(f"USE_SAMPLE = {USE_SAMPLE}")
     print(f"USE_CACHE = {USE_CACHE}")
+    print(f"PURCHASES_PATH = {PURCHASES_PATH}")
 
     # Years to process (only used when computing from raw data)
     # Set to None to process all available years, or specify a list:

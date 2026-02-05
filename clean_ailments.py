@@ -21,6 +21,30 @@ import pandas as pd
 from pathlib import Path
 
 
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+# Set to True to use sample data (faster iteration during development)
+# Set to False to use full data (for production runs)
+# Note: Ailments data is household-level survey data, so we don't sample it.
+# This toggle only affects output path naming for consistency with other scripts.
+USE_SAMPLE = True
+
+# Base paths
+BASE_DATA_DIR = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data'
+
+
+def get_ailments_paths():
+    """Get input/output paths based on USE_SAMPLE setting."""
+    # Note: Input is always from raw ailments (no sample version)
+    # Output suffix added for consistency with rest of pipeline
+    suffix = '_sample' if USE_SAMPLE else ''
+    return {
+        'ailments_dir': os.path.join(BASE_DATA_DIR, 'raw/ailments'),
+        'output_dir': os.path.join(BASE_DATA_DIR, f'interim/ailments{suffix}'),
+    }
+
+
 # Dietary disease keywords to search for in column names
 DIETARY_DISEASE_KEYWORDS = {
     'cholesterol': 'cholesterol',
@@ -223,8 +247,14 @@ def main():
     print("CLEANING NIELSEN AILMENTS DATA")
     print("="*80)
 
-    ailments_dir = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/raw/ailments'
-    output_dir = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/ailments'
+    # Get paths based on USE_SAMPLE setting
+    paths = get_ailments_paths()
+    ailments_dir = paths['ailments_dir']
+    output_dir = paths['output_dir']
+
+    print(f"USE_SAMPLE: {USE_SAMPLE}")
+    print(f"Input: {ailments_dir}")
+    print(f"Output: {output_dir}")
 
     os.makedirs(output_dir, exist_ok=True)
 

@@ -16,6 +16,27 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+# Set to True to use sample data (faster iteration during development)
+# Set to False to use full data (for production runs)
+USE_SAMPLE = True
+
+# Base paths (will be modified based on USE_SAMPLE)
+BASE_DATA_DIR = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim'
+
+
+def get_paths():
+    """Get input/output paths based on USE_SAMPLE setting."""
+    suffix = '_sample' if USE_SAMPLE else ''
+    return {
+        'usda_dir': os.path.join(BASE_DATA_DIR, 'usda'),
+        'purchases_dir': os.path.join(BASE_DATA_DIR, f'purchases_food{suffix}'),
+        'output_dir': os.path.join(BASE_DATA_DIR, f'purchases_with_ingredients{suffix}'),
+    }
+
+
 def load_year_mapping(usda_dir):
     """
     Load the Nielsen year -> USDA release year mapping.
@@ -265,10 +286,15 @@ def main():
     print("NIELSEN-USDA INGREDIENTS MERGER (YEAR-MATCHED)")
     print("="*80)
 
-    # Paths
-    usda_dir = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/usda'
-    purchases_dir = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_food'
-    output_dir = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_with_ingredients'
+    # Get paths based on USE_SAMPLE setting
+    paths = get_paths()
+    usda_dir = paths['usda_dir']
+    purchases_dir = paths['purchases_dir']
+    output_dir = paths['output_dir']
+
+    print(f"USE_SAMPLE: {USE_SAMPLE}")
+    print(f"Input: {purchases_dir}")
+    print(f"Output: {output_dir}")
 
     # Load year mapping
     year_mapping = load_year_mapping(usda_dir)

@@ -32,15 +32,33 @@ from scipy import stats
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-# Two data sources: raw Nielsen data vs. USDA-matched data
-PURCHASES_RAW_PATH = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_food'
-PURCHASES_MATCHED_PATH = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_with_corn_classification'
+# Set to True to use sample data (faster iteration during development)
+# Set to False to use full data (for production runs)
+USE_SAMPLE = True
 
-# Cache directories for each data source
-CACHE_DIR_RAW = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_food/cache'
-CACHE_DIR_MATCHED = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_with_corn_classification/cache'
+# Base paths
+BASE_DATA_DIR = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim'
 
-OUTPUT_DIR = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/farm bill/figs'
+
+def get_proliferation_paths():
+    """Get input/output paths based on USE_SAMPLE setting."""
+    suffix = '_sample' if USE_SAMPLE else ''
+    return {
+        'purchases_raw_path': os.path.join(BASE_DATA_DIR, f'purchases_food{suffix}'),
+        'purchases_matched_path': os.path.join(BASE_DATA_DIR, f'purchases_with_corn_classification{suffix}'),
+        'cache_dir_raw': os.path.join(BASE_DATA_DIR, f'purchases_food{suffix}', 'cache'),
+        'cache_dir_matched': os.path.join(BASE_DATA_DIR, f'purchases_with_corn_classification{suffix}', 'cache'),
+        'output_dir': '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/farm bill/figs',
+    }
+
+
+# Initialize paths (will be updated when module loads or main() is called)
+_paths = get_proliferation_paths()
+PURCHASES_RAW_PATH = _paths['purchases_raw_path']
+PURCHASES_MATCHED_PATH = _paths['purchases_matched_path']
+CACHE_DIR_RAW = _paths['cache_dir_raw']
+CACHE_DIR_MATCHED = _paths['cache_dir_matched']
+OUTPUT_DIR = _paths['output_dir']
 
 # Data source labels for plots
 DATA_SOURCE_LABELS = {
@@ -153,12 +171,15 @@ def get_paths_for_source(data_source):
     --------
     dict with keys: purchases_path, cache_dir, proliferation_cache, proliferation_normalized_cache
     """
+    # Get current paths based on USE_SAMPLE setting
+    current_paths = get_proliferation_paths()
+
     if data_source == 'raw':
-        purchases_path = PURCHASES_RAW_PATH
-        cache_dir = CACHE_DIR_RAW
+        purchases_path = current_paths['purchases_raw_path']
+        cache_dir = current_paths['cache_dir_raw']
     elif data_source == 'matched':
-        purchases_path = PURCHASES_MATCHED_PATH
-        cache_dir = CACHE_DIR_MATCHED
+        purchases_path = current_paths['purchases_matched_path']
+        cache_dir = current_paths['cache_dir_matched']
     else:
         raise ValueError(f"Invalid data_source: {data_source}. Must be 'raw' or 'matched'")
 
@@ -1092,9 +1113,22 @@ def main():
     This addresses the issue that USDA match rates increase mechanically over time,
     so comparing raw vs. matched data helps identify true trends vs. artifacts.
     """
+    global PURCHASES_RAW_PATH, PURCHASES_MATCHED_PATH, CACHE_DIR_RAW, CACHE_DIR_MATCHED, OUTPUT_DIR
+
+    # Update paths based on USE_SAMPLE setting
+    paths = get_proliferation_paths()
+    PURCHASES_RAW_PATH = paths['purchases_raw_path']
+    PURCHASES_MATCHED_PATH = paths['purchases_matched_path']
+    CACHE_DIR_RAW = paths['cache_dir_raw']
+    CACHE_DIR_MATCHED = paths['cache_dir_matched']
+    OUTPUT_DIR = paths['output_dir']
+
     print("=" * 80)
     print("PRODUCT PROLIFERATION ANALYSIS")
     print("=" * 80)
+    print(f"\nUSE_SAMPLE: {USE_SAMPLE}")
+    print(f"Raw data path: {PURCHASES_RAW_PATH}")
+    print(f"Matched data path: {PURCHASES_MATCHED_PATH}")
     print("\nThis analysis generates TWO sets of graphs:")
     print("  1. Raw Nielsen Data - all products, no USDA filtering")
     print("  2. USDA-Matched Data - only products with USDA ingredient matches")

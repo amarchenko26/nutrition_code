@@ -11,6 +11,27 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+# Set to True to use sample data (faster iteration during development)
+# Set to False to use full data (for production runs)
+USE_SAMPLE = True
+
+# Base paths
+BASE_DATA_DIR = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim'
+
+
+def get_paths():
+    """Get input/output paths based on USE_SAMPLE setting."""
+    suffix = '_sample' if USE_SAMPLE else ''
+    return {
+        'purchases_dir': os.path.join(BASE_DATA_DIR, f'purchases_food{suffix}'),
+        'matched_dir': os.path.join(BASE_DATA_DIR, f'purchases_with_ingredients{suffix}'),
+        'output_dir': '/Users/anyamarchenko/Documents/GitHub/corn/analysis_output',
+    }
+
+
 def analyze_year(year, purchases_dir, matched_dir):
     """
     Analyze match quality for a single year.
@@ -126,10 +147,15 @@ def main():
     print("INGREDIENT MATCH QUALITY ANALYSIS")
     print("="*80)
 
-    # Paths
-    purchases_dir = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_food'
-    matched_dir = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_with_ingredients'
-    output_dir = '/Users/anyamarchenko/Documents/GitHub/corn/analysis_output'
+    # Get paths based on USE_SAMPLE setting
+    paths = get_paths()
+    purchases_dir = paths['purchases_dir']
+    matched_dir = paths['matched_dir']
+    output_dir = paths['output_dir']
+
+    print(f"USE_SAMPLE: {USE_SAMPLE}")
+    print(f"Purchases: {purchases_dir}")
+    print(f"Matched: {matched_dir}")
 
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
