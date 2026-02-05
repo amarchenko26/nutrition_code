@@ -903,8 +903,8 @@ def main():
     master_products_path = f'{base_path}/Master_Files2004-2020.tgz'
 
     # List of years to process
-    years_to_process = [2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023]
-    # years_to_process = [2011, 2012] 
+    #years_to_process = [2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
+    years_to_process = [2024] 
 
     # Departments to DROP (for pre-2021 master file)
     drop_department_desc_pre_2021 = [

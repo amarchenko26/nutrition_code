@@ -321,7 +321,7 @@ def main():
 
     # Summary report
     print("\n\n" + "="*80)
-    print("MATCH RATE SUMMARY (2004-2023)")
+    print("MATCH RATE SUMMARY (2004-2024)")
     print("="*80)
 
     if all_stats:

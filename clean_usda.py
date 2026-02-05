@@ -409,8 +409,8 @@ def create_year_specific_ingredients(time_varying_df, output_dir):
     usda_years = sorted(time_varying_df['usda_release_year'].unique())
     print(f"\nUSDA release years: {usda_years}")
 
-    # Nielsen years (2004-2023)
-    nielsen_years = list(range(2004, 2024))
+    # Nielsen years (2004-2024)
+    nielsen_years = list(range(2004, 2025))
 
     # For each Nielsen year, find the best USDA release
     # Use the most recent USDA release <= Nielsen year (or earliest if Nielsen year is before all releases)

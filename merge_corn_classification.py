@@ -310,7 +310,7 @@ def main():
     print(f"\nCorn lookup dictionary created with {len(corn_lookup):,} ingredients")
 
     # Years to process
-    years = list(range(2004, 2024))  # 2004-2023
+    years = list(range(2004, 2025))  # 2004-2024
 
     print(f"\n\nProcessing {len(years)} years: {years[0]}-{years[-1]}")
 
@@ -324,7 +324,7 @@ def main():
 
     # Summary report
     print("\n\n" + "="*80)
-    print("CORN CLASSIFICATION SUMMARY (2004-2023)")
+    print("CORN CLASSIFICATION SUMMARY (2004-2024)")
     print("="*80)
 
     if all_stats:

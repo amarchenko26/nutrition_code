@@ -140,7 +140,7 @@ def create_sample_dataset(input_path, output_path, sampled_households):
         total_rows_full += n_full
 
         # Filter to sampled households
-        df_sample = df[df['household_code'].isin(sampled_households)]
+        df_sample = df[df['household_code'].isin(sampled_households)].copy()
         n_sample = len(df_sample)
         total_rows_sample += n_sample
 

@@ -135,7 +135,7 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
 
     # Years to analyze
-    years = list(range(2004, 2024))
+    years = list(range(2004, 2025))
 
     # Collect statistics across years
     all_stats = []

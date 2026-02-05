@@ -1102,7 +1102,7 @@ def main():
     print("of improving USDA match rates over time.")
 
     # Years to process
-    years = list(range(2004, 2021))  # 2004-2020
+    years = list(range(2004, 2025))  # 2004-2024
 
     # First, compute cornification by module (only available for matched data)
     # This will be used for correlation analysis with both data sources

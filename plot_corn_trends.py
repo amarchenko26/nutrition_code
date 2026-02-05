@@ -53,7 +53,7 @@ HH_SPENDING_TRENDS_CACHE = os.path.join(CACHE_DIR, 'hh_spending_trends_cache.csv
 # ============================================================================
 NIELSEN_RAW_PATH = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/raw/consumer'
 PURCHASES_PATH = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_with_corn_classification'
-PURCHASES_DEFLATED_PATH = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_deflated'
+PURCHASES_DEFLATED_PATH = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_food'
 CPI_PATH = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/raw/price_deflator/CPIEBEV.csv'
 TARGET_YEAR = 2013  # Target year for deflation
 
@@ -2162,7 +2162,7 @@ def main():
     # Years to process (only used when computing from raw data)
     # Set to None to process all available years, or specify a list:
     # years_to_process = None  # All years
-    years_to_process = [2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020]
+    years_to_process = [2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
 
     # Compute trends (will use cache if USE_CACHE=True and cache exists)
     yearly_trends = compute_yearly_trends(years_to_process)
