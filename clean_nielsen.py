@@ -15,6 +15,131 @@ import os
 import shutil
 from io import BytesIO
 import numpy as np
+import re
+
+
+# ============================================================================
+# PRODUCT MODULE NAME NORMALIZATION
+# ============================================================================
+# Nielsen changed their naming conventions in 2021. This function normalizes
+# product module names to allow consistent matching across all years.
+
+def normalize_module_name(name):
+    """
+    Normalize product module names to allow matching across 2020 and 2021+ formats.
+
+    Key transformations:
+    1. Replace hyphens/slashes with spaces
+    2. Replace & with AND
+    3. Remove quotes and periods
+    4. Replace ORIENTAL with ASIAN
+    5. Expand abbreviations used in 2021+ data
+    6. Normalize whitespace
+
+    Parameters:
+    -----------
+    name : str
+        Original product module name
+
+    Returns:
+    --------
+    str : Normalized product module name
+    """
+    if pd.isna(name) or name == 'nan':
+        return name
+
+    s = str(name).upper().strip()
+
+    # Replace hyphens and dashes with spaces
+    s = s.replace('-', ' ').replace('–', ' ').replace('—', ' ')
+
+    # Remove special characters
+    s = s.replace('/', ' ').replace('&', ' AND ')
+    s = s.replace('"', '').replace("'", "").replace('\\', '')
+    s = s.replace('.', '')
+
+    # Replace "ORIENTAL" with "ASIAN" (Nielsen changed this terminology in 2021)
+    s = s.replace('ORIENTAL', 'ASIAN')
+
+    # Expand abbreviations used in 2021+ data
+    abbreviations = [
+        (r'\bRFRGR\b', 'REFRIGERATED'),
+        (r'\bRFRGRTD\b', 'REFRIGERATED'),
+        (r'\bFRZN\b', 'FROZEN'),
+        (r'\bFRSH\b', 'FRESH'),
+        (r'\bCNTNR\b', 'CONTAINER'),
+        (r'\bCNTNRS\b', 'CONTAINERS'),
+        (r'\bDHYDR\b', 'DEHYDRATED'),
+        (r'\bSHLF STBL\b', 'SHELF STABLE'),
+        (r'\bRMNNG\b', 'REMAINING'),
+        (r'\bMXCN\b', 'MEXICAN'),
+        (r'\bSWT RLS\b', 'SWEET ROLLS'),
+        (r'\bSTRDL\b', 'STRUDEL'),
+        (r'\bDGH\b', 'DOUGH'),
+        (r'\bBRWNS\b', 'BROWNIES'),
+        (r'\bENHNC\b', 'ENHANCERS'),
+        (r'\bVGTRN\b', 'VEGETARIAN'),
+        (r'\bWHT NRTHR NVY\b', 'WHITE NORTHERN NAVY'),
+        (r'\bNRTHR\b', 'NORTHERN'),
+        (r'\bNVY\b', 'NAVY'),
+        (r'\bWHT\b', 'WHITE'),
+        (r'\bCND\b', 'CANNED'),
+        (r'\bTST\b', 'TOAST'),
+        (r'\bSNCKS\b', 'SNACKS'),
+        (r'\bFRTS\b', 'FRUITS'),
+        (r'\bOTHR\b', 'OTHER'),
+        (r'\bSRVD\b', 'SERVED'),
+        (r'\bUNDR\b', 'UNDER'),
+    ]
+
+    for pattern, replacement in abbreviations:
+        s = re.sub(pattern, replacement, s)
+
+    # Normalize "ALL OTHR" -> "ALL OTHER"
+    s = s.replace('ALL OTHR', 'ALL OTHER')
+
+    # Normalize multiple spaces to single space
+    s = ' '.join(s.split())
+
+    return s
+
+
+def add_normalized_module_column(df):
+    """
+    Add a normalized product module column to the dataframe.
+
+    Parameters:
+    -----------
+    df : DataFrame
+        DataFrame with product_module column
+
+    Returns:
+    --------
+    DataFrame with added product_module_normalized column
+    """
+    if 'product_module' in df.columns:
+        df['product_module_normalized'] = df['product_module'].apply(normalize_module_name)
+        print(f"  Added normalized product module column")
+        print(f"    Original unique modules: {df['product_module'].nunique()}")
+        print(f"    Normalized unique modules: {df['product_module_normalized'].nunique()}")
+    else:
+        print("  WARNING: product_module column not found")
+    return df
+
+
+def standardize_product_columns(df):
+    """
+    Standardize product module/group columns to product_module/product_group.
+    """
+    rename_map = {}
+    for col in df.columns:
+        if col.startswith('product_module_') and col != 'product_module':
+            rename_map[col] = 'product_module'
+        if col.startswith('product_group_') and col != 'product_group':
+            rename_map[col] = 'product_group'
+    if rename_map:
+        df = df.rename(columns=rename_map)
+    return df
 
 # ============================================================================
 # PRICE DEFLATION CONFIGURATION
@@ -203,14 +328,14 @@ def update_summary_stats(stats, df, year):
             stats['department_counts'][dept] = stats['department_counts'].get(dept, 0) + count
 
     # Product group counts
-    if 'product_group_descr' in df.columns:
-        pg_counts = df['product_group_descr'].value_counts()
+    if 'product_group' in df.columns:
+        pg_counts = df['product_group'].value_counts()
         for pg, count in pg_counts.items():
             stats['product_group_counts'][pg] = stats['product_group_counts'].get(pg, 0) + count
 
     # Product module counts (top 100 only to avoid huge dict)
-    if 'product_module_descr' in df.columns:
-        pm_counts = df['product_module_descr'].value_counts()
+    if 'product_module' in df.columns:
+        pm_counts = df['product_module'].value_counts()
         for pm, count in pm_counts.items():
             stats['product_module_counts'][pm] = stats['product_module_counts'].get(pm, 0) + count
 
@@ -252,7 +377,7 @@ def save_summary_stats(stats, output_dir):
 
     # 3. Product group counts
     pg_df = pd.DataFrame([
-        {'product_group_descr': pg, 'n_purchases': count, 'pct_of_total': count / stats['total_rows'] * 100}
+        {'product_group': pg, 'n_purchases': count, 'pct_of_total': count / stats['total_rows'] * 100}
         for pg, count in sorted(stats['product_group_counts'].items(), key=lambda x: -x[1])
     ])
     pg_path = os.path.join(output_dir, 'summary_product_group_counts.csv')
@@ -262,7 +387,7 @@ def save_summary_stats(stats, output_dir):
     # 4. Product module counts (top 200)
     pm_sorted = sorted(stats['product_module_counts'].items(), key=lambda x: -x[1])[:200]
     pm_df = pd.DataFrame([
-        {'product_module_descr': pm, 'n_purchases': count, 'pct_of_total': count / stats['total_rows'] * 100}
+        {'product_module': pm, 'n_purchases': count, 'pct_of_total': count / stats['total_rows'] * 100}
         for pm, count in pm_sorted
     ])
     pm_path = os.path.join(output_dir, 'summary_product_module_counts_top200.csv')
@@ -394,9 +519,15 @@ def load_products_2021_plus(tarball_path, year):
         print(f"producthierarchy shape: {producthierarchy_df.shape}")
 
         # Keep only needed columns from each file
-        productdesc_cols = ['upc', 
-                            'product_descr', 'product_module_descr', 
-                            'multi', 
+        module_col = next((c for c in productdesc_df.columns if c.startswith('product_module')), None)
+        if not module_col:
+            print("ERROR: product module column not found in productdesc.tsv")
+            print(f"Available columns: {productdesc_df.columns.tolist()}")
+            return None
+
+        productdesc_cols = ['upc',
+                            'product_descr', module_col,
+                            'multi',
                             'year']
         producthierarchy_cols = ['upc', 
                                  'department', 
@@ -409,12 +540,14 @@ def load_products_2021_plus(tarball_path, year):
         products_df = productdesc_df.merge(producthierarchy_df, on='upc', how='left')
         print(f"Merged products shape: {products_df.shape}")
 
-        # Rename columns to match pre-2020 convention
+        # Rename columns to standardized naming
         products_df = products_df.rename(columns={
             'product_descr': 'upc_descr',
+            module_col: 'product_module',
             'department': 'department_descr',
-            'super_category': 'product_group_descr'
+            'super_category': 'product_group'
         })
+        products_df = standardize_product_columns(products_df)
 
         print(f"Columns after rename: {products_df.columns.tolist()}")
         print(f"\nFirst few rows:")
@@ -423,7 +556,7 @@ def load_products_2021_plus(tarball_path, year):
         return products_df
 
 
-def filter_products_2021_plus(products_df, drop_departments, drop_product_group_desc, drop_product_module_desc):
+def filter_products_2021_plus(products_df, drop_departments, drop_product_group, drop_product_module):
     """
     Filter 2021+ products by department, product group, and product module
 
@@ -433,10 +566,10 @@ def filter_products_2021_plus(products_df, drop_departments, drop_product_group_
         Products dataframe from 2021+ files
     drop_departments : list
         List of department_descr values to exclude (e.g., ['ALCOHOL', 'BABY CARE', ...])
-    drop_product_group_desc : list
-        List of product_group_descr values to exclude
-    drop_product_module_desc : list
-        List of product_module_descr values to exclude
+    drop_product_group : list
+        List of product_group values to exclude
+    drop_product_module : list
+        List of product_module values to exclude
 
     Returns:
     --------
@@ -466,35 +599,35 @@ def filter_products_2021_plus(products_df, drop_departments, drop_product_group_
     print(f"  Original products: {len(products_df):,}")
     print(f"  Kept products: {len(products_filtered):,}")
 
-    # Filter by product_group_descr
-    if 'product_group_descr' in products_filtered.columns:
+    # Filter by product_group
+    if 'product_group' in products_filtered.columns:
         initial_count = len(products_filtered)
-        products_filtered = products_filtered[~products_filtered['product_group_descr'].isin(drop_product_group_desc)]
+        products_filtered = products_filtered[~products_filtered['product_group'].isin(drop_product_group)]
         dropped_count = initial_count - len(products_filtered)
 
-        print(f"\nAfter product_group_descr filtering:")
+        print(f"\nAfter product_group filtering:")
         print(f"  Dropped products: {dropped_count:,}")
         print(f"  Kept products: {len(products_filtered):,}")
     else:
-        print("Warning: product_group_descr column not found; skipping product group filtering.")
+        print("Warning: product_group column not found; skipping product group filtering.")
 
-    # Filter by product_module_descr
-    if 'product_module_descr' in products_filtered.columns:
+    # Filter by product_module
+    if 'product_module' in products_filtered.columns:
         initial_count = len(products_filtered)
-        products_filtered = products_filtered[~products_filtered['product_module_descr'].isin(drop_product_module_desc)]
+        products_filtered = products_filtered[~products_filtered['product_module'].isin(drop_product_module)]
         dropped_count = initial_count - len(products_filtered)
 
-        print(f"\nAfter product_module_descr filtering:")
+        print(f"\nAfter product_module filtering:")
         print(f"  Dropped products: {dropped_count:,}")
         print(f"  Kept products: {len(products_filtered):,}")
     else:
-        print("Warning: product_module_descr column not found; skipping product module filtering.")
+        print("Warning: product_module column not found; skipping product module filtering.")
 
     # Keep only the standardized columns (matching pre-2020 structure where possible)
     keep_product_cols = ['upc',
                          'upc_descr',
-                         'product_module_descr',
-                         'product_group_descr',
+                         'product_module',
+                         'product_group',
                          'department_descr',
                          'multi']
 
@@ -548,6 +681,7 @@ def load_products_master(master_tarball_path):
         # Extract and load
         f = tar.extractfile(products_file)
         products_df = pd.read_csv(f, delimiter='\t', low_memory=False, encoding='latin-1')
+        products_df = standardize_product_columns(products_df)
 
         print(f"Shape: {products_df.shape}")
         print(f"Columns: {products_df.columns.tolist()}")
@@ -556,7 +690,7 @@ def load_products_master(master_tarball_path):
 
         return products_df
 
-def filter_products_by_department(products_df, drop_department_desc_pre_2021, drop_product_group_desc, drop_product_module_desc):
+def filter_products_by_department(products_df, drop_department_desc_pre_2021, drop_product_group, drop_product_module):
     """
     Filter products by department_code
 
@@ -566,10 +700,10 @@ def filter_products_by_department(products_df, drop_department_desc_pre_2021, dr
         Products master data
     drop_department_desc_pre_2021 : list
         List of department_desc values to exclude
-    drop_product_group_desc : list
-        List of product_group_descr values to exclude
-    drop_product_module_desc : list
-        List of product_module_descr values to exclude
+    drop_product_group : list
+        List of product_group values to exclude
+    drop_product_module : list
+        List of product_module values to exclude
 
     Returns:
     --------
@@ -594,38 +728,38 @@ def filter_products_by_department(products_df, drop_department_desc_pre_2021, dr
 
     # Filter out unwanted departments
     products_filtered = products_df[~products_df['department_descr'].isin(drop_department_desc_pre_2021)]
-    # Further filter by product_group_descr
-    if 'product_group_descr' in products_filtered.columns:
+    # Further filter by product_group
+    if 'product_group' in products_filtered.columns:
         initial_count = len(products_filtered)
-        products_filtered = products_filtered[~products_filtered['product_group_descr'].isin(drop_product_group_desc)]
+        products_filtered = products_filtered[~products_filtered['product_group'].isin(drop_product_group)]
         dropped_count = initial_count - len(products_filtered)
 
-        print(f"\nAdditional filtering by product_group_descr:")
+        print(f"\nAdditional filtering by product_group:")
         print(f"  Dropped products: {dropped_count:,}")
         print(f"  Kept products: {len(products_filtered):,}")
         print(f"  Additional reduction: {(dropped_count/initial_count)*100:.1f}%")
     else:
-        print("Warning: product_group_descr column not found; skipping additional filtering.")
+        print("Warning: product_group column not found; skipping additional filtering.")
 
-    # Further filter by product_module_descr
-    if 'product_module_descr' in products_filtered.columns:
+    # Further filter by product_module
+    if 'product_module' in products_filtered.columns:
         initial_count = len(products_filtered)
-        products_filtered = products_filtered[~products_filtered['product_module_descr'].isin(drop_product_module_desc)]
+        products_filtered = products_filtered[~products_filtered['product_module'].isin(drop_product_module)]
         dropped_count = initial_count - len(products_filtered)
 
-        print(f"\nAdditional filtering by product_module_descr:")
+        print(f"\nAdditional filtering by product_module:")
         print(f"  Dropped products: {dropped_count:,}")
         print(f"  Kept products: {len(products_filtered):,}")
         print(f"  Additional reduction: {(dropped_count/initial_count)*100:.1f}%")
     else:
-        print("Warning: product_module_descr column not found; skipping additional filtering.")
+        print("Warning: product_module column not found; skipping additional filtering.")
 
     # Now filter to only the columns we're keeping 
     keep_product_cols = ['upc',
                          'upc_ver_uc',
                          'upc_descr',
-                         'product_module_descr',
-                         'product_group_descr',
+                         'product_module',
+                         'product_group',
                          'department_descr',
                          'brand_descr',
                          'multi',
@@ -913,8 +1047,23 @@ def main():
         'ALCOHOLIC BEVERAGES', 
         'GENERAL MERCHANDISE']
     
+        # Departments to DROP for 2021+ 
+    drop_departments_2021_plus = [
+        'ALCOHOL',
+        'BABY CARE',
+        'GENERAL MERCHANDISE',
+        'HEALTH & BEAUTY CARE',
+        'HOUSEHOLD CARE',
+        'PET CARE',
+        'TOBACCO AND TOBACCO ALTERNATIVES', 
+        'FLORAL',
+        'DO NOT RELEASE',
+        'NOT APPLICABLE',
+        'MISCELLANEOUS FRESH'
+    ]
+
     # Product groups to DROP across both pre-2021 and 2021+
-    drop_product_group_desc = [
+    drop_product_group = [
         'PET FOOD', 
         'BABY FOOD', 
         'GUM', 
@@ -928,7 +1077,23 @@ def main():
         'COFFEE']
 
     # Product modules to DROP across both pre-2021 and 2021+
-    drop_product_module_desc = [
+    drop_product_module = [
+        'ACNE REMEDIES',
+        'ADHESIVE BANDAGES',
+        'ADHESIVE NOTE PADS',
+        'ADULT INCONTINENCE',
+        'AIR CONDITIONER APPLIANCE',
+        'AIR PURIFIER AND CLEANER APPLIANCE',
+        'AIR SPECIALTY FRESHENERS REMAINING',
+        'AIR SPECIALTY FRESHENERS SOLID',
+        'AIR SPECIALTY FRSHN ARSL SPRY PMP',
+        'ALCOHOLIC COCKTAILS',
+        'ALE',
+        'ALUMINUM FOIL',
+        'ANALGESIC AND CHEST RUBS',
+        'ARTIST AND HOBBY PAINT AND SUPPLY',
+        
+
         'NUTRITIONAL SUPPLEMENTS',
         'PROTEIN SUPPLEMENTS',
         'DIETING AIDS COMPLETE NUTRITIONAL',
@@ -1022,21 +1187,6 @@ def main():
         'UNCLASSIFIED MEDICATIONS/REMEDIES/HEALTH AI',
     ]
 
-    # Departments to DROP for 2021+ 
-    drop_departments_2021_plus = [
-        'ALCOHOL',
-        'BABY CARE',
-        'GENERAL MERCHANDISE',
-        'HEALTH & BEAUTY CARE',
-        'HOUSEHOLD CARE',
-        'PET CARE',
-        'TOBACCO AND TOBACCO ALTERNATIVES', 
-        'FLORAL',
-        'DO NOT RELEASE',
-        'NOT APPLICABLE',
-        'MISCELLANEOUS FRESH'
-    ]
-
     # Whether to show detailed tarball structure (useful for first run)
     explore_structure = False
 
@@ -1077,7 +1227,7 @@ def main():
             return
 
         # Filter products by department code
-        products_df_filtered_master = filter_products_by_department(products_df, drop_department_desc_pre_2021, drop_product_group_desc, drop_product_module_desc)
+        products_df_filtered_master = filter_products_by_department(products_df, drop_department_desc_pre_2021, drop_product_group, drop_product_module)
 
         if products_df_filtered_master is None:
             print("ERROR: Could not filter products. Exiting.")
@@ -1117,7 +1267,7 @@ def main():
                 print(f"ERROR: Could not load products for {year}. Skipping.")
                 continue
 
-            products_df_filtered = filter_products_2021_plus(products_df_year, drop_departments_2021_plus, drop_product_group_desc, drop_product_module_desc)
+            products_df_filtered = filter_products_2021_plus(products_df_year, drop_departments_2021_plus, drop_product_group, drop_product_module)
 
             if products_df_filtered is None:
                 print(f"ERROR: Could not filter products for {year}. Skipping.")
@@ -1136,6 +1286,10 @@ def main():
             # Deflate prices before saving
             print(f"\nDeflating prices for year {year}...")
             result = deflate_prices(result, cpi_lookup, target_cpi, year)
+
+            # Add normalized product module column for cross-year consistency
+            print(f"\nNormalizing product module names for year {year}...")
+            result = add_normalized_module_column(result)
 
             # Fix mixed-type columns that cause PyArrow errors
             # Convert object-dtype columns to string to handle mixed types

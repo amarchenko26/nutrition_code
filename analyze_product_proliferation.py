@@ -128,23 +128,23 @@ NON_UPF_KEYWORDS = [
 ]
 
 
-def classify_upf(product_module_descr):
+def classify_upf(product_module):
     """
     Classify a product module as Ultra-Processed Food (UPF) or not.
 
     Parameters:
     -----------
-    product_module_descr : str
+    product_module : str
         The product module description
 
     Returns:
     --------
     str: 'UPF' for ultra-processed, 'Non-UPF' for less processed, 'Unknown' otherwise
     """
-    if pd.isna(product_module_descr) or not product_module_descr:
+    if pd.isna(product_module) or not product_module:
         return 'Unknown'
 
-    descr_upper = product_module_descr.upper()
+    descr_upper = product_module.upper()
 
     # Check for UPF keywords first (more specific)
     for keyword in UPF_KEYWORDS:
@@ -241,7 +241,7 @@ def compute_proliferation_by_module(years_to_process=None, use_cache=None, data_
 
     Returns:
     --------
-    DataFrame with columns: panel_year, product_module_descr, n_upcs, n_purchases
+    DataFrame with columns: panel_year, product_module, n_upcs, n_purchases
     """
     if use_cache is None:
         use_cache = USE_CACHE
@@ -257,8 +257,8 @@ def compute_proliferation_by_module(years_to_process=None, use_cache=None, data_
     if use_cache and os.path.exists(paths['proliferation_cache']):
         print(f"Loading from cache: {paths['proliferation_cache']}")
         cached = pd.read_csv(paths['proliferation_cache'])
-        if 'upf_category' not in cached.columns and 'product_module_descr' in cached.columns:
-            cached['upf_category'] = cached['product_module_descr'].apply(classify_upf)
+        if 'upf_category' not in cached.columns and 'product_module' in cached.columns:
+            cached['upf_category'] = cached['product_module'].apply(classify_upf)
         return cached
 
     year_dirs = sorted(glob(os.path.join(paths['purchases_path'], 'panel_year=*')))
@@ -280,13 +280,13 @@ def compute_proliferation_by_module(years_to_process=None, use_cache=None, data_
         print(f"Processing {year}...", end=' ')
 
         try:
-            df = pd.read_parquet(year_dir, columns=['upc', 'product_module_descr', 'quantity'])
+            df = pd.read_parquet(year_dir, columns=['upc', 'product_module', 'quantity'])
         except Exception as e:
             print(f"Error: {e}")
             continue
 
         # Count unique UPCs and total purchases per module
-        module_stats = df.groupby('product_module_descr').agg(
+        module_stats = df.groupby('product_module').agg(
             n_upcs=('upc', 'nunique'),
             n_purchases=('upc', 'count'),
             n_units=('quantity', 'sum')
@@ -295,7 +295,7 @@ def compute_proliferation_by_module(years_to_process=None, use_cache=None, data_
         module_stats['panel_year'] = year
 
         # Add UPF classification
-        module_stats['upf_category'] = module_stats['product_module_descr'].apply(classify_upf)
+        module_stats['upf_category'] = module_stats['product_module'].apply(classify_upf)
 
         results.append(module_stats)
 
@@ -333,7 +333,7 @@ def compute_normalized_proliferation_by_module(years_to_process=None, use_cache=
 
     Returns:
     --------
-    DataFrame with columns: panel_year, product_module_descr, n_upcs, n_products, n_purchases
+    DataFrame with columns: panel_year, product_module, n_upcs, n_products, n_purchases
     """
     if use_cache is None:
         use_cache = USE_CACHE
@@ -349,8 +349,8 @@ def compute_normalized_proliferation_by_module(years_to_process=None, use_cache=
     if use_cache and os.path.exists(paths['proliferation_normalized_cache']):
         print(f"Loading from cache: {paths['proliferation_normalized_cache']}")
         cached = pd.read_csv(paths['proliferation_normalized_cache'])
-        if 'upf_category' not in cached.columns and 'product_module_descr' in cached.columns:
-            cached['upf_category'] = cached['product_module_descr'].apply(classify_upf)
+        if 'upf_category' not in cached.columns and 'product_module' in cached.columns:
+            cached['upf_category'] = cached['product_module'].apply(classify_upf)
         return cached
 
     year_dirs = sorted(glob(os.path.join(paths['purchases_path'], 'panel_year=*')))
@@ -372,7 +372,7 @@ def compute_normalized_proliferation_by_module(years_to_process=None, use_cache=
         print(f"Processing {year}...", end=' ')
 
         # For raw data, brand_name may not exist, so handle that
-        cols_to_load = ['upc', 'upc_descr', 'product_module_descr', 'quantity']
+        cols_to_load = ['upc', 'upc_descr', 'product_module', 'quantity']
         if data_source == 'matched':
             cols_to_load.append('brand_name')
 
@@ -381,7 +381,7 @@ def compute_normalized_proliferation_by_module(years_to_process=None, use_cache=
         except Exception as e:
             # Try without brand_name if it fails
             try:
-                df = pd.read_parquet(year_dir, columns=['upc', 'upc_descr', 'product_module_descr', 'quantity'])
+                df = pd.read_parquet(year_dir, columns=['upc', 'upc_descr', 'product_module', 'quantity'])
             except Exception as e2:
                 print(f"Error: {e2}")
                 continue
@@ -397,7 +397,7 @@ def compute_normalized_proliferation_by_module(years_to_process=None, use_cache=
             df['product_id'] = df['normalized_descr'].fillna('')
 
         # Count unique UPCs, unique products, and purchases per module
-        module_stats = df.groupby('product_module_descr').agg(
+        module_stats = df.groupby('product_module').agg(
             n_upcs=('upc', 'nunique'),
             n_products=('product_id', 'nunique'),
             n_purchases=('upc', 'count'),
@@ -410,7 +410,7 @@ def compute_normalized_proliferation_by_module(years_to_process=None, use_cache=
         module_stats['panel_year'] = year
 
         # Add UPF classification
-        module_stats['upf_category'] = module_stats['product_module_descr'].apply(classify_upf)
+        module_stats['upf_category'] = module_stats['product_module'].apply(classify_upf)
 
         results.append(module_stats)
 
@@ -439,7 +439,7 @@ def compute_cornification_by_module(years_to_process=None):
 
     Returns:
     --------
-    DataFrame with panel_year, product_module_descr, corn_rate
+    DataFrame with panel_year, product_module, corn_rate
     """
     print("\n" + "=" * 80)
     print("COMPUTING CORNIFICATION BY MODULE")
@@ -473,7 +473,7 @@ def compute_cornification_by_module(years_to_process=None):
         print(f"Processing {year}...", end=' ')
 
         try:
-            df = pd.read_parquet(year_dir, columns=['product_module_descr', corn_var, 'quantity'])
+            df = pd.read_parquet(year_dir, columns=['product_module', corn_var, 'quantity'])
         except Exception as e:
             print(f"Error: {e}")
             continue
@@ -489,7 +489,7 @@ def compute_cornification_by_module(years_to_process=None):
                 'n_units': total_qty
             })
 
-        module_stats = df.groupby('product_module_descr').apply(weighted_corn_rate).reset_index()
+        module_stats = df.groupby('product_module').apply(weighted_corn_rate).reset_index()
         module_stats['panel_year'] = year
         results.append(module_stats)
 
@@ -631,7 +631,7 @@ def plot_proliferation_by_top_modules(proliferation_df, normalized_df, top_n=10,
     print("=" * 80)
 
     # Find top modules by total purchases
-    top_modules = proliferation_df.groupby('product_module_descr')['n_purchases'].sum() \
+    top_modules = proliferation_df.groupby('product_module')['n_purchases'].sum() \
                                   .nlargest(top_n).index.tolist()
 
     print(f"Top {top_n} modules by purchase volume:")
@@ -639,13 +639,13 @@ def plot_proliferation_by_top_modules(proliferation_df, normalized_df, top_n=10,
         print(f"  {i}. {m}")
 
     # Filter to top modules
-    top_raw = proliferation_df[proliferation_df['product_module_descr'].isin(top_modules)]
-    top_norm = normalized_df[normalized_df['product_module_descr'].isin(top_modules)]
+    top_raw = proliferation_df[proliferation_df['product_module'].isin(top_modules)]
+    top_norm = normalized_df[normalized_df['product_module'].isin(top_modules)]
 
     # Figure 1: Raw UPC count by module
     fig1 = plt.figure(figsize=(10, 7))
     for module in top_modules:
-        module_data = top_raw[top_raw['product_module_descr'] == module].sort_values('panel_year')
+        module_data = top_raw[top_raw['product_module'] == module].sort_values('panel_year')
         label = module[:30] + '...' if len(module) > 30 else module
         plt.plot(module_data['panel_year'], module_data['n_upcs'],
                  marker='o', linewidth=2, label=label)
@@ -670,7 +670,7 @@ def plot_proliferation_by_top_modules(proliferation_df, normalized_df, top_n=10,
     # Figure 2: Normalized product count by module
     fig2 = plt.figure(figsize=(10, 7))
     for module in top_modules:
-        module_data = top_norm[top_norm['product_module_descr'] == module].sort_values('panel_year')
+        module_data = top_norm[top_norm['product_module'] == module].sort_values('panel_year')
         label = module[:30] + '...' if len(module) > 30 else module
         plt.plot(module_data['panel_year'], module_data['n_products'],
                  marker='o', linewidth=2, label=label)
@@ -815,8 +815,8 @@ def correlate_proliferation_with_cornification(normalized_df, corn_df, output_pa
 
     # Merge proliferation and cornification data
     merged = normalized_df.merge(
-        corn_df[['panel_year', 'product_module_descr', 'corn_rate']],
-        on=['panel_year', 'product_module_descr'],
+        corn_df[['panel_year', 'product_module', 'corn_rate']],
+        on=['panel_year', 'product_module'],
         how='inner'
     )
 
@@ -825,7 +825,7 @@ def correlate_proliferation_with_cornification(normalized_df, corn_df, output_pa
     min_total_purchases = 1000 if USE_SAMPLE else 100000
 
     # Analysis 1: Cross-sectional correlation (average across years)
-    module_avg = merged.groupby('product_module_descr').agg(
+    module_avg = merged.groupby('product_module').agg(
         avg_products=('n_products', 'mean'),
         avg_corn_rate=('corn_rate', 'mean'),
         total_purchases=('n_purchases', 'sum')
@@ -868,7 +868,7 @@ def correlate_proliferation_with_cornification(normalized_df, corn_df, output_pa
             'total_purchases': group['n_purchases'].sum()
         })
 
-    changes = merged.groupby('product_module_descr').apply(calc_changes).reset_index()
+    changes = merged.groupby('product_module').apply(calc_changes).reset_index()
     changes = changes.dropna()
     changes = changes[changes['total_purchases'] > min_total_purchases]  # Filter to substantial modules
 
@@ -943,12 +943,12 @@ def correlate_proliferation_with_cornification(normalized_df, corn_df, output_pa
     print(f"\nTop 5 modules with highest product growth:")
     top_growth = changes.nlargest(5, 'product_growth')
     for _, row in top_growth.iterrows():
-        print(f"  {row['product_module_descr'][:40]}: {row['product_growth']:+.1f}% growth, {row['corn_change']:+.1f}pp corn change")
+        print(f"  {row['product_module'][:40]}: {row['product_growth']:+.1f}% growth, {row['corn_change']:+.1f}pp corn change")
 
     print(f"\nTop 5 modules with highest cornification increase:")
     top_corn = changes.nlargest(5, 'corn_change')
     for _, row in top_corn.iterrows():
-        print(f"  {row['product_module_descr'][:40]}: {row['corn_change']:+.1f}pp corn change, {row['product_growth']:+.1f}% product growth")
+        print(f"  {row['product_module'][:40]}: {row['corn_change']:+.1f}pp corn change, {row['product_growth']:+.1f}% product growth")
 
     return fig1, fig2, merged, changes
 

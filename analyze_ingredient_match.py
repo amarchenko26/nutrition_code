@@ -70,9 +70,9 @@ def analyze_year(year, purchases_dir, matched_dir):
     upc_match_rate = matched_upcs / all_upcs * 100 if all_upcs > 0 else 0
     print(f"  Unique UPCs: {all_upcs:,} -> {matched_upcs:,} ({upc_match_rate:.2f}%)")
 
-    # Get product_module_descr distributions
-    all_dist = all_df['product_module_descr'].value_counts(normalize=True)
-    matched_dist = matched_df['product_module_descr'].value_counts(normalize=True)
+    # Get product_module distributions
+    all_dist = all_df['product_module'].value_counts(normalize=True)
+    matched_dist = matched_df['product_module'].value_counts(normalize=True)
 
     # Align distributions (some categories might only be in one)
     all_categories = set(all_dist.index) | set(matched_dist.index)
@@ -125,15 +125,15 @@ def analyze_category_match_rates(year, purchases_dir, matched_dir):
     """
     # Load all purchases
     all_path = os.path.join(purchases_dir, f'panel_year={year}')
-    all_df = pd.read_parquet(all_path, columns=['upc', 'product_module_descr'])
+    all_df = pd.read_parquet(all_path, columns=['upc', 'product_module'])
 
     # Load matched purchases
     matched_path = os.path.join(matched_dir, f'panel_year={year}', 'data.parquet')
-    matched_df = pd.read_parquet(matched_path, columns=['upc', 'product_module_descr'])
+    matched_df = pd.read_parquet(matched_path, columns=['upc', 'product_module'])
 
     # Count by category
-    all_counts = all_df.groupby('product_module_descr').size()
-    matched_counts = matched_df.groupby('product_module_descr').size()
+    all_counts = all_df.groupby('product_module').size()
+    matched_counts = matched_df.groupby('product_module').size()
 
     # Calculate match rate per category
     category_stats = pd.DataFrame({
@@ -261,7 +261,7 @@ def main():
     # Combine category stats across years
     # =========================================================================
     combined_cat_stats = pd.concat(all_category_stats, ignore_index=False)
-    combined_cat_stats = combined_cat_stats.reset_index().rename(columns={'index': 'product_module_descr'})
+    combined_cat_stats = combined_cat_stats.reset_index().rename(columns={'index': 'product_module'})
 
     # =========================================================================
     # TABLE 3: Categories with lowest match rates (averaged across years)
@@ -271,7 +271,7 @@ def main():
     print("="*80)
 
     # Average match rate by category
-    avg_match_by_cat = combined_cat_stats.groupby('product_module_descr').agg({
+    avg_match_by_cat = combined_cat_stats.groupby('product_module').agg({
         'all_count': 'sum',
         'matched_count': 'sum',
         'match_rate': 'mean'
@@ -363,7 +363,7 @@ def main():
     ]
 
     for cat in interesting_cats:
-        cat_data = combined_cat_stats[combined_cat_stats['product_module_descr'] == cat]
+        cat_data = combined_cat_stats[combined_cat_stats['product_module'] == cat]
         if len(cat_data) > 0:
             ax.plot(cat_data['year'], cat_data['match_rate'], '-o', label=cat[:30], linewidth=2, markersize=4)
 

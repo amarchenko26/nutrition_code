@@ -426,7 +426,7 @@ def compute_trends_by_product_module(years_to_process=None, use_cache=None, min_
 
     Returns:
     --------
-    DataFrame with year, product_module_descr, and corn trend percentages
+    DataFrame with year, product_module, and corn trend percentages
     """
     if use_cache is None:
         use_cache = USE_CACHE
@@ -468,7 +468,7 @@ def compute_trends_by_product_module(years_to_process=None, use_cache=None, min_
         print(f"Processing year {year}...", end=' ')
 
         try:
-            df_year = pd.read_parquet(year_dir, columns=['product_module_descr', 'quantity'] + corn_vars)
+            df_year = pd.read_parquet(year_dir, columns=['product_module', 'quantity'] + corn_vars)
         except Exception as e:
             print(f"Error: {e}")
             continue
@@ -483,7 +483,7 @@ def compute_trends_by_product_module(years_to_process=None, use_cache=None, min_
                 result[var] = (group[var] * group['quantity']).sum() / total_qty * 100
             return pd.Series(result)
 
-        grouped = df_year.groupby('product_module_descr').apply(weighted_agg).reset_index()
+        grouped = df_year.groupby('product_module').apply(weighted_agg).reset_index()
 
         # Filter by minimum units (not purchases)
         grouped = grouped[grouped['n_units'] >= min_purchases]
@@ -506,7 +506,7 @@ def compute_trends_by_product_module(years_to_process=None, use_cache=None, min_
     print("="*80)
     print(f"Total rows: {len(trends_df):,}")
     print(f"Years: {sorted(trends_df['panel_year'].unique())}")
-    print(f"Unique modules: {trends_df['product_module_descr'].nunique()}")
+    print(f"Unique modules: {trends_df['product_module'].nunique()}")
 
     # Save to cache
     if use_cache is not None:
@@ -1497,14 +1497,14 @@ def get_top_cornified_modules(module_trends_df, corn_var='first_ing_is_corn_usua
             'total_purchases': total_purchases
         })
 
-    module_avg = module_trends_df.groupby('product_module_descr').apply(weighted_avg).reset_index()
+    module_avg = module_trends_df.groupby('product_module').apply(weighted_avg).reset_index()
     module_avg = module_avg.sort_values('weighted_rate', ascending=False)
 
-    top_modules = module_avg.head(top_n)['product_module_descr'].tolist()
+    top_modules = module_avg.head(top_n)['product_module'].tolist()
 
     print(f"\nTop {top_n} most cornified modules ({corn_var}):")
     for i, row in module_avg.head(top_n).iterrows():
-        print(f"  {row['product_module_descr']}: {row['weighted_rate']:.1f}%")
+        print(f"  {row['product_module']}: {row['weighted_rate']:.1f}%")
 
     return top_modules
 
@@ -1534,14 +1534,14 @@ def get_modules_with_biggest_changes(module_trends_df, corn_var='first_ing_is_co
     DataFrame with module names, start/end rates, and change values
     """
     # Filter to modules that exist in both start and end years
-    start_data = module_trends_df[module_trends_df['panel_year'] == start_year][['product_module_descr', corn_var, 'n_purchases']]
-    end_data = module_trends_df[module_trends_df['panel_year'] == end_year][['product_module_descr', corn_var, 'n_purchases']]
+    start_data = module_trends_df[module_trends_df['panel_year'] == start_year][['product_module', corn_var, 'n_purchases']]
+    end_data = module_trends_df[module_trends_df['panel_year'] == end_year][['product_module', corn_var, 'n_purchases']]
 
     start_data = start_data.rename(columns={corn_var: 'start_rate', 'n_purchases': 'start_purchases'})
     end_data = end_data.rename(columns={corn_var: 'end_rate', 'n_purchases': 'end_purchases'})
 
     # Merge to get modules present in both years
-    merged = start_data.merge(end_data, on='product_module_descr', how='inner')
+    merged = start_data.merge(end_data, on='product_module', how='inner')
 
     # Calculate change
     merged['change'] = merged['end_rate'] - merged['start_rate']
@@ -1563,7 +1563,7 @@ def get_modules_with_biggest_changes(module_trends_df, corn_var='first_ing_is_co
     print("-" * 75)
     for _, row in top_changers.iterrows():
         direction_sign = "+" if row['change'] > 0 else ""
-        print(f"{row['product_module_descr'][:44]:<45} {row['start_rate']:>7.1f}% {row['end_rate']:>7.1f}% {direction_sign}{row['change']:>8.1f}pp")
+        print(f"{row['product_module'][:44]:<45} {row['start_rate']:>7.1f}% {row['end_rate']:>7.1f}% {direction_sign}{row['change']:>8.1f}pp")
 
     return top_changers
 
@@ -1601,7 +1601,7 @@ def plot_cornification_by_module(module_trends_df, top_modules=None, corn_var='f
         weighted_rate = (group[corn_var] * group['n_purchases']).sum() / total_purchases
         return weighted_rate
 
-    module_rates = module_trends_df.groupby('product_module_descr').apply(weighted_avg)
+    module_rates = module_trends_df.groupby('product_module').apply(weighted_avg)
     top_rates = module_rates[module_rates.index.isin(top_modules)].sort_values(ascending=True)
 
     # Shorten long module names for display
@@ -1629,10 +1629,10 @@ def plot_cornification_by_module(module_trends_df, top_modules=None, corn_var='f
     fig2, ax2 = plt.subplots(figsize=(14, 8))
 
     # Filter to top modules
-    filtered_df = module_trends_df[module_trends_df['product_module_descr'].isin(top_modules)]
+    filtered_df = module_trends_df[module_trends_df['product_module'].isin(top_modules)]
 
     for module in top_modules:
-        module_data = filtered_df[filtered_df['product_module_descr'] == module].sort_values('panel_year')
+        module_data = filtered_df[filtered_df['product_module'] == module].sort_values('panel_year')
         # Shorten name for legend
         display_name = module[:30] + '...' if len(module) > 30 else module
         ax2.plot(module_data['panel_year'], module_data[corn_var],
@@ -1702,7 +1702,7 @@ def plot_biggest_cornification_changes(module_trends_df, corn_var='first_ing_is_
     # --- Plot 1: Bar chart of INCREASES ---
     fig1, ax1 = plt.subplots(figsize=(12, 8))
     plot_data = top_increases.sort_values('change', ascending=True)
-    display_names = [name[:40] + '...' if len(name) > 40 else name for name in plot_data['product_module_descr']]
+    display_names = [name[:40] + '...' if len(name) > 40 else name for name in plot_data['product_module']]
 
     bars = ax1.barh(display_names, plot_data['change'], color='#2ca02c')
     ax1.set_xlabel(f'Change in Cornification Rate (percentage points, {start_year} to {end_year})')
@@ -1722,11 +1722,11 @@ def plot_biggest_cornification_changes(module_trends_df, corn_var='first_ing_is_
 
     # --- Plot 2: Time series for INCREASES ---
     fig2, ax2 = plt.subplots(figsize=(14, 8))
-    increase_modules = top_increases['product_module_descr'].tolist()
-    filtered_df = module_trends_df[module_trends_df['product_module_descr'].isin(increase_modules)]
+    increase_modules = top_increases['product_module'].tolist()
+    filtered_df = module_trends_df[module_trends_df['product_module'].isin(increase_modules)]
 
     for module in increase_modules:
-        module_data = filtered_df[filtered_df['product_module_descr'] == module].sort_values('panel_year')
+        module_data = filtered_df[filtered_df['product_module'] == module].sort_values('panel_year')
         display_name = module[:30] + '...' if len(module) > 30 else module
         ax2.plot(module_data['panel_year'], module_data[corn_var],
                  marker='o', linewidth=2, label=display_name)
@@ -1748,7 +1748,7 @@ def plot_biggest_cornification_changes(module_trends_df, corn_var='first_ing_is_
     # --- Plot 3: Bar chart of DECREASES ---
     fig3, ax3 = plt.subplots(figsize=(12, 8))
     plot_data = top_decreases.sort_values('change', ascending=False)
-    display_names = [name[:40] + '...' if len(name) > 40 else name for name in plot_data['product_module_descr']]
+    display_names = [name[:40] + '...' if len(name) > 40 else name for name in plot_data['product_module']]
 
     bars = ax3.barh(display_names, plot_data['change'], color='#d62728')
     ax3.set_xlabel(f'Change in Cornification Rate (percentage points, {start_year} to {end_year})')
@@ -1768,11 +1768,11 @@ def plot_biggest_cornification_changes(module_trends_df, corn_var='first_ing_is_
 
     # --- Plot 4: Time series for DECREASES ---
     fig4, ax4 = plt.subplots(figsize=(14, 8))
-    decrease_modules = top_decreases['product_module_descr'].tolist()
-    filtered_df = module_trends_df[module_trends_df['product_module_descr'].isin(decrease_modules)]
+    decrease_modules = top_decreases['product_module'].tolist()
+    filtered_df = module_trends_df[module_trends_df['product_module'].isin(decrease_modules)]
 
     for module in decrease_modules:
-        module_data = filtered_df[filtered_df['product_module_descr'] == module].sort_values('panel_year')
+        module_data = filtered_df[filtered_df['product_module'] == module].sort_values('panel_year')
         display_name = module[:30] + '...' if len(module) > 30 else module
         ax4.plot(module_data['panel_year'], module_data[corn_var],
                  marker='o', linewidth=2, label=display_name)
