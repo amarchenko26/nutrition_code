@@ -60,9 +60,15 @@ def analyze_year(year, purchases_dir, matched_dir):
     matched_df = pd.read_parquet(matched_path)
     print(f"  Matched purchases: {len(matched_df):,}")
 
-    # Calculate match rate
+    # Calculate match rate (purchases)
     match_rate = len(matched_df) / len(all_df) * 100
-    print(f"  Match rate: {match_rate:.2f}%")
+    print(f"  Match rate (purchases): {match_rate:.2f}%")
+
+    # Calculate UPC match rate
+    all_upcs = all_df['upc'].nunique()
+    matched_upcs = matched_df['upc'].nunique()
+    upc_match_rate = matched_upcs / all_upcs * 100 if all_upcs > 0 else 0
+    print(f"  Unique UPCs: {all_upcs:,} -> {matched_upcs:,} ({upc_match_rate:.2f}%)")
 
     # Get product_module_descr distributions
     all_dist = all_df['product_module_descr'].value_counts(normalize=True)
@@ -94,6 +100,9 @@ def analyze_year(year, purchases_dir, matched_dir):
         'total_purchases': len(all_df),
         'matched_purchases': len(matched_df),
         'match_rate': match_rate,
+        'total_upcs': all_upcs,
+        'matched_upcs': matched_upcs,
+        'upc_match_rate': upc_match_rate,
         'n_categories_all': len(all_dist),
         'n_categories_matched': len(matched_dist),
         'mean_abs_diff': comparison['abs_diff'].mean() * 100,
@@ -191,19 +200,43 @@ def main():
     print("TABLE 1: MATCH RATE SUMMARY BY YEAR")
     print("="*80)
 
-    print(f"\n{'Year':<6} {'Total':>12} {'Matched':>12} {'Rate':>8} {'Mean Diff':>10} {'Max Diff':>10}")
-    print("-"*60)
+    print(f"\n{'Year':<6} {'Total':>12} {'Matched':>12} {'Rate':>8} {'UPCs':>10} {'Matched':>10} {'UPC Rate':>10}")
+    print("-"*80)
 
     for _, row in summary_df.iterrows():
         print(f"{int(row['year']):<6} {int(row['total_purchases']):>12,} {int(row['matched_purchases']):>12,} "
-              f"{row['match_rate']:>7.1f}% {row['mean_abs_diff']:>9.2f}% {row['max_abs_diff']:>9.2f}%")
+              f"{row['match_rate']:>7.1f}% {int(row['total_upcs']):>10,} {int(row['matched_upcs']):>10,} "
+              f"{row['upc_match_rate']:>9.1f}%")
 
-    print("-"*60)
+    print("-"*80)
     print(f"{'Avg':<6} {'':<12} {'':<12} {summary_df['match_rate'].mean():>7.1f}% "
-          f"{summary_df['mean_abs_diff'].mean():>9.2f}% {summary_df['max_abs_diff'].mean():>9.2f}%")
+          f"{'':<10} {'':<10} {summary_df['upc_match_rate'].mean():>9.1f}%")
 
-    # Save table
-    summary_df.to_csv(os.path.join(output_dir, 'match_rate_summary_by_year.csv'), index=False)
+    # Create summary row with averages
+    avg_row = {
+        'year': 'AVG',
+        'total_purchases': summary_df['total_purchases'].sum(),
+        'matched_purchases': summary_df['matched_purchases'].sum(),
+        'match_rate': summary_df['match_rate'].mean(),
+        'total_upcs': summary_df['total_upcs'].sum(),
+        'matched_upcs': summary_df['matched_upcs'].sum(),
+        'upc_match_rate': summary_df['upc_match_rate'].mean(),
+        'n_categories_all': summary_df['n_categories_all'].mean(),
+        'n_categories_matched': summary_df['n_categories_matched'].mean(),
+        'mean_abs_diff': summary_df['mean_abs_diff'].mean(),
+        'max_abs_diff': summary_df['max_abs_diff'].mean(),
+        'top_overrep_category': '',
+        'top_overrep_diff': summary_df['top_overrep_diff'].mean(),
+        'top_underrep_category': '',
+        'top_underrep_diff': summary_df['top_underrep_diff'].mean(),
+    }
+
+    # Append average row to summary dataframe for CSV export
+    summary_with_avg = pd.concat([summary_df, pd.DataFrame([avg_row])], ignore_index=True)
+
+    # Save table with average row
+    summary_with_avg.to_csv(os.path.join(output_dir, 'match_rate_summary_by_year.csv'), index=False)
+    print(f"\nSaved summary to: {os.path.join(output_dir, 'match_rate_summary_by_year.csv')}")
 
     # =========================================================================
     # TABLE 2: Most over/under-represented categories

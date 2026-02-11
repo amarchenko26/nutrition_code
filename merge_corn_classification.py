@@ -356,30 +356,67 @@ def main():
     if all_stats:
         summary_df = pd.DataFrame(all_stats)
 
+        # Calculate cornification rates for each year
+        summary_df['first_ing_corn_literal_rate'] = summary_df['first_ing_corn_literal'] / summary_df['total_rows'] * 100
+        summary_df['first_ing_corn_usual_or_literal_rate'] = summary_df['first_ing_corn_usual_or_literal'] / summary_df['total_rows'] * 100
+        summary_df['any_ing_corn_literal_rate'] = summary_df['any_ing_corn_literal'] / summary_df['total_rows'] * 100
+        summary_df['any_ing_corn_usual_or_literal_rate'] = summary_df['any_ing_corn_usual_or_literal'] / summary_df['total_rows'] * 100
+        summary_df['any_ing_corn_any_rate'] = summary_df['any_ing_corn_any'] / summary_df['total_rows'] * 100
+
         print("\nCORN CONTENT BY YEAR:")
-        print("-" * 100)
-        print(f"{'Year':<6} {'Total':>12} {'Any Corn':>12} {'Any %':>8} {'Literal':>12} {'Lit %':>8}")
-        print("-" * 100)
+        print("-" * 120)
+        print(f"{'Year':<6} {'Total':>12} {'1st Lit %':>10} {'1st Usu %':>10} {'Any Lit %':>10} {'Any Usu %':>10} {'Any All %':>10}")
+        print("-" * 120)
 
         for _, row in summary_df.iterrows():
-            any_pct = row['any_ing_corn_usual_or_literal'] / row['total_rows'] * 100
-            lit_pct = row['any_ing_corn_literal'] / row['total_rows'] * 100
-            print(f"{row['year']:<6} {row['total_rows']:>12,} {row['any_ing_corn_usual_or_literal']:>12,} "
-                  f"{any_pct:>7.2f}% {row['any_ing_corn_literal']:>12,} {lit_pct:>7.2f}%")
+            print(f"{row['year']:<6} {row['total_rows']:>12,} "
+                  f"{row['first_ing_corn_literal_rate']:>9.2f}% "
+                  f"{row['first_ing_corn_usual_or_literal_rate']:>9.2f}% "
+                  f"{row['any_ing_corn_literal_rate']:>9.2f}% "
+                  f"{row['any_ing_corn_usual_or_literal_rate']:>9.2f}% "
+                  f"{row['any_ing_corn_any_rate']:>9.2f}%")
 
-        print("-" * 100)
+        print("-" * 120)
 
-        # Totals
+        # Calculate averages across all years
+        avg_first_lit = summary_df['first_ing_corn_literal_rate'].mean()
+        avg_first_usu = summary_df['first_ing_corn_usual_or_literal_rate'].mean()
+        avg_any_lit = summary_df['any_ing_corn_literal_rate'].mean()
+        avg_any_usu = summary_df['any_ing_corn_usual_or_literal_rate'].mean()
+        avg_any_all = summary_df['any_ing_corn_any_rate'].mean()
+
         total_rows = summary_df['total_rows'].sum()
-        total_any = summary_df['any_ing_corn_usual_or_literal'].sum()
-        total_lit = summary_df['any_ing_corn_literal'].sum()
-        print(f"{'Total':<6} {total_rows:>12,} {total_any:>12,} "
-              f"{total_any/total_rows*100:>7.2f}% {total_lit:>12,} {total_lit/total_rows*100:>7.2f}%")
+        print(f"{'AVG':<6} {total_rows:>12,} "
+              f"{avg_first_lit:>9.2f}% "
+              f"{avg_first_usu:>9.2f}% "
+              f"{avg_any_lit:>9.2f}% "
+              f"{avg_any_usu:>9.2f}% "
+              f"{avg_any_all:>9.2f}%")
 
-        # Save summary
+        # Create average row for CSV
+        avg_row = {
+            'year': 'AVG',
+            'total_rows': summary_df['total_rows'].sum(),
+            'rows_with_ingredients': summary_df['rows_with_ingredients'].sum(),
+            'first_ing_corn_literal': summary_df['first_ing_corn_literal'].sum(),
+            'first_ing_corn_usual_or_literal': summary_df['first_ing_corn_usual_or_literal'].sum(),
+            'any_ing_corn_literal': summary_df['any_ing_corn_literal'].sum(),
+            'any_ing_corn_usual_or_literal': summary_df['any_ing_corn_usual_or_literal'].sum(),
+            'any_ing_corn_any': summary_df['any_ing_corn_any'].sum(),
+            'first_ing_corn_literal_rate': avg_first_lit,
+            'first_ing_corn_usual_or_literal_rate': avg_first_usu,
+            'any_ing_corn_literal_rate': avg_any_lit,
+            'any_ing_corn_usual_or_literal_rate': avg_any_usu,
+            'any_ing_corn_any_rate': avg_any_all,
+        }
+
+        # Append average row to summary dataframe for CSV export
+        summary_with_avg = pd.concat([summary_df, pd.DataFrame([avg_row])], ignore_index=True)
+
+        # Save summary with average row
         summary_path = os.path.join(output_dir, 'corn_classification_summary.csv')
-        summary_df.to_csv(summary_path, index=False)
-        print(f"\n✓ Summary saved to: {summary_path}")
+        summary_with_avg.to_csv(summary_path, index=False)
+        print(f"\nSaved summary to: {summary_path}")
 
         print(f"\n✓ All output saved to: {output_dir}")
         print(f"\nTo read the data:")

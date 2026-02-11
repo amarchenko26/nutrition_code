@@ -27,6 +27,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from glob import glob
 from scipy import stats
+from matplotlib.ticker import FuncFormatter
 
 
 # ============================================================================
@@ -216,6 +217,11 @@ def normalize_product_name(upc_descr):
     normalized = re.sub(r'\s+\d+(\.\d+)?\s*(OZ|LB|CT|PK|PC|ML|L|GAL|QT|PT)$', '', normalized, flags=re.IGNORECASE)
 
     return normalized.strip()
+
+
+def set_year_axis(ax):
+    """Format year axis ticks as integers (no decimals)."""
+    ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _: f"{int(x)}"))
 
 
 def compute_proliferation_by_module(years_to_process=None, use_cache=None, data_source='matched'):
@@ -551,6 +557,7 @@ def plot_overall_proliferation(proliferation_df, normalized_df, output_path=None
     plt.title(f'Total Unique UPCs\n({source_label})')
     plt.grid(True, alpha=0.3)
     plt.xticks(rotation=45)
+    set_year_axis(plt.gca())
     plt.text(0.05, 0.95, f'Growth: {growth:+.1f}%', transform=plt.gca().transAxes,
              fontsize=10, verticalalignment='top')
     plt.tight_layout()
@@ -572,6 +579,7 @@ def plot_overall_proliferation(proliferation_df, normalized_df, output_path=None
     plt.title(f'Unique Products (size-adjusted)\n({source_label})')
     plt.grid(True, alpha=0.3)
     plt.xticks(rotation=45)
+    set_year_axis(plt.gca())
     plt.tight_layout()
 
     if output_path:
@@ -648,6 +656,7 @@ def plot_proliferation_by_top_modules(proliferation_df, normalized_df, top_n=10,
     plt.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=8)
     plt.grid(True, alpha=0.3)
     plt.xticks(rotation=45)
+    set_year_axis(plt.gca())
     plt.tight_layout()
 
     if output_path:
@@ -672,6 +681,7 @@ def plot_proliferation_by_top_modules(proliferation_df, normalized_df, top_n=10,
     plt.legend(loc='center left', bbox_to_anchor=(1, 0.5), fontsize=8)
     plt.grid(True, alpha=0.3)
     plt.xticks(rotation=45)
+    set_year_axis(plt.gca())
     plt.tight_layout()
 
     if output_path:
@@ -683,45 +693,6 @@ def plot_proliferation_by_top_modules(proliferation_df, normalized_df, top_n=10,
     plt.show()
 
     return fig1, fig2
-
-
-def plot_upf_proliferation_over_time(proliferation_df, value_col='n_upcs', output_path=None, data_source='matched'):
-    """
-    Plot proliferation of UPF categories over time.
-
-    Parameters:
-    -----------
-    proliferation_df : DataFrame
-        Output from compute_proliferation_by_module()
-    value_col : str
-        Column to aggregate (e.g., 'n_upcs' or 'n_products')
-    output_path : str, optional
-        Path to save figure
-    data_source : str
-        'raw' or 'matched' - used for labeling
-    """
-    source_label = DATA_SOURCE_LABELS[data_source]
-
-    yearly = proliferation_df[proliferation_df['upf_category'] == 'UPF'] \
-        .groupby('panel_year')[value_col].sum().reset_index()
-
-    fig = plt.figure(figsize=(8, 6))
-    plt.plot(yearly['panel_year'], yearly[value_col] / 1000,
-             marker='o', linewidth=2, color='#d62728')
-    plt.xlabel('Year')
-    plt.ylabel(f'UPF {value_col.replace("_", " ").title()} (thousands)')
-    plt.title(f'UPF Proliferation Over Time\n({source_label})')
-    plt.grid(True, alpha=0.3)
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-
-    if output_path:
-        plt.savefig(output_path, dpi=150, bbox_inches='tight')
-        print(f"Saved to: {output_path}")
-
-    plt.show()
-
-    return fig
 
 
 def plot_upf_vs_non_upf_proliferation(proliferation_df, value_col='n_upcs', output_path=None, data_source='matched'):
@@ -756,6 +727,7 @@ def plot_upf_vs_non_upf_proliferation(proliferation_df, value_col='n_upcs', outp
     plt.legend(loc='best')
     plt.grid(True, alpha=0.3)
     plt.xticks(rotation=45)
+    set_year_axis(plt.gca())
     plt.tight_layout()
 
     if output_path:
@@ -799,51 +771,7 @@ def plot_upf_vs_non_upf_diff_over_time(proliferation_df, value_col='n_upcs', out
     plt.grid(True, alpha=0.3)
     plt.xticks(rotation=45)
     plt.axhline(0, color='gray', linewidth=1, alpha=0.6)
-    plt.tight_layout()
-
-    if output_path:
-        plt.savefig(output_path, dpi=150, bbox_inches='tight')
-        print(f"Saved to: {output_path}")
-
-    plt.show()
-
-    return fig
-
-
-def plot_upf_vs_non_upf_slope_diff_over_time(proliferation_df, value_col='n_upcs', output_path=None, data_source='matched'):
-    """
-    Plot the difference in yearly slope (year-over-year change) between UPF and Non-UPF.
-
-    Parameters:
-    -----------
-    proliferation_df : DataFrame
-        Output from compute_proliferation_by_module()
-    value_col : str
-        Column to aggregate (e.g., 'n_upcs' or 'n_products')
-    output_path : str, optional
-        Path to save figure
-    data_source : str
-        'raw' or 'matched' - used for labeling
-    """
-    source_label = DATA_SOURCE_LABELS[data_source]
-
-    yearly = proliferation_df[proliferation_df['upf_category'].isin(['UPF', 'Non-UPF'])] \
-        .groupby(['panel_year', 'upf_category'])[value_col].sum().reset_index()
-
-    pivoted = yearly.pivot(index='panel_year', columns='upf_category', values=value_col).sort_index()
-    pivoted['upf_delta'] = pivoted['UPF'].diff()
-    pivoted['nonupf_delta'] = pivoted['Non-UPF'].diff()
-    pivoted['delta_diff'] = pivoted['upf_delta'] - pivoted['nonupf_delta']
-
-    fig = plt.figure(figsize=(8, 6))
-    plt.plot(pivoted.index, pivoted['delta_diff'] / 1000,
-             marker='o', linewidth=2, color='#8c564b')
-    plt.xlabel('Year')
-    plt.ylabel(f'Change Diff (UPF - Non-UPF) {value_col.replace("_", " ").title()} (thousands)')
-    plt.title(f'Difference in Yearly Changes: UPF minus Non-UPF\n({source_label})')
-    plt.grid(True, alpha=0.3)
-    plt.xticks(rotation=45)
-    plt.axhline(0, color='gray', linewidth=1, alpha=0.6)
+    set_year_axis(plt.gca())
     plt.tight_layout()
 
     if output_path:
@@ -894,6 +822,8 @@ def correlate_proliferation_with_cornification(normalized_df, corn_df, output_pa
 
     print(f"Merged data: {len(merged):,} module-year observations")
 
+    min_total_purchases = 1000 if USE_SAMPLE else 100000
+
     # Analysis 1: Cross-sectional correlation (average across years)
     module_avg = merged.groupby('product_module_descr').agg(
         avg_products=('n_products', 'mean'),
@@ -902,11 +832,16 @@ def correlate_proliferation_with_cornification(normalized_df, corn_df, output_pa
     ).reset_index()
 
     # Filter to modules with sufficient data
-    module_avg = module_avg[module_avg['total_purchases'] > 100000]
+    module_avg = module_avg[module_avg['total_purchases'] > min_total_purchases]
 
-    corr_level, pval_level = stats.pearsonr(module_avg['avg_products'], module_avg['avg_corn_rate'])
-    print(f"\nCross-sectional correlation (avg products vs avg corn rate):")
-    print(f"  Pearson r = {corr_level:.3f} (p = {pval_level:.4f})")
+    if len(module_avg) < 2:
+        corr_level, pval_level = np.nan, np.nan
+        print("\nCross-sectional correlation (avg products vs avg corn rate):")
+        print("  WARNING: Not enough data points to compute correlation (need >= 2).")
+    else:
+        corr_level, pval_level = stats.pearsonr(module_avg['avg_products'], module_avg['avg_corn_rate'])
+        print(f"\nCross-sectional correlation (avg products vs avg corn rate):")
+        print(f"  Pearson r = {corr_level:.3f} (p = {pval_level:.4f})")
 
     # Analysis 2: Growth correlation
     # Calculate growth in products and change in cornification per module
@@ -935,27 +870,34 @@ def correlate_proliferation_with_cornification(normalized_df, corn_df, output_pa
 
     changes = merged.groupby('product_module_descr').apply(calc_changes).reset_index()
     changes = changes.dropna()
-    changes = changes[changes['total_purchases'] > 100000]  # Filter to substantial modules
+    changes = changes[changes['total_purchases'] > min_total_purchases]  # Filter to substantial modules
 
-    corr_growth, pval_growth = stats.pearsonr(changes['product_growth'], changes['corn_change'])
-    print(f"\nGrowth correlation (product growth % vs corn rate change pp):")
-    print(f"  Pearson r = {corr_growth:.3f} (p = {pval_growth:.4f})")
+    if len(changes) < 2:
+        corr_growth, pval_growth = np.nan, np.nan
+        print(f"\nGrowth correlation (product growth % vs corn rate change pp):")
+        print("  WARNING: Not enough data points to compute correlation (need >= 2).")
+    else:
+        corr_growth, pval_growth = stats.pearsonr(changes['product_growth'], changes['corn_change'])
+        print(f"\nGrowth correlation (product growth % vs corn rate change pp):")
+        print(f"  Pearson r = {corr_growth:.3f} (p = {pval_growth:.4f})")
 
     # Figure 1: Cross-sectional (level)
     fig1 = plt.figure(figsize=(8, 6))
     plt.scatter(module_avg['avg_products'], module_avg['avg_corn_rate'],
                 alpha=0.5, s=module_avg['total_purchases'] / 1e6)
 
-    # Add regression line
-    z = np.polyfit(module_avg['avg_products'], module_avg['avg_corn_rate'], 1)
-    p = np.poly1d(z)
-    x_line = np.linspace(module_avg['avg_products'].min(), module_avg['avg_products'].max(), 100)
-    plt.plot(x_line, p(x_line), 'r--', alpha=0.7, label=f'r = {corr_level:.3f}')
+    # Add regression line if we have enough points
+    if len(module_avg) >= 2:
+        z = np.polyfit(module_avg['avg_products'], module_avg['avg_corn_rate'], 1)
+        p = np.poly1d(z)
+        x_line = np.linspace(module_avg['avg_products'].min(), module_avg['avg_products'].max(), 100)
+        plt.plot(x_line, p(x_line), 'r--', alpha=0.7, label=f'r = {corr_level:.3f}')
 
     plt.xlabel('Average Number of Products (size-adjusted)')
     plt.ylabel('Average Cornification Rate (%)')
     plt.title(f'Product Variety vs Cornification\n(Proliferation: {source_label})')
-    plt.legend()
+    if len(module_avg) >= 2:
+        plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
 
@@ -972,18 +914,20 @@ def correlate_proliferation_with_cornification(normalized_df, corn_df, output_pa
     plt.scatter(changes['product_growth'], changes['corn_change'],
                 alpha=0.5, s=changes['total_purchases'] / 1e6)
 
-    # Add regression line
-    z = np.polyfit(changes['product_growth'], changes['corn_change'], 1)
-    p = np.poly1d(z)
-    x_line = np.linspace(changes['product_growth'].min(), changes['product_growth'].max(), 100)
-    plt.plot(x_line, p(x_line), 'r--', alpha=0.7, label=f'r = {corr_growth:.3f}')
+    # Add regression line if we have enough points
+    if len(changes) >= 2:
+        z = np.polyfit(changes['product_growth'], changes['corn_change'], 1)
+        p = np.poly1d(z)
+        x_line = np.linspace(changes['product_growth'].min(), changes['product_growth'].max(), 100)
+        plt.plot(x_line, p(x_line), 'r--', alpha=0.7, label=f'r = {corr_growth:.3f}')
 
     plt.xlabel('Product Growth (%)')
     plt.ylabel('Cornification Change (pp)')
     plt.title(f'Product Growth vs Cornification Change\n(Proliferation: {source_label})')
     plt.axhline(y=0, color='gray', linestyle='-', alpha=0.3)
     plt.axvline(x=0, color='gray', linestyle='-', alpha=0.3)
-    plt.legend()
+    if len(changes) >= 2:
+        plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
 
@@ -1059,14 +1003,6 @@ def run_analysis_for_source(data_source, years, corn_df=None):
         data_source=data_source
     )
 
-    # Plot UPF proliferation over time
-    plot_upf_proliferation_over_time(
-        proliferation_df,
-        value_col='n_upcs',
-        output_path=os.path.join(OUTPUT_DIR, f'proliferation_upf_{suffix}.png'),
-        data_source=data_source
-    )
-
     # Plot UPF vs Non-UPF comparison
     plot_upf_vs_non_upf_proliferation(
         proliferation_df,
@@ -1080,14 +1016,6 @@ def run_analysis_for_source(data_source, years, corn_df=None):
         proliferation_df,
         value_col='n_upcs',
         output_path=os.path.join(OUTPUT_DIR, f'proliferation_upf_vs_nonupf_diff_{suffix}.png'),
-        data_source=data_source
-    )
-
-    # Plot UPF vs Non-UPF slope difference over time (year-over-year change)
-    plot_upf_vs_non_upf_slope_diff_over_time(
-        proliferation_df,
-        value_col='n_upcs',
-        output_path=os.path.join(OUTPUT_DIR, f'proliferation_upf_vs_nonupf_slope_diff_{suffix}.png'),
         data_source=data_source
     )
 
@@ -1199,19 +1127,6 @@ def main():
     print("ANALYSIS COMPLETE")
     print("=" * 80)
     print(f"\nOutput files saved to: {OUTPUT_DIR}")
-    print("\nFiles generated:")
-    print("  - proliferation_overall_raw.png (Raw Nielsen Data)")
-    print("  - proliferation_overall_matched.png (USDA-Matched Data)")
-    print("  - proliferation_by_module_raw.png (Raw Nielsen Data)")
-    print("  - proliferation_by_module_matched.png (USDA-Matched Data)")
-    print("  - proliferation_upf_raw.png (UPF only, Raw Nielsen Data)")
-    print("  - proliferation_upf_matched.png (UPF only, USDA-Matched Data)")
-    print("  - proliferation_upf_vs_nonupf_raw.png (UPF vs Non-UPF, Raw Nielsen Data)")
-    print("  - proliferation_upf_vs_nonupf_matched.png (UPF vs Non-UPF, USDA-Matched Data)")
-    print("  - proliferation_upf_vs_nonupf_diff_raw.png (UPF minus Non-UPF, Raw Nielsen Data)")
-    print("  - proliferation_upf_vs_nonupf_diff_matched.png (UPF minus Non-UPF, USDA-Matched Data)")
-    print("  - proliferation_upf_vs_nonupf_slope_diff_raw.png (YoY change diff, Raw Nielsen Data)")
-    print("  - proliferation_upf_vs_nonupf_slope_diff_matched.png (YoY change diff, USDA-Matched Data)")
     if corn_df is not None:
         print("  - proliferation_corn_correlation_raw.png (Raw proliferation vs cornification)")
         print("  - proliferation_corn_correlation_matched.png (Matched proliferation vs cornification)")
