@@ -130,12 +130,13 @@ def add_normalized_module_column(df):
 def standardize_product_columns(df):
     """
     Standardize product module/group columns to product_module/product_group.
+    Only renames _descr/_desc columns (not _code columns) to avoid duplicates.
     """
     rename_map = {}
     for col in df.columns:
-        if col.startswith('product_module_') and col != 'product_module':
+        if col in ['product_module_descr', 'product_module_desc']:
             rename_map[col] = 'product_module'
-        if col.startswith('product_group_') and col != 'product_group':
+        if col in ['product_group_descr', 'product_group_desc']:
             rename_map[col] = 'product_group'
     if rename_map:
         df = df.rename(columns=rename_map)
@@ -519,8 +520,8 @@ def load_products_2021_plus(tarball_path, year):
         print(f"producthierarchy shape: {producthierarchy_df.shape}")
 
         # Keep only needed columns from each file
-        module_col = next((c for c in productdesc_df.columns if c.startswith('product_module')), None)
-        if not module_col:
+        module_col = 'product_module_descr'
+        if not module_col in productdesc_df.columns:
             print("ERROR: product module column not found in productdesc.tsv")
             print(f"Available columns: {productdesc_df.columns.tolist()}")
             return None
@@ -681,6 +682,7 @@ def load_products_master(master_tarball_path):
         # Extract and load
         f = tar.extractfile(products_file)
         products_df = pd.read_csv(f, delimiter='\t', low_memory=False, encoding='latin-1')
+        products_df = products_df.reset_index(drop=True)
         products_df = standardize_product_columns(products_df)
 
         print(f"Shape: {products_df.shape}")
@@ -727,7 +729,7 @@ def filter_products_by_department(products_df, drop_department_desc_pre_2021, dr
         print(f"  {dept}: {count:,} products [{status}]")
 
     # Filter out unwanted departments
-    products_filtered = products_df[~products_df['department_descr'].isin(drop_department_desc_pre_2021)]
+    products_filtered = products_df[~products_df['department_descr'].isin(drop_department_desc_pre_2021)].reset_index(drop=True)
     # Further filter by product_group
     if 'product_group' in products_filtered.columns:
         initial_count = len(products_filtered)
@@ -764,10 +766,9 @@ def filter_products_by_department(products_df, drop_department_desc_pre_2021, dr
                          'brand_descr',
                          'multi',
                          'size1_amount',
-                         'size1_units']
+                         'size1_units'] 
 
     products_filtered = products_filtered[keep_product_cols]
-
     print(f"\n\nFiltering results:")
     print(f"  Original products: {len(products_df):,}")
     print(f"  Dropped products: {len(products_df) - len(products_filtered):,}")
@@ -915,6 +916,8 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered):
         standard_purchase_cols = ['trip_code_uc', 'upc', 'upc_ver_uc',
                                  'quantity', 'total_price_paid',
                                  'coupon_value', 'deal_flag_uc']
+        if year >= 2021:
+            standard_purchase_cols += ['size1_amount_hms', 'size1_unit_hms']
 
         # Prepare products dataframes - keep only needed columns
         products_df_food = products_df_filtered.copy()
@@ -972,6 +975,11 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered):
         # Combine all filtered chunks
         if filtered_chunks:
             purchases_filtered = pd.concat(filtered_chunks, ignore_index=True)
+            if 'size1_amount_hms' in purchases_filtered.columns and 'size1_unit_hms' in purchases_filtered.columns:
+                purchases_filtered = purchases_filtered.rename(columns={
+                    'size1_amount_hms': 'size1_amount',
+                    'size1_unit_hms': 'size1_units'
+                })
             print(f"\nFiltered dataset shape: {purchases_filtered.shape}")
             print(f"\nSample of filtered data:")
             print(purchases_filtered.head(20))
@@ -1037,8 +1045,8 @@ def main():
     master_products_path = f'{base_path}/Master_Files2004-2020.tgz'
 
     # List of years to process
-    #years_to_process = [2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
-    years_to_process = [2024] 
+    # years_to_process = [2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
+    years_to_process = [2021, 2022, 2023, 2024] 
 
     # Departments to DROP (for pre-2021 master file)
     drop_department_desc_pre_2021 = [
@@ -1296,15 +1304,12 @@ def main():
 
     # Output directory for partitioned parquet dataset
     output_dir = f'/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/purchases_food'
-
-    # Create output directory if it doesn't exist
+    
     os.makedirs(output_dir, exist_ok=True)
-
     print(f"\nOutput directory: {output_dir}")
     print("Each year will be saved as a separate partition")
 
     # Process each year
-    # Write each year to its own partition (no memory accumulation)
     total_rows_written = 0
     years_processed = 0
     years_succeeded = []
