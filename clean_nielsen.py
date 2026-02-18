@@ -511,12 +511,14 @@ def load_products_2021_plus(tarball_path, year):
 
         # Load productdesc.tsv
         f = tar.extractfile(productdesc_file)
-        productdesc_df = pd.read_csv(f, delimiter='\t', low_memory=False, encoding='latin-1')
+        productdesc_df = pd.read_csv(f, delimiter='\t', low_memory=False, encoding='latin-1',
+                                     dtype={'upc': str})
         print(f"productdesc shape: {productdesc_df.shape}")
 
         # Load producthierarchy.tsv
         f = tar.extractfile(producthierarchy_file)
-        producthierarchy_df = pd.read_csv(f, delimiter='\t', low_memory=False, encoding='latin-1')
+        producthierarchy_df = pd.read_csv(f, delimiter='\t', low_memory=False, encoding='latin-1',
+                                          dtype={'upc': str})
         print(f"producthierarchy shape: {producthierarchy_df.shape}")
 
         # Keep only needed columns from each file
@@ -681,7 +683,8 @@ def load_products_master(master_tarball_path):
 
         # Extract and load
         f = tar.extractfile(products_file)
-        products_df = pd.read_csv(f, delimiter='\t', low_memory=False, encoding='latin-1')
+        products_df = pd.read_csv(f, delimiter='\t', low_memory=False, encoding='latin-1',
+                                  dtype={'upc': str})
         products_df = products_df.reset_index(drop=True)
         products_df = standardize_product_columns(products_df)
 
@@ -895,7 +898,8 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered):
         f = tar.extractfile(purchases_file)
 
         print("\nReading first chunk to explore structure...")
-        df_sample = pd.read_csv(f, delimiter='\t', nrows=10000, low_memory=False, encoding='latin-1')
+        df_sample = pd.read_csv(f, delimiter='\t', nrows=10000, low_memory=False, encoding='latin-1',
+                                dtype={'upc': str})
         print(f"Columns: {df_sample.columns.tolist()}")
 
         # Detect column names once
@@ -915,7 +919,7 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered):
         # Define standardized columns to keep from purchases
         standard_purchase_cols = ['trip_code_uc', 'upc', 'upc_ver_uc',
                                  'quantity', 'total_price_paid',
-                                 'coupon_value', 'deal_flag_uc']
+                                 'coupon_value'] #, 'deal_flag_uc'
         if year >= 2021:
             standard_purchase_cols += ['size1_amount_hms', 'size1_unit_hms']
 
@@ -934,7 +938,8 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered):
         kept_rows = 0
 
         for i, chunk in enumerate(pd.read_csv(f, delimiter='\t', chunksize=500000,
-                                             low_memory=False, encoding='latin-1')):
+                                             low_memory=False, encoding='latin-1',
+                                             dtype={'upc': str})):
             total_rows += len(chunk)
             chunk.columns = chunk.columns.str.lower()
 
@@ -943,6 +948,7 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered):
             chunk = chunk[available_std_cols]
 
             # Merge with food products only (inner join = keep only matched)
+            # Per Nielsen manual: use both upc and upc_ver_uc when available
             if upc_ver_col and upc_ver_col_products and upc_ver_col in chunk.columns:
                 filtered = chunk.merge(
                     products_df_food,
@@ -950,13 +956,17 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered):
                     right_on=[upc_col_products, upc_ver_col_products],
                     how='inner'
                 )
+                if i == 0:
+                    print(f"  Merging on [{upc_col}, {upc_ver_col}] (both UPC and version)")
+                
+                # Drop upc_ver_uc after merge - only needed as a merge key
+                for col in [upc_ver_col, upc_ver_col_products, 'upc_ver_uc']:
+                    if col in filtered.columns:
+                        filtered = filtered.drop(columns=col)
             else:
                 filtered = chunk.merge(products_df_food, left_on=upc_col, right_on=upc_col_products, how='inner')
-
-            # Drop UPC version from final output
-            for col in [upc_ver_col, upc_ver_col_products, 'upc_ver_uc']:
-                if col in filtered.columns:
-                    filtered = filtered.drop(columns=col)
+                if i == 0:
+                    print(f"  Merging on [{upc_col}] only (upc_ver_uc not available in product data)")
 
             # Merge with trips to get household information
             filtered = filtered.merge(trips_df, on=trip_col, how='left')
@@ -1045,8 +1055,8 @@ def main():
     master_products_path = f'{base_path}/Master_Files2004-2020.tgz'
 
     # List of years to process
-    # years_to_process = [2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
-    years_to_process = [2021, 2022, 2023, 2024] 
+    years_to_process = [2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
+    # years_to_process = [2021, 2022, 2023, 2024] 
 
     # Departments to DROP (for pre-2021 master file)
     drop_department_desc_pre_2021 = [
@@ -1347,9 +1357,18 @@ def main():
                 print(f"Warning: panel_year not found, adding it manually as {year}")
                 result['panel_year'] = year
 
+            # Subtract coupon value from total_price_paid to get net price paid by panelist
+            if 'coupon_value' in result.columns and 'total_price_paid' in result.columns:
+                result['total_price_paid'] = result['total_price_paid'] - result['coupon_value'].fillna(0)
+                print(f"\nSubtracted coupon_value from total_price_paid")
+
             # Deflate prices before saving
             print(f"\nDeflating prices for year {year}...")
             result = deflate_prices(result, cpi_lookup, target_cpi, year)
+
+            # Drop coupon_value column
+            if 'coupon_value' in result.columns:
+                result = result.drop(columns=['coupon_value'])
 
             # Add normalized product module column for cross-year consistency
             print(f"\nNormalizing product module names for year {year}...")

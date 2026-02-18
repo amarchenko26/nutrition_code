@@ -452,7 +452,13 @@ def compute_cornification_by_module(years_to_process=None):
     module_cache = os.path.join(paths['cache_dir'], 'module_trends_cache.csv')
     if os.path.exists(module_cache):
         print(f"Loading from existing cache: {module_cache}")
-        return pd.read_csv(module_cache)
+        cached = pd.read_csv(module_cache)
+        # The cache from plot_corn_trends.py uses 'first_ing_is_corn_usual_or_literal',
+        # but this function's callers expect 'corn_rate'
+        corn_col = 'first_ing_is_corn_usual_or_literal'
+        if corn_col in cached.columns and 'corn_rate' not in cached.columns:
+            cached = cached.rename(columns={corn_col: 'corn_rate'})
+        return cached
 
     # Otherwise compute it
     year_dirs = sorted(glob(os.path.join(paths['purchases_path'], 'panel_year=*')))
