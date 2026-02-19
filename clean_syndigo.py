@@ -77,9 +77,25 @@ def load_syndigo_year(year):
         print(f"  Skipping {year}: directory not found")
         return None
 
+    # --- Product csv (has package sizes) ---
+    product_df = pd.read_csv(os.path.join(year_dir, get_product_filename(year)),
+                                  encoding='latin-1', dtype={'UPC': str})
+    product_df.columns = product_df.columns.str.lower()
+
+    # --- ValuePrepared csv (has serving sizes kill me) ---
+    value_prepared = pd.read_csv(os.path.join(year_dir, 'ValuePrepared.csv'),
+                                 encoding='latin-1', dtype={'UPC': str})
+
+    # Lowercase all column names for merging
+    value_prepared.columns = value_prepared.columns.str.lower()
+
+    # Keep only "as packaged" (type 0), drop "as prepared" rows
+    value_prepared = value_prepared[value_prepared['valuepreparedtype'].astype(str) == '0']
+    value_prepared = value_prepared.drop(columns=['valuepreparedtype'])
+
     # --- NutrientMaster (lookup table) ---
     nutrient_master = pd.read_csv(os.path.join(year_dir, 'NutrientMaster.csv'),
-                                  encoding='latin-1')
+                                  encoding='latin-1', dtype={'UPC': str})
 
     # Lowercase all column names for merging 
     nutrient_master.columns = nutrient_master.columns.str.lower()
@@ -107,8 +123,17 @@ def load_syndigo_year(year):
                                     'nutrientmasterid': 'nutrient_id',
                                     'name': 'nutrient'})
 
-    # Drop valuepreparedtype
+    # Keep only "as packaged" nutrients (type 0), then drop the column
+    merged = merged[merged['valuepreparedtype'].astype(str) == '0']
     merged = merged.drop(columns=['valuepreparedtype', 'type'])
+
+    # Merge item size and itemmeasure from Product.csv
+    merged = merged.merge(product_df[['upc', 'itemsize', 'itemmeasure']],
+                          on='upc', how='left')
+    
+    # Merge serving size info from ValuePrepared.csv
+    merged = merged.merge(value_prepared[['upc', 'servingsizetext', 'servingsizeuom', 'servingspercontainer']],
+                          on='upc', how='left')
 
     # Harmonize UPC: drop check digit -> 13 digits
     merged['upc'] = harmonize_syndigo_upc(merged['upc'])
