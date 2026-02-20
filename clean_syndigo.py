@@ -233,8 +233,9 @@ def load_syndigo_year(year):
     # Lowercase all column names for merging
     value_prepared.columns = value_prepared.columns.str.lower()
 
-    # Keep only "as packaged" (type 0), drop "as prepared" rows
-    value_prepared = value_prepared[pd.to_numeric(value_prepared['valuepreparedtype'], errors='coerce') == 0]
+    # Keep only "as packaged" (min type: 0 in most years, 1 in 2008)
+    vp_type = pd.to_numeric(value_prepared['valuepreparedtype'], errors='coerce')
+    value_prepared = value_prepared[vp_type == vp_type.min()]
     value_prepared = value_prepared.drop(columns=['valuepreparedtype'])
 
 
@@ -287,9 +288,9 @@ def load_syndigo_year(year):
 
 
     #------ Calculate nutrients per 100g
-    # total_nutrients = nutrients_per_serving × servings_per_container
-    # g_total     = ItemSize converted to grams (using ItemMeasure, which is the unit for ItemSize)
-    # nutrients_per_100g = total_nutrients / total_grams × 100
+    # g_total = ItemSize converted to grams (using ItemMeasure, which is the unit for ItemSize)
+    # g_serving_size = serving size in grams (direct from serving text/uom, or g_total / servingspercontainer)
+    # nutrients_per_100g = nutrients_per_serving / serving_size_grams × 100
 
     # Quantity, servingspercontainer are stored as negative if it's less than, just like in Nielsen. Take absolute value to get actual quantity.
     merged['quantity'] = pd.to_numeric(merged['quantity'], errors='coerce').abs()
@@ -312,26 +313,27 @@ def load_syndigo_year(year):
     merged['g_serving_size'] = convert_itemsize_to_grams(
         merged['servingsizetext'], merged['servingsizeuom'])
 
-    # Total nutrient in package = per-serving × servings per container
-    merged['g_nut_total'] = merged['g_nut_per_serving'] * merged['servingspercontainer']
+    # If serving size is missing, infer from package grams / servings per container.
+    missing_ss = (
+        merged['g_serving_size'].isna()
+        & merged['g_total'].notna()
+        & merged['servingspercontainer'].notna()
+    )
+    merged.loc[missing_ss, 'g_serving_size'] = (
+        merged.loc[missing_ss, 'g_total'] / merged.loc[missing_ss, 'servingspercontainer']
+    )
 
-    # Primary: nutrient per 100g = total nutrient / total package weight × 100
-    merged['nut_per_100g'] = (merged['g_nut_total'] / merged['g_total']) * 100
-
-    # Fallback: where nut_per_100g is missing, use per-serving / serving size × 100
-    # (bypasses both servingspercontainer and g_total)
-    missing = merged['nut_per_100g'].isna()
-    has_fallback = merged['g_nut_per_serving'].notna() & merged['g_serving_size'].notna()
-    merged.loc[missing & has_fallback, 'nut_per_100g'] = (
-        merged.loc[missing & has_fallback, 'g_nut_per_serving']
-        / merged.loc[missing & has_fallback, 'g_serving_size'] * 100)
+    # One formula: nutrient per 100g = per-serving nutrient / serving size × 100
+    merged['nut_per_100g'] = (
+        merged['g_nut_per_serving'] / merged['g_serving_size'] * 100
+    )
 
     # Keep only the columns we need
     keep_cols = ['upc', 'nutrient_id', 'nutrient',
                  'quantity', 'uom', 'g_nut_per_serving',
                  'itemsize', 'itemmeasure', 'g_total',
                  'servingspercontainer', 'servingsizetext', 'servingsizeuom', 
-                 'g_serving_size', 'g_nut_total', 'nut_per_100g']
+                 'g_serving_size', 'nut_per_100g']
     merged = merged[[c for c in keep_cols if c in merged.columns]]
 
     return merged

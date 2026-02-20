@@ -5,7 +5,7 @@ Merge Nielsen purchases with Syndigo nutrition data.
 2. Load Nielsen purchases, extract unique UPCs with size1_amount/size1_units
 3. Merge on harmonized 13-digit UPC
 4. For UPCs where Syndigo's g_total is missing, fall back to Nielsen's size1
-5. Recalculate nut_per_100g for filled-in rows
+5. Recalculate g_serving_size and nut_per_100g for filled-in rows
 """
 
 import os
@@ -95,10 +95,25 @@ def main():
         n_filled_upcs = merged.loc[can_fill, 'upc'][filled.reindex(merged.loc[can_fill].index, fill_value=False)].nunique()
         print(f"\n  Filled g_total from Nielsen size1 for {n_filled_upcs:,} UPCs")
 
-    # Recalculate nut_per_100g wherever g_total was just filled
-    recalc = merged['nut_per_100g'].isna() & merged['g_total'].notna() & merged['g_nut_total'].notna()
+    # Fill serving size from package grams / servings where direct serving size is missing.
+    missing_ss = (
+        merged['g_serving_size'].isna()
+        & merged['g_total'].notna()
+        & merged['servingspercontainer'].notna()
+    )
+    merged.loc[missing_ss, 'g_serving_size'] = (
+        merged.loc[missing_ss, 'g_total'] / merged.loc[missing_ss, 'servingspercontainer']
+    )
+
+    # Recalculate nut_per_100g using one formula.
+    recalc = (
+        merged['nut_per_100g'].isna()
+        & merged['g_nut_per_serving'].notna()
+        & merged['g_serving_size'].notna()
+    )
     merged.loc[recalc, 'nut_per_100g'] = (
-        merged.loc[recalc, 'g_nut_total'] / merged.loc[recalc, 'g_total'] * 100)
+        merged.loc[recalc, 'g_nut_per_serving'] / merged.loc[recalc, 'g_serving_size'] * 100
+    )
 
     # ---- Final stats ----
     n_final = merged['upc'].nunique()
