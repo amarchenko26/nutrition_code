@@ -52,10 +52,6 @@ def harmonize_syndigo_upc(upc_series):
     return upc_series.astype(str).str.strip().str.zfill(14).str[:-1]
 
 
-def harmonize_nielsen_upc(upc_series):
-    """Nielsen 12-digit UPC -> prepend '0' -> 13 digits."""
-    return '0' + upc_series.astype(str).str.zfill(12)
-
 def convert_itemsize_to_grams(itemsize, itemmeasure):
     """
     Convert itemsize + itemmeasure to grams.
@@ -78,6 +74,8 @@ def convert_itemsize_to_grams(itemsize, itemmeasure):
         'cc':    1.0,
         'l':     1000.0,
         'cup':   236.588,
+        'tbsp':  14.787,
+        'tsp':   4.929,
         'pt':    473.176,
         'qt':    946.353,
         'gal':   3785.41,
@@ -90,7 +88,7 @@ def convert_itemsize_to_grams(itemsize, itemmeasure):
         # --- Ounces (oz = 28.3495g) ---
         '0z': 'oz', 'ozoz': 'oz', 'ozz': 'oz', 'ox': 'oz', 'iz': 'oz',
         'o z': 'oz', 'oz,': 'oz', 'oz.': 'oz', 'eoz': 'oz', 'ioz': 'oz',
-        'zo': 'oz', 'z': 'oz', 'oe': 'oz', 'os': 'oz',
+        'zo': 'oz', 'z': 'oz', 'oe': 'oz', 'os': 'oz', 'ounces': 'oz', 'ounce': 'oz',
         # --- Fluid ounces (fl oz = 29.5735g) ---
         'fl': 'fl oz', 'fl ': 'fl oz', 'f. oz': 'fl oz', 'fl.oz': 'fl oz',
         'floz': 'fl oz', 'foz': 'fl oz', '12 fl': 'fl oz',
@@ -108,6 +106,10 @@ def convert_itemsize_to_grams(itemsize, itemmeasure):
         'quart': 'qt', 'qts': 'qt', 'ql': 'qt',
         # --- Cups (cup = 236.588g) ---
         'cups': 'cup', 'cu': 'cup',
+        # --- Tablespoons (tbsp = 14.787g) ---
+        'tablespoon': 'tbsp', 'tablespoons': 'tbsp', 'tbs': 'tbsp',
+        # --- Teaspoons (tsp = 4.929g) ---
+        'teaspoon': 'tsp', 'teaspoons': 'tsp',
         # --- Count-based units (can't convert to grams) ---
         'ea': 'ea', 'each': 'ea', 'ea.': 'ea', 'ea`': 'ea',
         'eaa': 'ea', 'eae': 'ea', 'eaea': 'ea', 'eas': 'ea', 'eaw': 'ea',
@@ -116,10 +118,17 @@ def convert_itemsize_to_grams(itemsize, itemmeasure):
         'pk': 'ea', 'pkg': 'ea', 'pack': 'ea', 'packs': 'ea', 'pak': 'ea',
         'bar': 'ea', 'bars': 'ea', 'bag': 'ea', 'bags': 'ea',
         'box': 'ea', 'case': 'ea', 'cakes': 'ea', 'pans': 'ea', 'slice': 'ea',
-        'eggs': 'ea', 'roll': 'ea', 'rolls': 'ea',
+        'slices': 'ea', 'eggs': 'ea', 'roll': 'ea', 'rolls': 'ea',
         'set': 'ea', '1 set': 'ea',
         'tabs': 'ea', 'pills': 'ea', 'caps': 'ea', 'gels': 'ea',
         'pads': 'ea', 'wipes': 'ea', 'pr': 'ea',
+        # Serving-size count units (from servingsizetext/servingsizeuom)
+        'pieces': 'ea', 'piece': 'ea', 'package': 'ea', 'pckg': 'ea',
+        'can': 'ea', 'cookies': 'ea', 'cookie': 'ea',
+        'scoop': 'ea', 'scoops': 'ea', 'bottle': 'ea',
+        'packet': 'ea', 'container': 'ea', 'pouch': 'ea',
+        'crackers': 'ea', 'chips': 'ea', 'wafers': 'ea',
+        'waffles': 'ea', 'biscuits': 'ea', 'envelope': 'ea',
         # Compound units (itemsize is a count, unit has per-item size baked in)
         '6 oz': 'ea', '12 oz': 'ea', '16 oz': 'ea',
         # Non-food measurement units
@@ -263,7 +272,6 @@ def load_syndigo_year(year):
     # Keep only "as packaged" nutrients (min type = 0 in most years, 1 in 2008)
     vpt = pd.to_numeric(merged['valuepreparedtype'], errors='coerce')
     merged = merged[vpt == vpt.min()]
-    merged = merged.drop(columns=['valuepreparedtype', 'type', 'pct', 'isorcontains'])
 
     # Merge item size and itemmeasure from Product.csv (dedupe to avoid row multiplication)
     product_cols = product_df[['upc', 'itemsize', 'itemmeasure']].drop_duplicates(subset='upc', keep='first')
@@ -300,11 +308,31 @@ def load_syndigo_year(year):
         parts.append(group)
     merged = pd.concat(parts)
 
+    # Serving size in grams (from ValuePrepared's servingsizetext + servingsizeuom)
+    merged['g_serving_size'] = convert_itemsize_to_grams(
+        merged['servingsizetext'], merged['servingsizeuom'])
+
     # Total nutrient in package = per-serving × servings per container
     merged['g_nut_total'] = merged['g_nut_per_serving'] * merged['servingspercontainer']
 
-    # Nutrient per 100g of product
+    # Primary: nutrient per 100g = total nutrient / total package weight × 100
     merged['nut_per_100g'] = (merged['g_nut_total'] / merged['g_total']) * 100
+
+    # Fallback: where nut_per_100g is missing, use per-serving / serving size × 100
+    # (bypasses both servingspercontainer and g_total)
+    missing = merged['nut_per_100g'].isna()
+    has_fallback = merged['g_nut_per_serving'].notna() & merged['g_serving_size'].notna()
+    merged.loc[missing & has_fallback, 'nut_per_100g'] = (
+        merged.loc[missing & has_fallback, 'g_nut_per_serving']
+        / merged.loc[missing & has_fallback, 'g_serving_size'] * 100)
+
+    # Keep only the columns we need
+    keep_cols = ['upc', 'nutrient_id', 'nutrient',
+                 'quantity', 'uom', 'g_nut_per_serving',
+                 'itemsize', 'itemmeasure', 'g_total',
+                 'servingspercontainer', 'servingsizetext', 'servingsizeuom', 
+                 'g_serving_size', 'g_nut_total', 'nut_per_100g']
+    merged = merged[[c for c in keep_cols if c in merged.columns]]
 
     return merged
 
