@@ -92,10 +92,11 @@ def convert_itemsize_to_grams(itemsize, itemmeasure):
         # --- Fluid ounces (fl oz = 29.5735g) ---
         'fl': 'fl oz', 'fl ': 'fl oz', 'f. oz': 'fl oz', 'fl.oz': 'fl oz',
         'floz': 'fl oz', 'foz': 'fl oz', '12 fl': 'fl oz',
+        'fluid ounce': 'fl oz', 'fluid ounces': 'fl oz',
         # --- Pounds (lb = 453.592g) ---
         'lbs': 'lb', '1b': 'lb', 'ib': 'lb',
         # --- Grams ---
-        'gr': 'g', 'gm': 'g',
+        'gr': 'g', 'gm': 'g', 'gram': 'g', 'grams': 'g',
         # --- Liters (l = 1000g) ---
         'lt': 'l', 'ltr': 'l', 'liter': 'l',
         # --- Gallons (gal = 3785.41g) ---
@@ -106,22 +107,27 @@ def convert_itemsize_to_grams(itemsize, itemmeasure):
         'quart': 'qt', 'qts': 'qt', 'ql': 'qt',
         # --- Cups (cup = 236.588g) ---
         'cups': 'cup', 'cu': 'cup',
+        'cup dry': 'cup', 'cup dry mix': 'cup', 'cup mix': 'cup', 'cup condensed soup': 'cup',
         # --- Tablespoons (tbsp = 14.787g) ---
         'tablespoon': 'tbsp', 'tablespoons': 'tbsp', 'tbs': 'tbsp',
+        'tbsp unpopped': 'tbsp',
         # --- Teaspoons (tsp = 4.929g) ---
         'teaspoon': 'tsp', 'teaspoons': 'tsp',
         # --- Count-based units (can't convert to grams) ---
         'ea': 'ea', 'each': 'ea', 'ea.': 'ea', 'ea`': 'ea',
         'eaa': 'ea', 'eae': 'ea', 'eaea': 'ea', 'eas': 'ea', 'eaw': 'ea',
         'eea': 'ea', 'fea': 'ea', 'cea': 'ea', 'oea': 'ea', 'ae': 'ea',
+        'a': 'ea', 'e': 'ea', 'es': 'ea', 'unit': 'ea',
         'ct': 'ea', 'pc': 'ea', 'pcs': 'ea', 'pics': 'ea',
         'pk': 'ea', 'pkg': 'ea', 'pack': 'ea', 'packs': 'ea', 'pak': 'ea',
         'bar': 'ea', 'bars': 'ea', 'bag': 'ea', 'bags': 'ea',
         'box': 'ea', 'case': 'ea', 'cakes': 'ea', 'pans': 'ea', 'slice': 'ea',
-        'slices': 'ea', 'eggs': 'ea', 'roll': 'ea', 'rolls': 'ea',
+        'slices': 'ea', 'eggs': 'ea', 'egg': 'ea', 'roll': 'ea', 'rolls': 'ea',
         'set': 'ea', '1 set': 'ea',
-        'tabs': 'ea', 'pills': 'ea', 'caps': 'ea', 'gels': 'ea',
-        'pads': 'ea', 'wipes': 'ea', 'pr': 'ea',
+        'tabs': 'ea', 'tab': 'ea', 'tablet': 'ea', 'tablets': 'ea',
+        'pills': 'ea', 'caps': 'ea', 'cpsl': 'ea',
+        'gels': 'ea', 'softgel': 'ea', 'softgels': 'ea', 'gummies': 'ea',
+        'pads': 'ea', 'wipes': 'ea', 'pr': 'ea', 'tea bag': 'ea',
         # Serving-size count units (from servingsizetext/servingsizeuom)
         'pieces': 'ea', 'piece': 'ea', 'package': 'ea', 'pckg': 'ea',
         'can': 'ea', 'cookies': 'ea', 'cookie': 'ea',
@@ -129,6 +135,16 @@ def convert_itemsize_to_grams(itemsize, itemmeasure):
         'packet': 'ea', 'container': 'ea', 'pouch': 'ea',
         'crackers': 'ea', 'chips': 'ea', 'wafers': 'ea',
         'waffles': 'ea', 'biscuits': 'ea', 'envelope': 'ea',
+        # Food items (count-based)
+        'bagel': 'ea', 'bowl': 'ea', 'brownie': 'ea', 'bun': 'ea',
+        'cake': 'ea', 'cone': 'ea', 'donut': 'ea', 'link': 'ea',
+        'meal': 'ea', 'meal with sauce': 'ea', 'muffin': 'ea',
+        'olives': 'ea', 'pastries': 'ea', 'pastry': 'ea', 'patty': 'ea',
+        'pieces tofu': 'ea', 'pizza': 'ea', 'pop': 'ea',
+        'sandwich': 'ea', 'snack': 'ea', 'stick': 'ea', 'tortilla': 'ea',
+        'actijube': 'ea',
+        # Containers
+        'carton': 'ea', 'jar': 'ea', 'tub': 'ea', 'tube': 'ea',
         # Compound units (itemsize is a count, unit has per-item size baked in)
         '6 oz': 'ea', '12 oz': 'ea', '16 oz': 'ea',
         # Non-food measurement units
@@ -136,6 +152,8 @@ def convert_itemsize_to_grams(itemsize, itemmeasure):
         'cm': 'ea', 'yd': 'ea', 'yds': 'ea', 'm': 'ea',
         # Junk values
         'none': 'unknown', 'nan': 'unknown',
+        's': 'unknown', 'v': 'unknown', 'oa': 'unknown', 'ra': 'unknown',
+        'lz': 'unknown', 'ln': 'unknown', 'kb': 'unknown',
     })
 
     # Map normalized units to conversion factors
@@ -290,13 +308,13 @@ def load_syndigo_year(year):
     #------ Calculate nutrients per 100g
     # g_total = ItemSize converted to grams (using ItemMeasure, which is the unit for ItemSize)
     # g_serving_size = serving size in grams (direct from serving text/uom, or g_total / servingspercontainer)
-    # nutrients_per_100g = nutrients_per_serving / serving_size_grams × 100
+    # nutrients_per_100g = nutrients_per_serving / g_serving_size × 100
 
     # Quantity, servingspercontainer are stored as negative if it's less than, just like in Nielsen. Take absolute value to get actual quantity.
     merged['quantity'] = pd.to_numeric(merged['quantity'], errors='coerce').abs()
     merged['servingspercontainer'] = pd.to_numeric(merged['servingspercontainer'], errors='coerce').abs()
 
-    # Package weight in grams (call with full columns, not row-by-row)
+    # Package weight in grams 
     merged['g_total'] = convert_itemsize_to_grams(merged['itemsize'], merged['itemmeasure'])
 
     # Nutrient quantity per serving in grams (must process per nutrient_id
@@ -309,19 +327,18 @@ def load_syndigo_year(year):
         parts.append(group)
     merged = pd.concat(parts)
 
-    # Serving size in grams (from ValuePrepared's servingsizetext + servingsizeuom)
-    merged['g_serving_size'] = convert_itemsize_to_grams(
-        merged['servingsizetext'], merged['servingsizeuom'])
+    # Serving size in grams: prefer g_total / servingspercontainer (pure arithmetic),
+    # fall back to servingsizetext/servingsizeuom (requires unit parsing)
+    has_both = merged['g_total'].notna() & merged['servingspercontainer'].notna()
+    merged['g_serving_size'] = pd.Series(float('nan'), index=merged.index)
+    merged.loc[has_both, 'g_serving_size'] = (
+        merged.loc[has_both, 'g_total'] / merged.loc[has_both, 'servingspercontainer']
+    )
 
-    # If serving size is missing, infer from package grams / servings per container.
-    missing_ss = (
-        merged['g_serving_size'].isna()
-        & merged['g_total'].notna()
-        & merged['servingspercontainer'].notna()
-    )
-    merged.loc[missing_ss, 'g_serving_size'] = (
-        merged.loc[missing_ss, 'g_total'] / merged.loc[missing_ss, 'servingspercontainer']
-    )
+    missing_ss = merged['g_serving_size'].isna()
+    from_text = convert_itemsize_to_grams(
+        merged.loc[missing_ss, 'servingsizetext'], merged.loc[missing_ss, 'servingsizeuom'])
+    merged.loc[missing_ss, 'g_serving_size'] = from_text
 
     # One formula: nutrient per 100g = per-serving nutrient / serving size × 100
     merged['nut_per_100g'] = (
@@ -406,7 +423,7 @@ def main():
 
     # ---- Final stats ----
     n_final = pooled['upc'].nunique()
-    nut_counts = pooled.groupby('upc')['g_nut_per_serving'].apply(lambda x: x.notna().sum())
+    nut_counts = pooled.groupby('upc')['nut_per_100g'].apply(lambda x: x.notna().sum())
     g_total_avail = pooled.groupby('upc')['g_total'].first().notna().sum()
 
     print(f"\n  After dedup: {n_final:,} unique UPCs, {len(pooled):,} total rows")

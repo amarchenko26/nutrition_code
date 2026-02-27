@@ -764,7 +764,9 @@ def filter_products_by_department(products_df, drop_department_desc_pre_2021, dr
                          'upc_ver_uc',
                          'upc_descr',
                          'product_module',
+                         'product_module_code',
                          'product_group',
+                         'product_group_code',
                          'department_descr',
                          'brand_descr',
                          'multi',
@@ -921,7 +923,7 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered):
                                  'quantity', 'total_price_paid',
                                  'coupon_value'] #, 'deal_flag_uc'
         if year >= 2021:
-            standard_purchase_cols += ['size1_amount_hms', 'size1_unit_hms']
+            standard_purchase_cols += ['size1_amount_hms', 'size1_unit_hms', 'product_module_code_hms']
 
         # Prepare products dataframes - keep only needed columns
         products_df_food = products_df_filtered.copy()
@@ -988,7 +990,8 @@ def load_and_filter_purchases(tarball_path, year, products_df_filtered):
             if 'size1_amount_hms' in purchases_filtered.columns and 'size1_unit_hms' in purchases_filtered.columns:
                 purchases_filtered = purchases_filtered.rename(columns={
                     'size1_amount_hms': 'size1_amount',
-                    'size1_unit_hms': 'size1_units'
+                    'size1_unit_hms': 'size1_units',
+                    'product_module_code_hms': 'product_module_code'
                 })
             print(f"\nFiltered dataset shape: {purchases_filtered.shape}")
             print(f"\nSample of filtered data:")
@@ -1055,8 +1058,8 @@ def main():
     master_products_path = f'{base_path}/Master_Files2004-2020.tgz'
 
     # List of years to process
-    years_to_process = [2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
-    # years_to_process = [2021, 2022, 2023, 2024] 
+    # years_to_process = [2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024]
+    years_to_process = [2021, 2022, 2023, 2024] 
 
     # Departments to DROP (for pre-2021 master file)
     drop_department_desc_pre_2021 = [
@@ -1194,6 +1197,9 @@ def main():
         'UNCLASSIFIED TOBACCO & ACCESSORIES',
         'UNCLASSIFIED DETERGENTS',
         'SALT - COOKING/EDIBLE/SEASONED',
+        'SALT TABLE',
+        'SANITARY NAPKINS',
+        'REPORTED UNCLASSIFIABLE UPCS',
         'EXTRACTS',
         'YEAST - DRY',
         'UNCLASSIFIED COOKWARE',
@@ -1217,7 +1223,7 @@ def main():
         'UNCLASSIFIED FEMININE HYGIENE',
         'UNCLASSIFIED PERSONAL SOAP AND BATH ADDITIV',
         'TOILET TISSUE',
-        'MAGNET DATA',
+        # 'MAGNET DATA',
         # 'REFERENCE CARD VEGETABLES',
         # 'REFERENCE CARD FRUITS',
         # 'REFERENCE CARD MEAT',

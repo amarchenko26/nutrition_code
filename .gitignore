@@ -363,3 +363,4 @@ food_deserts_replication/Data/Census/TractData/Data Sources.txt
 food_deserts_replication/Data/CPI/Data Source.txt
 food_deserts_replication/Data/NHTS/Data Sources.txt
 food_deserts_replication/Data/ZipCodeBusinessPatterns/Data Sources.txt
+nielsen_extracts/HMS/2016/Annual_Files/panelists_2016.tsv

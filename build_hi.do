@@ -1,0 +1,277 @@
+// build_hi.do
+// Construct household-level Health Index (HI) following Allcott et al.
+//
+// Steps:
+//   1. Load purchases_with_nutrition.parquet
+//   2. Merge panelist data (projection_factor, household_income_midpoint)
+//   3. Drop reference card products (product_module_code 445-468)
+//   4. Drop magnet data (department_code 99) and missing product_group_code
+//   5. Flag fruit/veg (UPCDataPrep.do:26-33)
+//   6. Compute HI per 100g (GetHealthIndex.do:8-13)
+//   7. Compute HI per 1000 cal (GetHealthIndex.do:33)
+//   8. Compute calories per purchase row (CollapseTransactions.do:13)
+//   9. Calorie-weighted collapse to household-year (CollapseTransactions.do:68-69)
+//  10. Normalize HI to mean=0, sd=1 (InsertHealthMeasures.do:125-136)
+//
+// Input:
+//   - purchases_with_nutrition.parquet (from build_hi_panel.py)
+//   - panelists_all_years.dta (from clean_panelist.py)
+//
+// Output:
+//   - household_year_hi.dta
+
+
+clear all
+set more off
+
+
+// ============================================================================
+// PATHS
+// ============================================================================
+
+local base "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data"
+local purchases "`base'/interim/hi_panel/purchases_with_nutrition.parquet"
+local panelists "`base'/interim/panelists/panelists_all_years.dta"
+local outdir    "`base'/interim/hi_panel"
+
+
+// ============================================================================
+// STEP 1: Load purchases
+// ============================================================================
+
+pq use using "`purchases'", clear
+
+merge m:1 household_code panel_year using "`panelists'", ///
+    keepusing(projection_factor household_income_midpoint male_head_employment 	female_head_employment) 
+
+
+// ============================================================================
+// STEP 3: Drop reference card products
+// CollapseTransactions.do:26-27
+// product_module_code 445-468
+// ============================================================================
+
+drop if product_module_code >= 445 & product_module_code <= 468
+
+// Drop department_code 99 (magnet/random-weight transactions)
+capture drop if department_desc == "MAGNET DATA"
+
+// Drop missing product_group_code
+drop if product_module_code == .
+
+
+// ============================================================================
+// STEP 5: Flag fruit and veg
+// UPCDataPrep.do:26-33
+// ============================================================================
+
+// freshfruit: UPCDataPrep.do:26
+gen freshfruit = cond(inlist(product_module_code, ///
+    453, 3560, 3563, 4010, 4085, 4180, 4225, 4230, 4355, 4470, 6049, 6050), 1, 0)
+
+replace freshfruit = 1 if inlist(product_group, "FRUIT")
+
+// fruit (includes canned/dried/frozen): UPCDataPrep.do:27-28
+// NOTE: product_group_code not available — omitting group 504, 1010 check
+//   (misses some canned/frozen fruit only identifiable by group code)
+gen fruit = cond(freshfruit == 1 ///
+    | inlist(product_module_code, 6, 42, 2664) == 1, 1, 0)
+
+replace fruit = 1 if inlist(product_group, "FRUIT - CANNED", "FRUIT - DRIED")
+
+	
+// freshveg: UPCDataPrep.do:30
+gen byte freshveg = cond(inlist(product_module_code, ///
+    460, 3544, 4015, 4020, 4023, 4050, 4055, 4060, ///
+    4140, 4275, 4280, 4350, 4400, 4415, 4460, 4475, 6064, 6070) == 1, 1, 0)
+
+replace freshveg = 1 if inlist(product_group, "FRESH PRODUCE")
+	
+// veg (includes canned/frozen): UPCDataPrep.do:31-33
+// EXCLUDES: cream corn (1071), frozen veg in pastry (2618),
+//   breaded frozen veg (2635), breaded mushrooms (2637),
+//   breaded onions (2638), veg in sauce (2639)
+// NOTE: product_group_code not available — omitting group 514, 2010 check
+//   (misses some canned/frozen veg only identifiable by group code)
+gen byte veg = cond( ///
+    (freshveg == 1 ///
+    | inlist(product_module_code, 24, 96, 1316, 3565) == 1) ///
+    & inlist(product_module_code, 1071, 2618, 2635, 2637, 2638, 2639) == 0, 1, 0)
+
+	
+replace veg = 1 if inlist(product_group, "VEGETABLES", "VEGETABLES - CANNED", "VEGETABLES-FROZEN")
+
+
+label var freshfruit "1(Fresh fruit)"
+label var fruit      "1(fruit)"
+label var freshveg   "1(Fresh vegetable)"
+label var veg        "1(vegetable)"
+
+count if fruit == 1
+count if veg == 1
+
+
+
+
+
+
+
+
+gen double cals_per_upc = cal_per_100g * g_total / 100
+
+// HI per 1000 cal, only if cals_per_upc > 1
+// (GetHealthIndex.do:33: "if cals_per1 > 1")
+
+gen double cals_per_row = cals_per_upc * quantity
+
+
+collapse (rawsum) total_calories=cals_per_row ///
+         total_spending=total_price_paid ///
+    (mean) ///
+         fruit veg fiber_per_100g sodium_per_100g sugar_per_100g ///
+         household_income_midpoint ///
+         projection_factor, ///
+    by(household_code panel_year)
+
+
+
+
+
+
+
+
+
+// ============================================================================
+// STEP 6: Compute Health Index per 100g
+// GetHealthIndex.do:8-13
+// ============================================================================
+
+di _n "=== STEP 6: COMPUTING HEALTH INDEX ==="
+
+// Fixed HI for fruit/veg (GetHealthIndex.do:8)
+// rHealthIndex_per100g = fruit*100/320 + veg*100/390
+gen double hi_per_100g = fruit * 100/320 + veg * 100/390
+
+// Standard formula for non-produce (GetHealthIndex.do:11-13)
+// fiber/29.5 - sugar/32.8 - satfat/17.2 - sodium/2.3 - chol/0.3
+replace hi_per_100g = fiber_per_100g/29.5 ///
+    - sugar_per_100g/32.8 ///
+    - satfat_per_100g/17.2 ///
+    - sodium_per_100g/2.3 ///
+    - chol_per_100g/0.3 ///
+    if fruit == 0 & veg == 0
+
+label var hi_per_100g "Health Index per 100g"
+
+
+// ============================================================================
+// STEP 7: Compute HI per 1000 calories
+// GetHealthIndex.do:33
+// ============================================================================
+
+// cals_per_upc = cal_per_100g * g_total / 100
+gen double cals_per_upc = cal_per_100g * g_total / 100
+
+// HI per 1000 cal, only if cals_per_upc > 1
+// (GetHealthIndex.do:33: "if cals_per1 > 1")
+gen double hi_per_1000cal = hi_per_100g / cal_per_100g * 1000 if cals_per_upc > 1
+
+
+gen double cals_per_row = cals_per_upc * quantity
+
+
+// ============================================================================
+// STEP 9: Calorie-weighted collapse to household-year
+// CollapseTransactions.do:68-69
+// collapse (rawsum) Calories=cals_perRow
+//          (mean) $Attributes_cals [pw=cals_perRow]
+// ============================================================================
+
+drop if cals_per_row <= 0 | cals_per_row == .
+drop if hi_per_1000cal == .
+
+
+// Calorie-weighted collapse
+collapse (rawsum) total_calories=cals_per_row ///
+         total_spending=total_price_paid ///
+    (mean) hi_household=hi_per_1000cal ///
+         fruit veg ///
+         household_income_midpoint ///
+         projection_factor ///
+    (count) n_purchases=hi_per_1000cal ///
+    [pw=cals_per_row], ///
+    by(household_code panel_year) fast
+
+label var hi_household              "Health Index (cal-weighted, per 1000cal)"
+label var total_calories            "Total calories purchased"
+label var total_spending            "Total spending"
+label var n_purchases               "Number of purchases"
+label var fruit                     "fruit purchase share (cal-weighted)"
+label var veg                       "veg purchase share (cal-weighted)"
+label var household_income_midpoint "Household income midpoint"
+label var projection_factor         "Nielsen projection factor"
+
+di _n "  Household-years: " _N
+distinct household_code
+di "  Unique households: " r(ndistinct)
+
+sum hi_household, detail
+di _n "  HI distribution (raw, cal-weighted, per 1000 cal):"
+di "    Mean:   " r(mean)
+di "    Median: " r(p50)
+di "    SD:     " r(sd)
+di "    p10:    " r(p10)
+di "    p90:    " r(p90)
+
+
+// ============================================================================
+// STEP 10: Normalize HI to mean=0, sd=1
+// InsertHealthMeasures.do:125-136
+//
+// Mean: weighted by projection_factor, pooled across all years
+// SD:   weighted SD of year-demeaned residuals
+// ============================================================================
+
+di _n "=== STEP 10: NORMALIZING HEALTH INDEX ==="
+
+// Weighted pooled mean (InsertHealthMeasures.do:126)
+sum hi_household [aw=projection_factor]
+local hi_mean = r(mean)
+
+// Year-demeaned SD (InsertHealthMeasures.do:129-133)
+// Regress on year FE, get residuals, take weighted SD
+reg hi_household i.panel_year [aw=projection_factor]
+predict year_dummies
+gen hi_residual = hi_household - year_dummies
+sum hi_residual [aw=projection_factor]
+local hi_sd = r(sd)
+
+drop year_dummies hi_residual
+
+di "  Weighted pooled mean: " `hi_mean'
+di "  Year-demeaned SD:     " `hi_sd'
+
+// Normalize: (raw - mean) / sd
+gen double hi_hh_normalized = (hi_household - `hi_mean') / `hi_sd'
+label var hi_hh_normalized "Health Index (normalized, mean=0 sd=1)"
+
+sum hi_hh_normalized, detail
+di _n "  Normalized HI distribution:"
+di "    Mean:   " r(mean)
+di "    SD:     " r(sd)
+di "    p10:    " r(p10)
+di "    p90:    " r(p90)
+
+
+// ============================================================================
+// SAVE
+// ============================================================================
+
+di _n "=== SAVING ==="
+
+compress
+save "`outdir'/household_year_hi.dta", replace
+di "  Saved: `outdir'/household_year_hi.dta"
+di "  Obs: " _N
+
+di _n "Done."
