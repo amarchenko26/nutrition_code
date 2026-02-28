@@ -23,10 +23,9 @@ def log(msg):
 
 BASE    = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data')
 DATASET = BASE / 'interim' / 'panel_dataset' / 'panel_hh_year.parquet'
-OUTPUT  = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs')
-OUTPUT.mkdir(exist_ok=True)
+FIG_DIR = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs')
 
-YEARS       = range(2004, 2017)
+YEARS       = range(2004, 2021)
 N_QUANTILES = 15
 
 # ============================================================
@@ -101,9 +100,9 @@ for var, ylabel, title, fname in panels:
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     plt.tight_layout()
-    plt.savefig(OUTPUT / f'{fname}.png', bbox_inches='tight', dpi=150)
+    plt.savefig(FIG_DIR / f'{fname}.png', bbox_inches='tight', dpi=150)
     plt.close()
-    log(f"    Saved: {OUTPUT / fname}.png")
+    log(f"    Saved: {FIG_DIR / fname}.png")
 
 log("\n=== Summary Statistics ===")
 for var, label, _, __ in panels:

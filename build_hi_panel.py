@@ -214,7 +214,7 @@ for year in YEARS:
     agg['rHI_per_1000cal']   = agg['sum_wt_hi']    / agg['total_cals']
     agg['sugar_per_1000cal'] = agg['sum_wt_sugar']  / agg['total_cals']
     agg['Produce'] = (agg['fruit_cals'] + agg['veg_cals']) / agg['total_cals']
-    agg['Whole']   = np.where(agg['bread_cals'] > 0, agg['whole_cals'] / agg['bread_cals'], np.nan)
+    agg['Whole']   = agg['whole_cals'] / agg['bread_cals'].replace(0, np.nan)
 
     hh_year_list.append(agg[['household_code', 'panel_year', 'total_cals',
                                'rHI_per_1000cal', 'sugar_per_1000cal', 'Produce', 'Whole']])
