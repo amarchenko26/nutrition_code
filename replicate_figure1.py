@@ -25,7 +25,8 @@ BASE    = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data')
 DATASET = BASE / 'interim' / 'panel_dataset' / 'panel_hh_year.parquet'
 FIG_DIR = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs')
 
-YEARS       = range(2004, 2021)
+# Figure gets messed up exactly when Nielsen changes their diet definitions in 2021 
+YEARS       = range(2004, 2021) # stop at 2020 to avoid 2021 definition change
 N_QUANTILES = 15
 
 # ============================================================
