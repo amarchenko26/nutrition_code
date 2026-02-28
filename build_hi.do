@@ -48,7 +48,6 @@ merge m:1 household_code panel_year using "`panelists'", ///
 // ============================================================================
 // STEP 3: Drop reference card products
 // CollapseTransactions.do:26-27
-// product_module_code 445-468
 // ============================================================================
 
 drop if product_module_code >= 445 & product_module_code <= 468
@@ -56,9 +55,12 @@ drop if product_module_code >= 445 & product_module_code <= 468
 // Drop department_code 99 (magnet/random-weight transactions)
 capture drop if department_desc == "MAGNET DATA"
 
-// Drop missing product_group_code
 drop if product_module_code == .
 
+
+// replace outliers 
+replace sodium_per_100g = . if sodium_per_100g > 5    // max plausible ~5g/100g (soy sauce)
+replace chol_per_100g = . if chol_per_100g > 2         // max plausible ~2g/100g (organ meats)
 
 // ============================================================================
 // STEP 5: Flag fruit and veg
@@ -78,6 +80,8 @@ gen fruit = cond(freshfruit == 1 ///
     | inlist(product_module_code, 6, 42, 2664) == 1, 1, 0)
 
 replace fruit = 1 if inlist(product_group, "FRUIT - CANNED", "FRUIT - DRIED")
+	
+// ============================================================================
 
 	
 // freshveg: UPCDataPrep.do:30
@@ -86,7 +90,8 @@ gen byte freshveg = cond(inlist(product_module_code, ///
     4140, 4275, 4280, 4350, 4400, 4415, 4460, 4475, 6064, 6070) == 1, 1, 0)
 
 replace freshveg = 1 if inlist(product_group, "FRESH PRODUCE")
-	
+replace freshveg = 1 if inlist(product_module_normalized, "FRESH VEGETABLES REMAINING")
+
 // veg (includes canned/frozen): UPCDataPrep.do:31-33
 // EXCLUDES: cream corn (1071), frozen veg in pastry (2618),
 //   breaded frozen veg (2635), breaded mushrooms (2637),
@@ -98,8 +103,9 @@ gen byte veg = cond( ///
     | inlist(product_module_code, 24, 96, 1316, 3565) == 1) ///
     & inlist(product_module_code, 1071, 2618, 2635, 2637, 2638, 2639) == 0, 1, 0)
 
-	
 replace veg = 1 if inlist(product_group, "VEGETABLES", "VEGETABLES - CANNED", "VEGETABLES-FROZEN")
+
+replace veg = 1 if inlist(product_module_normalized, "VEGETABLES REMAINING FROZEN")
 
 
 label var freshfruit "1(Fresh fruit)"
@@ -113,34 +119,6 @@ count if veg == 1
 
 
 
-
-
-
-
-gen double cals_per_upc = cal_per_100g * g_total / 100
-
-// HI per 1000 cal, only if cals_per_upc > 1
-// (GetHealthIndex.do:33: "if cals_per1 > 1")
-
-gen double cals_per_row = cals_per_upc * quantity
-
-
-collapse (rawsum) total_calories=cals_per_row ///
-         total_spending=total_price_paid ///
-    (mean) ///
-         fruit veg fiber_per_100g sodium_per_100g sugar_per_100g ///
-         household_income_midpoint ///
-         projection_factor, ///
-    by(household_code panel_year)
-
-
-
-
-
-
-
-
-
 // ============================================================================
 // STEP 6: Compute Health Index per 100g
 // GetHealthIndex.do:8-13
@@ -149,11 +127,9 @@ collapse (rawsum) total_calories=cals_per_row ///
 di _n "=== STEP 6: COMPUTING HEALTH INDEX ==="
 
 // Fixed HI for fruit/veg (GetHealthIndex.do:8)
-// rHealthIndex_per100g = fruit*100/320 + veg*100/390
 gen double hi_per_100g = fruit * 100/320 + veg * 100/390
 
 // Standard formula for non-produce (GetHealthIndex.do:11-13)
-// fiber/29.5 - sugar/32.8 - satfat/17.2 - sodium/2.3 - chol/0.3
 replace hi_per_100g = fiber_per_100g/29.5 ///
     - sugar_per_100g/32.8 ///
     - satfat_per_100g/17.2 ///
@@ -191,6 +167,30 @@ drop if cals_per_row <= 0 | cals_per_row == .
 drop if hi_per_1000cal == .
 
 
+// //do a simple collapse anya can understand across hh
+// collapse (rawsum) total_calories=cals_per_row ///
+//          total_spending=total_price_paid ///
+//     (mean) hi_household=hi_per_1000cal ///
+//          fruit veg ///
+//          household_income_midpoint ///
+//          projection_factor ///
+//     [pw=cals_per_row], ///
+//     by(household_code)
+//
+// corr hi_household household_income_midpoint [aw=projection_factor]
+//
+// preserve
+// set graphics on
+// collapse (mean) hi_household [pw=projection_factor], ///
+//     by(household_income_midpoint)
+//
+// twoway scatter hi_household household_income_midpoint, ///
+//     ytitle("Weighted mean of hi_household") ///
+//     xtitle("Household income midpoint") ///
+//     lwidth(medthick)
+//
+// restore
+
 // Calorie-weighted collapse
 collapse (rawsum) total_calories=cals_per_row ///
          total_spending=total_price_paid ///
@@ -198,30 +198,8 @@ collapse (rawsum) total_calories=cals_per_row ///
          fruit veg ///
          household_income_midpoint ///
          projection_factor ///
-    (count) n_purchases=hi_per_1000cal ///
     [pw=cals_per_row], ///
     by(household_code panel_year) fast
-
-label var hi_household              "Health Index (cal-weighted, per 1000cal)"
-label var total_calories            "Total calories purchased"
-label var total_spending            "Total spending"
-label var n_purchases               "Number of purchases"
-label var fruit                     "fruit purchase share (cal-weighted)"
-label var veg                       "veg purchase share (cal-weighted)"
-label var household_income_midpoint "Household income midpoint"
-label var projection_factor         "Nielsen projection factor"
-
-di _n "  Household-years: " _N
-distinct household_code
-di "  Unique households: " r(ndistinct)
-
-sum hi_household, detail
-di _n "  HI distribution (raw, cal-weighted, per 1000 cal):"
-di "    Mean:   " r(mean)
-di "    Median: " r(p50)
-di "    SD:     " r(sd)
-di "    p10:    " r(p10)
-di "    p90:    " r(p90)
 
 
 // ============================================================================
@@ -248,30 +226,8 @@ local hi_sd = r(sd)
 
 drop year_dummies hi_residual
 
-di "  Weighted pooled mean: " `hi_mean'
-di "  Year-demeaned SD:     " `hi_sd'
-
 // Normalize: (raw - mean) / sd
 gen double hi_hh_normalized = (hi_household - `hi_mean') / `hi_sd'
 label var hi_hh_normalized "Health Index (normalized, mean=0 sd=1)"
 
-sum hi_hh_normalized, detail
-di _n "  Normalized HI distribution:"
-di "    Mean:   " r(mean)
-di "    SD:     " r(sd)
-di "    p10:    " r(p10)
-di "    p90:    " r(p90)
 
-
-// ============================================================================
-// SAVE
-// ============================================================================
-
-di _n "=== SAVING ==="
-
-compress
-save "`outdir'/household_year_hi.dta", replace
-di "  Saved: `outdir'/household_year_hi.dta"
-di "  Obs: " _N
-
-di _n "Done."

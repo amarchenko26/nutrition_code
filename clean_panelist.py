@@ -59,10 +59,9 @@ COLUMN_RENAME = {
 # Income code mapping
 # ---------------------------------------------------------------------------
 # Codes 3-26 are consistent across all years.
-# Code 27 = $100,000+ in 2004-2005 and 2010+,
-#           $100,000-$124,999 in 2006-2009.
+# Code 27 = $100,000+ in 2004-2005 and 2010+ (midpoint $140,000),
+#           $100,000-$124,999 in 2006-2009 (midpoint $112,500).
 # Codes 28-30 only exist in 2006-2009.
-# We collapse ALL codes >= 27 → "$100,000+" for cross-year consistency.
 # ---------------------------------------------------------------------------
 
 INCOME_LABEL = {
@@ -81,6 +80,10 @@ INCOME_LABEL = {
     21: '$50,000-$59,999',
     23: '$60,000-$69,999',
     26: '$70,000-$99,999',
+    27: '$100,000+',
+    28: '$125,000-$149,999',
+    29: '$150,000-$199,999',
+    30: '$200,000+',
 }
 
 INCOME_MIDPOINT = {
@@ -99,11 +102,14 @@ INCOME_MIDPOINT = {
     21: 55000,
     23: 65000,
     26: 85000,
+    28: 137500,
+    29: 175000,
+    30: 250000,
 }
 
-# All codes >= 27 get this label and midpoint
-TOP_INCOME_LABEL    = '$100,000+'
-TOP_INCOME_MIDPOINT = 125000
+# Code 27 midpoint depends on year
+INCOME_MIDPOINT_27_EXPANDED = 112500   # 2006-2009: $100,000-$124,999
+INCOME_MIDPOINT_27_DEFAULT  = 140000   # all other years: $100,000+
 
 
 # ============================================================================
@@ -190,24 +196,16 @@ def main():
     for code, count in code_counts.items():
         print(f"    {code:>3.0f}: {count:>9,}")
 
-    # Collapse codes >= 27 to a single category
-    # Create a normalized code column for mapping
-    income_code_normalized = panelists['household_income'].copy()
-    high_income = income_code_normalized >= 27
-    n_high = high_income.sum()
-    n_codes_28_30 = (panelists['household_income'] >= 28).sum()
-    print(f"\n  Codes >= 27: {n_high:,} panelist-years")
-    print(f"  Codes 28-30 (2006-2009 only): {n_codes_28_30:,} panelist-years")
-    print(f"  -> All collapsed to '{TOP_INCOME_LABEL}' with midpoint ${TOP_INCOME_MIDPOINT:,}")
-    income_code_normalized[high_income] = 27
-
     # Map to labels
-    label_map = {**INCOME_LABEL, 27: TOP_INCOME_LABEL}
-    panelists['household_income_label'] = income_code_normalized.map(label_map)
+    panelists['household_income_label'] = panelists['household_income'].map(INCOME_LABEL)
 
-    # Map to midpoints
-    midpoint_map = {**INCOME_MIDPOINT, 27: TOP_INCOME_MIDPOINT}
-    panelists['household_income_midpoint'] = income_code_normalized.map(midpoint_map)
+    # Map to midpoints (code 27 is year-dependent)
+    panelists['household_income_midpoint'] = panelists['household_income'].map(INCOME_MIDPOINT)
+
+    expanded_years = panelists['panel_year'].between(2006, 2009)
+    is_code_27 = panelists['household_income'] == 27
+    panelists.loc[is_code_27 & expanded_years, 'household_income_midpoint'] = INCOME_MIDPOINT_27_EXPANDED
+    panelists.loc[is_code_27 & ~expanded_years, 'household_income_midpoint'] = INCOME_MIDPOINT_27_DEFAULT
 
     # Check unmapped
     unmapped = panelists['household_income_label'].isna() & panelists['household_income'].notna()

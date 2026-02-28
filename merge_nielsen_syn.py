@@ -20,7 +20,7 @@ from clean_syndigo import convert_itemsize_to_grams
 
 BASE_DATA_DIR = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data'
 SYNDIGO_PATH  = os.path.join(BASE_DATA_DIR, 'interim', 'syndigo', 'syndigo_nutrients_master.parquet')
-PURCHASES_DIR = os.path.join(BASE_DATA_DIR, 'interim', 'purchases_food_sample')
+PURCHASES_DIR = os.path.join(BASE_DATA_DIR, 'interim', 'purchases_food')
 OUTPUT_DIR    = os.path.join(BASE_DATA_DIR, 'interim', 'syndigo_nielsen_merged')
 
 
@@ -45,9 +45,8 @@ def main():
     print(f"  {syndigo['upc'].nunique():,} UPCs, {len(syndigo):,} rows")
 
     # ---- Load Nielsen: extract unique UPCs with size info ----
-    print("\nLoading Nielsen purchases (extracting unique UPCs)...")
-    # size1_amount is double in 2004-2020 but string in 2021-2024;
-    # force all 3 columns to string to avoid Arrow type conflict
+    # Scan in batches to avoid loading 900M+ rows into memory
+    print("\nLoading Nielsen purchases (extracting unique UPCs in batches)...")
     schema = pa.schema([
         ('upc', pa.string()),
         ('size1_amount', pa.string()),
@@ -55,19 +54,31 @@ def main():
     ])
     dataset = ds.dataset(PURCHASES_DIR, format='parquet', partitioning='hive',
                          schema=schema, exclude_invalid_files=True)
-    purchases = dataset.to_table(columns=['upc', 'size1_amount', 'size1_units']).to_pandas()
-    purchases['size1_amount'] = pd.to_numeric(purchases['size1_amount'], errors='coerce')
-    print(f"  {len(purchases):,} purchase rows, {purchases['upc'].nunique():,} unique UPCs")
 
-    # Harmonize Nielsen UPCs: 12-digit -> prepend '0' -> 13 digits
-    purchases['upc'] = harmonize_nielsen_upc(purchases['upc'])
+    upc_size_dict = {}  # upc -> (size1_amount, size1_units)
+    total_rows = 0
+    for batch in dataset.to_batches(columns=['upc', 'size1_amount', 'size1_units'],
+                                    batch_size=5_000_000):
+        chunk = batch.to_pandas()
+        total_rows += len(chunk)
+        chunk['size1_amount'] = pd.to_numeric(chunk['size1_amount'], errors='coerce')
+        chunk['upc'] = harmonize_nielsen_upc(chunk['upc'])
 
-    # Get one size1 entry per UPC (most common non-null values)
-    nielsen_sizes = (purchases[purchases['size1_amount'].notna()]
-                     .groupby('upc')[['size1_amount', 'size1_units']]
-                     .first()
-                     .reset_index())
-    print(f"  {len(nielsen_sizes):,} UPCs with size1 info")
+        # Keep first non-null size1 per UPC we haven't seen yet
+        has_size = chunk['size1_amount'].notna()
+        for _, row in chunk[has_size].drop_duplicates('upc').iterrows():
+            if row['upc'] not in upc_size_dict:
+                upc_size_dict[row['upc']] = (row['size1_amount'], row['size1_units'])
+
+        print(f"    processed {total_rows:>13,} rows, {len(upc_size_dict):,} UPCs so far",
+              end='\r')
+
+    print(f"\n  {total_rows:,} purchase rows, {len(upc_size_dict):,} unique UPCs with size1 info")
+
+    nielsen_sizes = pd.DataFrame([
+        {'upc': upc, 'size1_amount': amt, 'size1_units': units}
+        for upc, (amt, units) in upc_size_dict.items()
+    ])
 
     # ---- Merge ----
     print("\nMerging...")

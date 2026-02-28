@@ -23,7 +23,7 @@ import shutil
 # CONFIGURATION
 # ============================================================================
 # Number of households to sample
-N_HOUSEHOLDS = 1000
+N_HOUSEHOLDS = 5000
 
 # Random seed for reproducibility
 RANDOM_SEED = 42
