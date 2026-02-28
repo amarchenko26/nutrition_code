@@ -9,6 +9,7 @@ Merge Nielsen purchases with Syndigo nutrition data.
 """
 
 import os
+import numpy as np
 import pandas as pd
 import pyarrow.dataset as ds
 import pyarrow as pa
@@ -22,6 +23,18 @@ BASE_DATA_DIR = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data'
 SYNDIGO_PATH  = os.path.join(BASE_DATA_DIR, 'interim', 'syndigo', 'syndigo_nutrients_master.parquet')
 PURCHASES_DIR = os.path.join(BASE_DATA_DIR, 'interim', 'purchases_food')
 OUTPUT_DIR    = os.path.join(BASE_DATA_DIR, 'interim', 'syndigo_nielsen_merged')
+
+NUTRIENT_COL_MAP = {
+    'Calories':            'cal_per_100g',
+    'Total Fat':           'totfat_per_100g',
+    'Saturated Fat':       'satfat_per_100g',
+    'Polyunsaturated Fat': 'pofat_per_100g',
+    'Monounsaturated Fat': 'mofat_per_100g',
+    'Cholesterol':         'chol_per_100g',
+    'Sodium':              'sodium_per_100g',
+    'Dietary Fiber':       'fiber_per_100g',
+    'Sugars':              'sugar_per_100g',
+}
 
 
 # ============================================================================
@@ -137,9 +150,25 @@ def main():
     print(f"  UPCs with 0 usable nutrients: {(nut_counts == 0).sum():,}")
     print(f"  Mean nutrients per UPC: {nut_counts.mean():.1f}")
 
+    # ---- Pivot wide ----
+    print("\nPivoting nutrients wide...")
+    wide = merged[merged['nutrient'].isin(NUTRIENT_COL_MAP)].pivot_table(
+        index='upc', columns='nutrient', values='nut_per_100g', aggfunc='first')
+    wide.columns = [NUTRIENT_COL_MAP[c] for c in wide.columns]
+    wide = wide.reset_index()
+
+    upc_fields = merged.groupby('upc')[['g_total', 'g_serving_size']].first().reset_index()
+    wide = wide.merge(upc_fields, on='upc', how='left')
+
+    # Cap outliers (nutrients are in g/100g; these indicate unit misclassification)
+    wide.loc[wide['sodium_per_100g'] > 5, 'sodium_per_100g'] = np.nan
+    wide.loc[wide['chol_per_100g'] > 2, 'chol_per_100g'] = np.nan
+
+    print(f"  {len(wide):,} UPCs, columns: {list(wide.columns)}")
+
     # ---- Save ----
-    output_path = os.path.join(OUTPUT_DIR, 'syndigo_final.parquet')
-    merged.to_parquet(output_path, index=False)
+    output_path = os.path.join(OUTPUT_DIR, 'syndigo_wide.parquet')
+    wide.to_parquet(output_path, index=False)
     print(f"\n  Saved to {output_path}")
     print("\nDone.")
 
