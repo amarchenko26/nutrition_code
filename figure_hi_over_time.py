@@ -190,12 +190,9 @@ log("Creating figure 3 (adjacent quintile gaps over time)...")
 
 res_wide_all = res_all.pivot(index='year', columns='income_bin', values='HI_allcott')
 gap_labels = {
-    (1, 2): 'Q2 − Q1',
-    (2, 3): 'Q3 − Q2',
-    (3, 4): 'Q4 − Q3',
-    (4, 5): 'Q5 − Q4',
+    (1, 4): 'Q4 − Q1',
 }
-gap_colors = ['#d73027', '#fc8d59', '#91bfdb', '#4575b4']  # red→blue
+gap_colors = ['#fc8d59']
 
 fig, ax = plt.subplots(figsize=(10, 5.5))
 for (q_lo, q_hi), color in zip(gap_labels, gap_colors):
@@ -207,7 +204,7 @@ for (q_lo, q_hi), color in zip(gap_labels, gap_colors):
 ax.axhline(0, color='gray', linewidth=0.8, linestyle='--', alpha=0.6)
 ax.set_xlabel('Year', fontsize=12)
 ax.set_ylabel('HI gap (std. dev.)', fontsize=12)
-ax.set_title('Nutritional Inequality by Adjacent Quintile Gaps Over Time',
+ax.set_title('Nutritional Inequality (Top Minus Bottom Income Quintile) Over Time',
              fontsize=13, fontweight='bold')
 ax.legend(fontsize=10, framealpha=0.9)
 ax.grid(True, alpha=0.3, axis='y')

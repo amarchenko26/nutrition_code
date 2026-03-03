@@ -55,10 +55,7 @@ COLUMN_RENAME = {
     'region_cd':                       'region_code',
 }
 
-1. Alcot
-
-
-# ---------------------------------------------------------------------------
+#---------------------------------------------------------------------------
 # Income code mapping
 # ---------------------------------------------------------------------------
 # Codes 3-26 are consistent across all years.
@@ -114,6 +111,83 @@ INCOME_MIDPOINT = {
 INCOME_MIDPOINT_27_EXPANDED = 112500   # 2006-2009: $100,000-$124,999
 INCOME_MIDPOINT_27_DEFAULT  = 140000   # all other years: $100,000+
 
+HOUSEHOLD_COMPOSITION_LABEL = {
+    1: 'Married',
+    2: 'Female Head Living with Others Related',
+    3: 'Male Head Living with Others Related',
+    5: 'Female Living Alone',
+    6: 'Female Living with Non-Related',
+    7: 'Male Living Alone',
+    8: 'Male Living with Non-Related',
+}
+
+AGE_CHILDREN_LABEL = {
+    1: 'Under 6 only',
+    2: '6-12 only',
+    3: '13-17 only',
+    4: 'Under 6 & 6-12',
+    5: 'Under 6 & 13-17',
+    6: '6-12 & 13-17',
+    7: 'Under 6 & 6-12 & 13-17',
+    9: 'No Children Under 18',
+}
+
+HEAD_AGE_LABEL = {
+    0: 'No Head',
+    1: 'Under 25',
+    2: '25-29',
+    3: '30-34',
+    4: '35-39',
+    5: '40-44',
+    6: '45-49',
+    7: '50-54',
+    8: '55-64',
+    9: '65+',
+}
+
+EMPLOYMENT_LABEL = {
+    0: 'No Head',
+    1: 'Under 30 hours',
+    2: '30-34 hours',
+    3: '35+ hours',
+    9: 'Not Employed for Pay',
+}
+
+EDUCATION_LABEL = {
+    0: 'No Head or Unknown',
+    1: 'Grade School',
+    2: 'Some High School',
+    3: 'Graduated High School',
+    4: 'Some College',
+    5: 'Graduated College',
+    6: 'Post College Grad',
+}
+
+MARITAL_STATUS_LABEL = {
+    1: 'Married',
+    2: 'Widowed',
+    3: 'Divorced/Separated',
+    4: 'Single',
+}
+
+RACE_LABEL = {
+    1: 'White/Caucasian',
+    2: 'Black/African American',
+    3: 'Asian',
+    4: 'Other',
+}
+
+HISPANIC_ORIGIN_LABEL = {
+    1: 'Hispanic',
+    2: 'Not Hispanic',
+}
+
+# Numeric scales for combining male/female head variables (Allcott-style)
+# Code 0 = No Head → NaN (person doesn't exist, excluded from mean)
+EDUC_YEARS = {0: np.nan, 1: 6, 2: 10, 3: 12, 4: 14, 5: 16, 6: 18}
+# Employment → hours per week worked; code 9 (Not Employed) = 0 hrs
+EMPLOY_HOURS = {0: np.nan, 1: 24, 2: 32, 3: 40, 9: 0}
+
 
 # ============================================================================
 # MAIN
@@ -151,8 +225,8 @@ def main():
 
             df = pd.read_csv(io.BytesIO(result.stdout), sep='\t')
 
-            # Normalize column names: lowercase, then apply renames
-            df.columns = [c.lower() for c in df.columns]
+            # Normalize column names: lowercase + strip whitespace, then apply renames
+            df.columns = [c.lower().strip() for c in df.columns]
             df = df.rename(columns=COLUMN_RENAME)
 
             # Keep only the columns we want (some may not exist in all years)
@@ -222,6 +296,68 @@ def main():
         ['count', 'first']).sort_values('first')
     for label, row in label_counts.iterrows():
         print(f"    {label:<25s}  midpoint=${row['first']:>9,.0f}  n={row['count']:>9,}")
+
+    # ------------------------------------------------------------------
+    # Map other categorical codes to labels
+    # ------------------------------------------------------------------
+    label_maps = [
+        ('household_composition',        HOUSEHOLD_COMPOSITION_LABEL),
+        ('age_and_presence_of_children', AGE_CHILDREN_LABEL),
+        ('male_head_age',                HEAD_AGE_LABEL),
+        ('female_head_age',              HEAD_AGE_LABEL),
+        ('male_head_employment',         EMPLOYMENT_LABEL),
+        ('female_head_employment',       EMPLOYMENT_LABEL),
+        ('male_head_education',          EDUCATION_LABEL),
+        ('female_head_education',        EDUCATION_LABEL),
+        ('marital_status',               MARITAL_STATUS_LABEL),
+        ('race',                         RACE_LABEL),
+        ('hispanic_origin',              HISPANIC_ORIGIN_LABEL),
+    ]
+    for col, mapping in label_maps:
+        if col in panelists.columns:
+            panelists[col + '_label'] = pd.to_numeric(
+                panelists[col], errors='coerce').map(mapping)
+
+    # ------------------------------------------------------------------
+    # Combined head variables (Allcott-style)
+    # For each variable: convert to numeric scale, average both heads,
+    # fall back to single head if one is missing (code 0 = No Head → NaN).
+    # ------------------------------------------------------------------
+
+    # Education (years of schooling)
+    for sex in ['male', 'female']:
+        col = f'{sex}_head_education'
+        if col in panelists.columns:
+            panelists[f'_{sex}_educ_yrs'] = pd.to_numeric(
+                panelists[col], errors='coerce').map(EDUC_YEARS)
+    if '_male_educ_yrs' in panelists.columns and '_female_educ_yrs' in panelists.columns:
+        panelists['hh_avg_yrsofschool'] = panelists[['_male_educ_yrs', '_female_educ_yrs']].mean(axis=1)
+    elif '_male_educ_yrs' in panelists.columns:
+        panelists['hh_avg_yrsofschool'] = panelists['_male_educ_yrs']
+    elif '_female_educ_yrs' in panelists.columns:
+        panelists['hh_avg_yrsofschool'] = panelists['_female_educ_yrs']
+
+    # Employment: hours worked per week & employed indicator
+    for sex in ['male', 'female']:
+        col = f'{sex}_head_employment'
+        if col in panelists.columns:
+            emp = pd.to_numeric(panelists[col], errors='coerce')
+            panelists[f'_{sex}_work_hours'] = emp.map(EMPLOY_HOURS)
+            panelists[f'_{sex}_employed']   = emp.map(
+                lambda x: np.nan if (pd.isna(x) or x == 0) else (0.0 if x == 9 else 1.0))
+    if '_male_work_hours' in panelists.columns and '_female_work_hours' in panelists.columns:
+        panelists['hh_avg_workhours'] = panelists[['_male_work_hours', '_female_work_hours']].mean(axis=1)
+        panelists['hh_employed']  = panelists[['_male_employed',   '_female_employed']].mean(axis=1)
+    elif '_male_work_hours' in panelists.columns:
+        panelists['hh_avg_workhours'] = panelists['_male_work_hours']
+        panelists['hh_employed']  = panelists['_male_employed']
+    elif '_female_work_hours' in panelists.columns:
+        panelists['hh_avg_workhours'] = panelists['_female_work_hours']
+        panelists['hh_employed']  = panelists['_female_employed']
+
+    # Drop intermediate columns
+    drop_cols = [c for c in panelists.columns if c.startswith('_male_') or c.startswith('_female_')]
+    panelists.drop(columns=drop_cols, inplace=True)
 
     # ------------------------------------------------------------------
     # Save

@@ -38,7 +38,7 @@ OUT_DIR   = BASE / 'interim' / 'panel_dataset'
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 OUT_PATH  = OUT_DIR / 'panel_hh_year.parquet'
 
-YEARS           = range(2004, 2025)  # years to process (skips missing years automatically)
+YEARS           = range(2004, 2021)  # years to process (skips missing years automatically)
 SAMPLE_FRAC     = 0.3                # fraction of households to sample (1.0 = all)
 MIN_ANNUAL_CALS = 50_000             # drop HH-years below this calorie threshold
 RANDOM_SEED     = 42
@@ -99,7 +99,7 @@ pan = pan.merge(hh_av, on='household_code', how='left')
 age_map = {1: 27, 2: 32, 3: 37, 4: 42, 5: 47, 6: 52, 7: 57, 8: 62, 9: 67, 0: np.nan}
 pan['male_age']  = pan['male_head_age'].map(age_map)
 pan['female_age'] = pan['female_head_age'].map(age_map)
-pan['AgeInt'] = pan[['male_age', 'female_age']].mean(axis=1).clip(23, 90).round().fillna(45).astype(int)
+pan['avg_age_hh_head'] = pan[['male_age', 'female_age']].mean(axis=1).clip(23, 90).round().fillna(45).astype(int)
 pan['projection_factor'] = pan['projection_factor'].astype(float)
 
 # Zip code: try common Nielsen column names

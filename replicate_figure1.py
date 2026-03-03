@@ -85,8 +85,8 @@ def binscatter(df, yvar, xvar='HHAvIncome', controls=None, wvar='projection_fact
 log("Creating figures...")
 panels = [
     ('sugar_per_1000cal', 'Sugars (g per 1,000 Cal)', 'Panel A: Sugars',       'fig1a_sugars'),
-    ('Whole',             'Share whole grain',          'Panel B: Whole Grains', 'fig1b_whole_grains'),
-    ('Produce',           'Calorie share from produce', 'Panel C: Produce',      'fig1c_produce'),
+    ('Whole',             'Share bread calories from whole grains',          'Panel B: Whole Grains', 'fig1b_whole_grains'),
+    ('Produce',           'Calorie share from fruit+veg', 'Panel C: Produce',      'fig1c_produce'),
     ('HI_allcott',        'Health Index (std. dev.)',    'Panel D: Health Index', 'fig1d_health_index'),
 ]
 for var, ylabel, title, fname in panels:

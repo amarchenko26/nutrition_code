@@ -43,7 +43,14 @@ merge 1:1 household_code panel_year using "/Users/anyamarchenko/CEGA Dropbox/Any
 
 // ============================================================================
 
-reghdfe HI hou
+// OLS 
+reghdfe hi real_income, absorb() vce(cluster zip_code)
+
+// first stage 
+reghdfe real_income iv_income, absorb() vce(cluster zip_code)
+
+
+reghdfe hi (real_income = iv_income), absorb() vce(cluster zip_code)
 
 
 
