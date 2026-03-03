@@ -37,13 +37,13 @@ hhy = pd.read_parquet(DATASET)
 hhy = hhy[hhy['panel_year'].isin(YEARS)].copy()
 log(f"  {len(hhy):,} HH-year obs, {hhy['household_code'].nunique():,} HHs")
 
-p1, p99 = hhy['HHAvIncome'].quantile(0.01), hhy['HHAvIncome'].quantile(0.99)
-hhy = hhy[(hhy['HHAvIncome'] >= p1) & (hhy['HHAvIncome'] <= p99)]
+p1, p99 = hhy['hh_real_income_avg'].quantile(0.01), hhy['hh_real_income_avg'].quantile(0.99)
+hhy = hhy[(hhy['hh_real_income_avg'] >= p1) & (hhy['hh_real_income_avg'] <= p99)]
 
 # ============================================================
 # CONTROLS FOR BINSCATTER
 # ============================================================
-hhy['age_bin'] = pd.cut(hhy['AgeInt'], bins=[0, 35, 45, 55, 65, 100], labels=False)
+hhy['age_bin'] = pd.cut(hhy['avg_age_hh_head'], bins=[0, 35, 45, 55, 65, 100], labels=False)
 age_dum = pd.get_dummies(hhy['age_bin'], prefix='a', drop_first=True, dtype=float)
 yr_dum  = pd.get_dummies(hhy['panel_year'], prefix='y', drop_first=True, dtype=float)
 ctl_cols = list(age_dum.columns) + list(yr_dum.columns) + ['household_size']
@@ -58,7 +58,7 @@ def _resid_wls(y, X, w):
     beta, _, _, _ = np.linalg.lstsq(Xc * sw[:, None], y * sw, rcond=None)
     return y - Xc @ beta
 
-def binscatter(df, yvar, xvar='HHAvIncome', controls=None, wvar='projection_factor', nq=15):
+def binscatter(df, yvar, xvar='hh_real_income_avg', controls=None, wvar='projection_factor', nq=15):
     cols = [yvar, xvar, wvar] + (controls or [])
     d = df[cols].dropna().copy()
     y = d[yvar].values.astype(float)
@@ -85,13 +85,13 @@ def binscatter(df, yvar, xvar='HHAvIncome', controls=None, wvar='projection_fact
 log("Creating figures...")
 panels = [
     ('sugar_per_1000cal', 'Sugars (g per 1,000 Cal)', 'Panel A: Sugars',       'fig1a_sugars'),
-    ('Whole',             'Share bread calories from whole grains',          'Panel B: Whole Grains', 'fig1b_whole_grains'),
-    ('Produce',           'Calorie share from fruit+veg', 'Panel C: Produce',      'fig1c_produce'),
-    ('HI_allcott',        'Health Index (std. dev.)',    'Panel D: Health Index', 'fig1d_health_index'),
+    ('whole',             'Share bread calories from whole grains',          'Panel B: Whole Grains', 'fig1b_whole_grains'),
+    ('produce',           'Calorie share from fruit+veg', 'Panel C: Produce',      'fig1c_produce'),
+    ('hi_allcott',        'Health Index (std. dev.)',    'Panel D: Health Index', 'fig1d_health_index'),
 ]
 for var, ylabel, title, fname in panels:
     log(f"  Plotting {var}...")
-    xb, yb = binscatter(hhy, var, 'HHAvIncome', ctl_cols, 'projection_factor', N_QUANTILES)
+    xb, yb = binscatter(hhy, var, 'hh_real_income_avg', ctl_cols, 'projection_factor', N_QUANTILES)
     fig, ax = plt.subplots(figsize=(6, 5))
     ax.scatter(xb, yb, color='#2c5f8a', s=50, zorder=5, edgecolors='white', linewidth=0.5)
     ax.set_xlabel('Household income ($000s)', fontsize=11)
@@ -109,6 +109,6 @@ log("\n=== Summary Statistics ===")
 for var, label, _, __ in panels:
     v = hhy[var].dropna()
     log(f"  {label}: mean={v.mean():.3f}, sd={v.std():.3f}, N={len(v):,}")
-log(f"  HHAvIncome: mean={hhy['HHAvIncome'].mean():.1f}, "
-    f"p25={hhy['HHAvIncome'].quantile(0.25):.1f}, p75={hhy['HHAvIncome'].quantile(0.75):.1f}")
+log(f"  hh_real_income_avg: mean={hhy['hh_real_income_avg'].mean():.1f}, "
+    f"p25={hhy['hh_real_income_avg'].quantile(0.25):.1f}, p75={hhy['hh_real_income_avg'].quantile(0.75):.1f}")
 log("Done!")

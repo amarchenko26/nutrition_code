@@ -7,10 +7,10 @@ Columns in output:
   household_code, panel_year
   total_cals
   rHI_per_1000cal      -- raw (un-normalized) Health Index per 1000 cal
-  HI                   -- normalized HI (pooled mean/sd, no year-residualization)
-  HI_allcott           -- normalized HI (Allcott-style: pooled mean, year-demeaned sd)
-  sugar_per_1000cal, Produce, Whole   -- for Figure 1 panels
-  projection_factor, real_income, HHAvIncome, AgeInt, household_size
+  hi                   -- normalized HI (pooled mean/sd, no year-residualization)
+  hi_allcott           -- normalized HI (Allcott-style: pooled mean, year-demeaned sd)
+  sugar_per_1000cal, produce, whole   -- for Figure 1 panels
+  projection_factor, real_income, hh_real_income_avg, avg_age_hh_head, household_size
   zip_code             -- if present in panelists file
   [EXTRA_PANELIST_VARS]
 
@@ -93,7 +93,7 @@ pan = pan[pan['panel_year'].isin(YEARS)].copy()
 
 cpi_base = CPI[2010]
 pan['real_income'] = pan['household_income_midpoint'] * (cpi_base / pan['panel_year'].map(CPI)) / 1000
-hh_av = pan.groupby('household_code')['real_income'].mean().rename('HHAvIncome')
+hh_av = pan.groupby('household_code')['real_income'].mean().rename('hh_real_income_avg')
 pan = pan.merge(hh_av, on='household_code', how='left')
 
 age_map = {1: 27, 2: 32, 3: 37, 4: 42, 5: 47, 6: 52, 7: 57, 8: 62, 9: 67, 0: np.nan}
@@ -122,7 +122,7 @@ pan = pan[pan['household_code'].isin(sample_hh)]
 log(f"  Sampled {len(sample_hh):,} households ({SAMPLE_FRAC:.0%})")
 
 pan_cols = ['household_code', 'panel_year', 'projection_factor', 'real_income',
-            'HHAvIncome', 'AgeInt', 'household_size']
+            'hh_real_income_avg', 'avg_age_hh_head', 'household_size']
 if zip_col is not None:
     pan_cols.append('zip_code')
 for v in EXTRA_PANELIST_VARS:
@@ -213,11 +213,11 @@ for year in YEARS:
     agg['panel_year']        = year
     agg['rHI_per_1000cal']   = agg['sum_wt_hi']    / agg['total_cals']
     agg['sugar_per_1000cal'] = agg['sum_wt_sugar']  / agg['total_cals']
-    agg['Produce'] = (agg['fruit_cals'] + agg['veg_cals']) / agg['total_cals']
-    agg['Whole']   = agg['whole_cals'] / agg['bread_cals'].replace(0, np.nan)
+    agg['produce'] = (agg['fruit_cals'] + agg['veg_cals']) / agg['total_cals']
+    agg['whole']   = agg['whole_cals'] / agg['bread_cals'].replace(0, np.nan)
 
     hh_year_list.append(agg[['household_code', 'panel_year', 'total_cals',
-                               'rHI_per_1000cal', 'sugar_per_1000cal', 'Produce', 'Whole']])
+                               'rHI_per_1000cal', 'sugar_per_1000cal', 'produce', 'whole']])
     log(f"    matched {n_matched/n_total*100:.0f}%, {len(agg):,} HHs")
     del purch, agg
     gc.collect()
@@ -240,12 +240,12 @@ w = hhy.loc[mask, 'projection_factor'].values
 y = hhy.loc[mask, 'rHI_per_1000cal'].values
 wmean = np.average(y, weights=w)
 
-# HI: pooled mean and pooled SD (no year-residualization)
+# hi: pooled mean and pooled SD (no year-residualization)
 wsd = np.sqrt(np.average((y - wmean) ** 2, weights=w))
-hhy['HI'] = (hhy['rHI_per_1000cal'] - wmean) / wsd
-log(f"  HI (pooled):      mean(raw)={wmean:.4f}, sd={wsd:.4f}")
+hhy['hi'] = (hhy['rHI_per_1000cal'] - wmean) / wsd
+log(f"  hi (pooled):      mean(raw)={wmean:.4f}, sd={wsd:.4f}")
 
-# HI_allcott: pooled mean, but SD from year-demeaned residuals (Allcott-style)
+# hi_allcott: pooled mean, but SD from year-demeaned residuals (Allcott-style)
 yr_means = hhy[mask].groupby('panel_year').apply(
     lambda g: np.average(g['rHI_per_1000cal'], weights=g['projection_factor']))
 resid = hhy['rHI_per_1000cal'] - hhy['panel_year'].map(yr_means)
@@ -253,8 +253,8 @@ r_valid = resid.notna()
 wsd_a = np.sqrt(np.average(
     (resid[r_valid] - np.average(resid[r_valid], weights=hhy.loc[r_valid, 'projection_factor']))**2,
     weights=hhy.loc[r_valid, 'projection_factor'].values))
-hhy['HI_allcott'] = (hhy['rHI_per_1000cal'] - wmean) / wsd_a
-log(f"  HI_allcott (year-demeaned sd): sd(resid)={wsd_a:.4f}")
+hhy['hi_allcott'] = (hhy['rHI_per_1000cal'] - wmean) / wsd_a
+log(f"  hi_allcott (year-demeaned sd): sd(resid)={wsd_a:.4f}")
 
 # ============================================================
 # SAVE

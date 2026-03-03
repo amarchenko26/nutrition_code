@@ -40,18 +40,29 @@ merge 1:1 household_code panel_year using "/Users/anyamarchenko/CEGA Dropbox/Any
 	keep(master match)
 
 
+rename *, lower
 
 // ============================================================================
 
+// Construct an IV at HH level 
+// IV is the projection-factor-weighted average income of all other households in the same demographic cell (household_size × education × occupation), nationwide, EXCLUDING households in the same zip code
+
 // OLS 
-reghdfe hi real_income, absorb() vce(cluster zip_code)
+reghdfe hi real_income [pw = projection_factor], ///
+	absorb(panel_year zip_code) vce(cluster zip_code)
 
 // first stage 
-reghdfe real_income iv_income, absorb() vce(cluster zip_code)
+reghdfe real_income iv_income [pw = projection_factor], ///
+	absorb(panel_year) vce(cluster zip_code)
 
+// 2SLS 
+ivreghdfe hi (real_income=iv_income) [pw = projection_factor], ///
+	absorb(panel_year zip_code) cluster(zip_code)
 
-reghdfe hi (real_income = iv_income), absorb() vce(cluster zip_code)
-
+// add some HH demos - kids, hispanic, race  	
+// 2SLS 
+ivreghdfe hi (real_income=iv_income) [pw = projection_factor], ///
+	absorb(panel_year zip_code hispanic_origin race age_and_presence_of_children) cluster(zip_code)
 
 
 

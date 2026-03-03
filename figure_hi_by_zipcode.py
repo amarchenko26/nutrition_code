@@ -35,10 +35,10 @@ if 'zip_code' not in hhy.columns:
 log("Aggregating HI by zip code...")
 hhy['zip_code'] = hhy['zip_code'].astype(str).str.zfill(5)
 zip_agg = (
-    hhy.dropna(subset=['zip_code', 'HI', 'projection_factor'])
+    hhy.dropna(subset=['zip_code', 'hi', 'projection_factor'])
     .groupby('zip_code')
     .apply(lambda g: pd.Series({
-        'HI':    np.average(g['HI'], weights=g['projection_factor']),
+        'hi':    np.average(g['hi'], weights=g['projection_factor']),
         'n_obs': len(g),
     }))
     .reset_index()
@@ -71,14 +71,14 @@ log(f"  {len(zip_agg):,} zip codes in contiguous US")
 log("Creating map...")
 
 # Clip color scale at 2nd/98th percentile to avoid outliers dominating
-vmin = zip_agg['HI'].quantile(0.02)
-vmax = zip_agg['HI'].quantile(0.98)
+vmin = zip_agg['hi'].quantile(0.02)
+vmax = zip_agg['hi'].quantile(0.98)
 
 fig, ax = plt.subplots(figsize=(14, 8))
 
 sc = ax.scatter(
     zip_agg['lon'], zip_agg['lat'],
-    c=zip_agg['HI'],
+    c=zip_agg['hi'],
     cmap='RdYlGn',
     vmin=vmin, vmax=vmax,
     s=6, alpha=0.75, linewidths=0,

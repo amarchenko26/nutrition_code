@@ -37,18 +37,18 @@ log(f"  {len(hhy):,} HH-year obs, {hhy['household_code'].nunique():,} HHs")
 # INCOME BINS (weighted quantile cuts across all unique HHs)
 # ============================================================
 all_hh = hhy.drop_duplicates('household_code')[
-    ['household_code', 'HHAvIncome', 'projection_factor']].dropna()
-all_hh = all_hh[all_hh['projection_factor'] > 0].sort_values('HHAvIncome').reset_index(drop=True)
+    ['household_code', 'hh_real_income_avg', 'projection_factor']].dropna()
+all_hh = all_hh[all_hh['projection_factor'] > 0].sort_values('hh_real_income_avg').reset_index(drop=True)
 cumwt = all_hh['projection_factor'].cumsum().to_numpy()
 cumwt = cumwt / cumwt[-1]
-cuts = np.interp(np.arange(1, N_INCOME_BINS) / N_INCOME_BINS, cumwt, all_hh['HHAvIncome'].to_numpy()).tolist()
+cuts = np.interp(np.arange(1, N_INCOME_BINS) / N_INCOME_BINS, cumwt, all_hh['hh_real_income_avg'].to_numpy()).tolist()
 for i in range(1, len(cuts)):
     if cuts[i] <= cuts[i - 1]:
         cuts[i] = np.nextafter(cuts[i - 1], np.inf)
 
 bin_labels = list(range(1, N_INCOME_BINS + 1))
 hhy['IncomeBin'] = pd.cut(
-    hhy['HHAvIncome'], bins=[-np.inf] + cuts + [np.inf],
+    hhy['hh_real_income_avg'], bins=[-np.inf] + cuts + [np.inf],
     labels=bin_labels, include_lowest=True).astype(float)
 
 # ============================================================
@@ -63,7 +63,7 @@ for year in all_years:
         if len(sub) > 0:
             results_all.append({
                 'year': year, 'income_bin': int(q), 'n': len(sub),
-                'HI_allcott': np.average(sub['HI_allcott'], weights=sub['projection_factor']),
+                'hi_allcott': np.average(sub['hi_allcott'], weights=sub['projection_factor']),
             })
 res_all = pd.DataFrame(results_all)
 
@@ -77,14 +77,14 @@ for year in PLOT_YEARS:
         if len(sub) > 0:
             results.append({
                 'year': year, 'income_bin': int(q), 'n': len(sub),
-                'HI_allcott': np.average(sub['HI_allcott'], weights=sub['projection_factor']),
+                'hi_allcott': np.average(sub['hi_allcott'], weights=sub['projection_factor']),
             })
 res = pd.DataFrame(results)
-log(res.pivot(index='income_bin', columns='year', values='HI_allcott').to_string())
+log(res.pivot(index='income_bin', columns='year', values='hi_allcott').to_string())
 
 delta_label = None
 y0, y1 = CHANGE_YEARS
-res_wide = res.pivot(index='income_bin', columns='year', values='HI_allcott')
+res_wide = res.pivot(index='income_bin', columns='year', values='hi_allcott')
 if y0 in res_wide.columns and y1 in res_wide.columns:
     delta = res_wide[y1] - res_wide[y0]
     delta_label = (
@@ -117,7 +117,7 @@ else:
 
 for year in years_sorted:
     yr_data = res[res['year'] == year].sort_values('income_bin')
-    ax.plot(yr_data['income_bin'], yr_data['HI_allcott'],
+    ax.plot(yr_data['income_bin'], yr_data['hi_allcott'],
             marker=markers[year], color=colors[year], linewidth=2, markersize=8,
             label=str(year), zorder=5)
 
@@ -157,13 +157,13 @@ for year in all_years:
     yr = res_all[res_all['year'] == year].sort_values('income_bin')
     if len(yr) < 2:
         continue
-    hi_vals = yr['HI_allcott'].values
+    hi_vals = yr['hi_allcott'].values
     # Vertical line from Q1 to Q5
     ax.plot([year, year], [hi_vals[0], hi_vals[-1]], color='gray', linewidth=1.5, zorder=2)
 
 for q_idx, q in enumerate(bin_labels):
     q_data = res_all[res_all['income_bin'] == q].sort_values('year')
-    ax.scatter(q_data['year'], q_data['HI_allcott'],
+    ax.scatter(q_data['year'], q_data['hi_allcott'],
                color=q_colors[q_idx], s=60, zorder=5,
                label=q_labels.get(q, f'Q{q}'), edgecolors='white', linewidth=0.5)
 
@@ -188,7 +188,7 @@ log(f"Saved: {FIG_DIR / 'hi_inequality_over_time.png'}")
 # ============================================================
 log("Creating figure 3 (adjacent quintile gaps over time)...")
 
-res_wide_all = res_all.pivot(index='year', columns='income_bin', values='HI_allcott')
+res_wide_all = res_all.pivot(index='year', columns='income_bin', values='hi_allcott')
 gap_labels = {
     (1, 4): 'Q4 − Q1',
 }
