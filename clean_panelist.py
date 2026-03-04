@@ -360,6 +360,29 @@ def main():
     panelists.drop(columns=drop_cols, inplace=True)
 
     # ------------------------------------------------------------------
+    # Merge dietary ailments (from clean_ailments.py output, 2011-2023)
+    # HHs not in the health survey get NaN for all ailment columns.
+    # ------------------------------------------------------------------
+    ailments_path = os.path.join(BASE_DATA_DIR, 'interim', 'ailments',
+                                 'dietary_ailments_by_household.parquet')
+    if os.path.exists(ailments_path):
+        print("\n" + "=" * 80)
+        print("MERGING DIETARY AILMENTS")
+        ailments = pd.read_parquet(ailments_path)
+        ailments['household_code'] = pd.to_numeric(ailments['household_code'], errors='coerce')
+        panelists['household_code'] = pd.to_numeric(panelists['household_code'], errors='coerce')
+        before = len(panelists)
+        panelists = panelists.merge(ailments, on=['household_code', 'panel_year'], how='left')
+        assert len(panelists) == before, "Ailment merge inflated row count — check for duplicates"
+        ailment_cols = [c for c in ailments.columns if c not in ('household_code', 'panel_year')]
+        n_matched = panelists[ailment_cols[0]].notna().sum()
+        print(f"  Matched {n_matched:,} / {len(panelists):,} panelist-years to ailment survey")
+        print(f"  Ailment columns added: {ailment_cols}")
+    else:
+        print(f"\n  NOTE: ailments file not found at {ailments_path}")
+        print("  Run clean_ailments.py first to add dietary disease variables.")
+
+    # ------------------------------------------------------------------
     # Save
     # ------------------------------------------------------------------
     print("\n" + "=" * 80)

@@ -47,7 +47,7 @@ FORCE_REBUILD   = False              # set True to ignore existing output and re
 # Add extra panelist columns to include in the output.
 # Check available columns by loading a sample: pd.read_parquet(PANELISTS).columns
 # Common options: 'fips_state_code', 'fips_county_code', 'panelist_zip_code'
-EXTRA_PANELIST_VARS = []
+EXTRA_PANELIST_VARS = ['cholesterol', 'prediabetes', 'diabetes_type1', 'diabetes_type2', 'heart_disease', 'hypertension', 'obesity', 'any_diabetes', 'any_metabolic_disease', 'n_dietary_conditions']
 
 # ============================================================
 # CONSTANTS

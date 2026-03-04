@@ -15,6 +15,7 @@ Cell definition (coarsened to keep cells populated):
   - household_size_bin: 1, 2, 3-4, 5+
   - educ_bin:           <HS, HS grad, Some college, College+
   - occ_bin:            White collar, Blue collar, Service/Other, Not employed
+  use male if available otherwise fall back to female 
 
 Output:
   interim/panel_dataset/iv_income.parquet

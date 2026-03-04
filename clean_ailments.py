@@ -1,366 +1,316 @@
-#!/usr/bin/env python3
 """
 Clean Nielsen Ailments Data
 
-Extracts dietary disease-related ailments from Nielsen Healthcare survey data
-across all available years (2011-2023).
+Extracts dietary/metabolic disease indicators from Nielsen Health Care Survey
+data across all available years (2011-2023) and saves a household × year panel.
 
-Target ailments (dietary/metabolic diseases):
-- Cholesterol Problems
-- Pre-Diabetes
-- Diabetes Type I
-- Diabetes Type II
-- Heart Disease/Heart Attack/Angina/Heart Failure
-- High Blood Pressure/Hypertension
-- Obesity/Overweight
+Target conditions:
+  cholesterol    - Cholesterol Problems (high cholesterol, triglycerides)
+  prediabetes    - Pre-Diabetes
+  diabetes_type1 - Diabetes Type I
+  diabetes_type2 - Diabetes Type II
+  heart_disease  - Heart Disease / Heart Attack / Angina / Heart Failure
+  hypertension   - High Blood Pressure / Hypertension
+  obesity        - Obesity / Overweight
+
+Format changes across years (verified from format/layout files):
+
+  2011-2015  Q1_Ailment## Description    positions {11,13,14,15,21,22,30}
+  2016       Q16_Ailment# (exact)        positions {16,20,21,22,30,32,43}
+  2017       Q16_Ailment# (exact)        positions {16,20,21,22,31,33,44}
+  2018       Q10_Ailment# (exact)        positions {16,20,21,22,31,33,44}
+  2019-2021  Q36_## - Description        positions {16,20,21,22,31,33,44}
+  2022-2023  10 (Q36_##) (exact)         positions {14,17,18,19,28,29,38}
+
+Note: 2020 and 2021 data files have the parsed data on a non-primary sheet.
+
+Output:
+  interim/ailments/dietary_ailments_by_household.parquet
+  Columns: household_code, panel_year, cholesterol, prediabetes,
+           diabetes_type1, diabetes_type2, heart_disease, hypertension,
+           obesity, any_diabetes, any_metabolic_disease, n_dietary_conditions
 """
 
 import os
 import re
 import pandas as pd
-from pathlib import Path
+import numpy as np
 
-
-# ============================================================================
-# CONFIGURATION
-# ============================================================================
-# Set to True to use sample data (faster iteration during development)
-# Set to False to use full data (for production runs)
-# Note: Ailments data is household-level survey data, so we don't sample it.
-# This toggle only affects output path naming for consistency with other scripts.
-USE_SAMPLE = True
-
-# Base paths
 BASE_DATA_DIR = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data'
+AILMENTS_DIR  = os.path.join(BASE_DATA_DIR, 'raw', 'ailments')
+OUTPUT_DIR    = os.path.join(BASE_DATA_DIR, 'interim', 'ailments')
 
+TARGET_CONDITIONS = [
+    'cholesterol', 'prediabetes', 'diabetes_type1', 'diabetes_type2',
+    'heart_disease', 'hypertension', 'obesity',
+]
 
-def get_ailments_paths():
-    """Get input/output paths based on USE_SAMPLE setting."""
-    # Note: Input is always from raw ailments (no sample version)
-    # Output suffix added for consistency with rest of pipeline
-    suffix = '_sample' if USE_SAMPLE else ''
-    return {
-        'ailments_dir': os.path.join(BASE_DATA_DIR, 'raw/ailments'),
-        'output_dir': os.path.join(BASE_DATA_DIR, f'interim/ailments{suffix}'),
-    }
+# ---------------------------------------------------------------------------
+# Hardcoded column position → condition mappings (from format files)
+# ---------------------------------------------------------------------------
 
-
-# Dietary disease keywords to search for in column names
-DIETARY_DISEASE_KEYWORDS = {
-    'cholesterol': 'cholesterol',
-    'pre-diabetes': 'prediabetes',
-    'pre diabetes': 'prediabetes',
-    'prediabetes': 'prediabetes',
-    'diabetes type i': 'diabetes_type1',
-    'diabetes - type i': 'diabetes_type1',
-    'diabetes type 1': 'diabetes_type1',
-    'diabetes type ii': 'diabetes_type2',
-    'diabetes - type ii': 'diabetes_type2',
-    'diabetes type 2': 'diabetes_type2',
-    'heart disease': 'heart_disease',
-    'heart attack': 'heart_disease',
-    'angina': 'heart_disease',
-    'heart failure': 'heart_disease',
-    'high blood pressure': 'hypertension',
-    'hypertension': 'hypertension',
-    'obesity': 'obesity',
-    'overweight': 'obesity',
+Q1_TARGETS = {
+    11: 'cholesterol', 13: 'prediabetes', 14: 'diabetes_type1',
+    15: 'diabetes_type2', 21: 'heart_disease', 22: 'hypertension', 30: 'obesity',
 }
 
+Q16_TARGETS_2016 = {
+    16: 'cholesterol', 20: 'prediabetes', 21: 'diabetes_type1',
+    22: 'diabetes_type2', 30: 'heart_disease', 32: 'hypertension', 43: 'obesity',
+}
 
-def find_ailment_columns(df):
-    """
-    Find columns related to dietary disease ailments.
+# 2017-2021: heart/hypertension/obesity shifted by 1-1-1 position
+Q16_TARGETS_2017 = {
+    16: 'cholesterol', 20: 'prediabetes', 21: 'diabetes_type1',
+    22: 'diabetes_type2', 31: 'heart_disease', 33: 'hypertension', 44: 'obesity',
+}
 
-    Parameters:
-    -----------
-    df : DataFrame
-        Raw ailments data
+Q36_TARGETS_2022 = {
+    14: 'cholesterol', 17: 'prediabetes', 18: 'diabetes_type1',
+    19: 'diabetes_type2', 28: 'heart_disease', 29: 'hypertension', 38: 'obesity',
+}
 
-    Returns:
-    --------
-    dict : Mapping of standardized ailment name -> column name
-    """
-    ailment_cols = {}
+# fmt: column prefix style ('Q1', 'Q16', 'Q10', 'Q36d'=Q36 with desc suffix, '10Q36')
+YEAR_CONFIG = {
+    2011: ('Q1',    Q1_TARGETS),
+    2012: ('Q1',    Q1_TARGETS),
+    2013: ('Q1',    Q1_TARGETS),
+    2014: ('Q1',    Q1_TARGETS),
+    2015: ('Q1',    Q1_TARGETS),
+    2016: ('Q16',   Q16_TARGETS_2016),
+    2017: ('Q16',   Q16_TARGETS_2017),
+    2018: ('Q10',   Q16_TARGETS_2017),
+    2019: ('Q36d',  Q16_TARGETS_2017),
+    2020: ('Q36d',  Q16_TARGETS_2017),
+    2021: ('Q36d',  Q16_TARGETS_2017),
+    2022: ('10Q36', Q36_TARGETS_2022),
+    2023: ('10Q36', Q36_TARGETS_2022),
+}
 
-    for col in df.columns:
-        col_lower = col.lower()
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-        # Check for each keyword
-        for keyword, std_name in DIETARY_DISEASE_KEYWORDS.items():
-            if keyword in col_lower:
-                # Prefer Q1_Ailment columns (the main ailment indicator)
-                # or Q36_ columns (2023 format)
-                is_main_indicator = (
-                    'q1_ailment' in col_lower or
-                    col_lower.startswith('q36_') or
-                    (std_name not in ailment_cols)  # take first match if no better option
-                )
-
-                if is_main_indicator:
-                    # Avoid duplicate mappings - only take the most specific one
-                    # e.g., "Diabetes Type II" should not match "Diabetes Type I"
-                    if std_name == 'diabetes_type1' and 'type ii' in col_lower:
-                        continue
-                    if std_name == 'diabetes_type2' and 'type i' in col_lower and 'type ii' not in col_lower:
-                        continue
-
-                    ailment_cols[std_name] = col
-                    break
-
-    return ailment_cols
+def find_hh_col(cols):
+    for c in cols:
+        cl = c.lower().strip()
+        if 'household id' in cl or 'hhid' in cl or 'panelistid' in cl:
+            return c
+    return cols[0]
 
 
-def find_household_id_column(df):
-    """
-    Find the household ID column (varies by year).
+def read_data_file(fpath):
+    """Read the parsed data xlsx, handling multi-sheet files by finding the
+    sheet with actual column headers (not unnamed/pivot tables)."""
+    xl = pd.ExcelFile(fpath, engine='openpyxl')
+    for sheet in xl.sheet_names:
+        df = xl.parse(sheet)
+        unnamed = sum(1 for c in df.columns if str(c).startswith('Unnamed:'))
+        if unnamed <= 2:
+            return df
+    # fallback: first sheet
+    return xl.parse(xl.sheet_names[0])
 
-    Parameters:
-    -----------
-    df : DataFrame
-        Raw ailments data
 
-    Returns:
-    --------
-    str : Column name for household ID
-    """
-    for col in df.columns:
-        col_lower = col.lower()
-        if 'household' in col_lower or 'hhid' in col_lower or 'panelistid' in col_lower:
-            return col
+def find_data_file(year_dir):
+    """Return filename of the main data xlsx (not format/layout/corrected)."""
+    files = []
+    for f in os.listdir(year_dir):
+        if not f.endswith('.xlsx') or f.startswith('~'):
+            continue
+        fl = f.lower()
+        if any(kw in fl for kw in ('format', 'layout', 'corrected')):
+            continue
+        files.append(f)
+    if not files:
+        return None
+    return max(files, key=lambda f: os.path.getsize(os.path.join(year_dir, f)))
 
-    # Fallback to first column if it looks like an ID
-    first_col = df.columns[0]
-    if df[first_col].dtype in ['int64', 'float64']:
-        return first_col
 
+def find_corrected_diabetes_file(year_dir):
+    for f in os.listdir(year_dir):
+        if 'corrected' in f.lower() and f.endswith('.xlsx') and not f.startswith('~'):
+            return os.path.join(year_dir, f)
     return None
 
 
-def process_year(year, ailments_dir):
+def extract_conditions(df, fmt, targets):
     """
-    Process ailments data for a single year.
+    Return dict {condition_name: Series(0/1)}.
 
-    Parameters:
-    -----------
-    year : int
-        Year to process
-    ailments_dir : str
-        Base directory for ailments data
-
-    Returns:
-    --------
-    DataFrame with household_id, year, and dietary disease columns
+    For formats with description suffixes (Q1, Q36d), builds a prefix lookup
+    so that e.g. 'Q1_Ailment11 Cholesterol Problems ' → pos 11.
     """
-    year_dir = os.path.join(ailments_dir, str(year))
+    # Build prefix lookups for suffix-bearing formats
+    if fmt == 'Q1':
+        lookup = {}
+        for c in df.columns:
+            m = re.match(r'^Q1_Ailment(\d+)', c)
+            if m:
+                lookup[int(m.group(1))] = c
+    elif fmt == 'Q36d':
+        lookup = {}
+        for c in df.columns:
+            m = re.match(r'^Q36_(\d+)', c)
+            if m:
+                lookup[int(m.group(1))] = c
+    else:
+        lookup = None
 
-    if not os.path.exists(year_dir):
-        print(f"  Year {year}: Directory not found")
-        return None
-
-    # Find the data file (Excel file with data, not format/layout)
-    data_files = []
-    for f in os.listdir(year_dir):
-        if f.endswith('.xlsx') and not f.startswith('~'):
-            # Skip format/layout files
-            f_lower = f.lower()
-            if 'format' in f_lower or 'layout' in f_lower:
+    result = {}
+    for pos, cond in targets.items():
+        if lookup is not None:
+            col = lookup.get(pos)
+            if col is None:
+                print(f"      WARNING: position {pos} not found in {fmt} lookup (skipping {cond})")
                 continue
-            data_files.append(f)
+        elif fmt == 'Q16':
+            col = f'Q16_Ailment{pos}'
+        elif fmt == 'Q10':
+            col = f'Q10_Ailment{pos}'
+        elif fmt == '10Q36':
+            col = f'10 (Q36_{pos})'
+        else:
+            continue
 
-    if not data_files:
-        print(f"  Year {year}: No data file found")
+        if lookup is None and col not in df.columns:
+            print(f"      WARNING: column '{col}' not found (skipping {cond})")
+            continue
+
+        vals = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        result[cond] = (vals == 1).astype(int)
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Per-year processing
+# ---------------------------------------------------------------------------
+
+def process_year(year):
+    if year not in YEAR_CONFIG:
         return None
 
-    # Use the largest file (likely the main data file)
-    data_file = max(data_files, key=lambda f: os.path.getsize(os.path.join(year_dir, f)))
-    data_path = os.path.join(year_dir, data_file)
+    year_dir = os.path.join(AILMENTS_DIR, str(year))
+    if not os.path.isdir(year_dir):
+        return None
 
-    print(f"\n  Year {year}: Reading {data_file}")
+    fname = find_data_file(year_dir)
+    if fname is None:
+        print(f"  {year}: no data file found")
+        return None
+
+    fpath = os.path.join(year_dir, fname)
+    print(f"\n  {year}: {fname}")
 
     try:
-        df = pd.read_excel(data_path, engine='openpyxl')
+        df = read_data_file(fpath)
     except Exception as e:
-        print(f"  Year {year}: Error reading file - {e}")
+        print(f"    ERROR reading file: {e}")
         return None
 
-    print(f"    Rows: {len(df):,}, Columns: {len(df.columns)}")
+    print(f"    {len(df):,} rows × {len(df.columns)} cols")
 
-    # Find household ID column
-    hh_col = find_household_id_column(df)
-    if hh_col is None:
-        print(f"  Year {year}: Could not find household ID column")
-        return None
-    print(f"    Household ID column: {hh_col}")
+    fmt, targets = YEAR_CONFIG[year]
+    print(f"    Format: {fmt}")
 
-    # Find ailment columns
-    ailment_cols = find_ailment_columns(df)
-    print(f"    Found {len(ailment_cols)} dietary disease columns:")
-    for std_name, col_name in ailment_cols.items():
-        print(f"      {std_name}: {col_name[:60]}...")
+    hh_col = find_hh_col(list(df.columns))
+    hh_ids = pd.to_numeric(df[hh_col], errors='coerce')
 
-    if not ailment_cols:
-        print(f"  Year {year}: No dietary disease columns found")
-        return None
+    conditions = extract_conditions(df, fmt, targets)
+    print(f"    Extracted: {list(conditions.keys())}")
 
-    # Extract relevant data
-    result_cols = {'household_id': df[hh_col], 'survey_year': year}
+    # For 2020-2021, override diabetes type I/II with corrected file if available
+    if year in (2020, 2021):
+        corr_path = find_corrected_diabetes_file(year_dir)
+        if corr_path:
+            print(f"    Applying corrected diabetes file: {os.path.basename(corr_path)}")
+            try:
+                corr = read_data_file(corr_path)
+                corr_fmt = YEAR_CONFIG[year][0]
+                corr_hh_col = find_hh_col(list(corr.columns))
+                corr_hh = pd.to_numeric(corr[corr_hh_col], errors='coerce')
+                corr_conds = extract_conditions(corr, corr_fmt, targets)
+                corr_df = pd.DataFrame({'hh': corr_hh})
+                for cond in ('diabetes_type1', 'diabetes_type2'):
+                    if cond in corr_conds:
+                        corr_df[cond] = corr_conds[cond].values
+                corr_df = corr_df.dropna(subset=['hh']).set_index('hh')
+                hh_arr = hh_ids.values
+                for cond in ('diabetes_type1', 'diabetes_type2'):
+                    if cond in corr_df.columns and cond in conditions:
+                        override = corr_df[cond].reindex(hh_arr).values
+                        mask = ~np.isnan(override)
+                        arr = conditions[cond].values.astype(float)
+                        arr[mask] = override[mask]
+                        conditions[cond] = pd.Series(arr.astype(int), index=conditions[cond].index)
+            except Exception as e:
+                print(f"    WARNING: could not apply corrected diabetes file: {e}")
 
-    for std_name, col_name in ailment_cols.items():
-        # Convert to binary (1 = has ailment, 0 = does not)
-        values = df[col_name].copy()
+    result = pd.DataFrame({'household_code': hh_ids, 'panel_year': year})
+    for cond, vals in conditions.items():
+        result[cond] = vals.values
 
-        # Handle different value formats
-        if values.dtype == 'object':
-            # Text values
-            values = values.fillna(0)
-            values = values.apply(lambda x: 1 if x in [1, '1', 'Yes', 'yes', 'Y', 'y'] else 0)
-        else:
-            # Numeric values
-            values = values.fillna(0)
-            values = (values == 1).astype(int)
+    # Multiple family members per HH: keep any-member flag
+    result = result.groupby('household_code', as_index=False).max()
 
-        result_cols[std_name] = values
+    for cond in conditions:
+        rate = result[cond].mean() * 100
+        print(f"      {cond}: {rate:.1f}%")
 
-    result_df = pd.DataFrame(result_cols)
+    return result
 
-    # Remove duplicates (keep first occurrence per household)
-    n_before = len(result_df)
-    result_df = result_df.drop_duplicates(subset=['household_id'], keep='first')
-    n_after = len(result_df)
-    if n_before != n_after:
-        print(f"    Removed {n_before - n_after} duplicate households")
 
-    # Print prevalence rates
-    print(f"    Prevalence rates:")
-    for std_name in ailment_cols.keys():
-        if std_name in result_df.columns:
-            rate = result_df[std_name].mean() * 100
-            print(f"      {std_name}: {rate:.1f}%")
-
-    return result_df
-
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
 
 def main():
-    """Main function to clean ailments data."""
-    print("="*80)
+    print("=" * 70)
     print("CLEANING NIELSEN AILMENTS DATA")
-    print("="*80)
+    print("=" * 70)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    # Get paths based on USE_SAMPLE setting
-    paths = get_ailments_paths()
-    ailments_dir = paths['ailments_dir']
-    output_dir = paths['output_dir']
+    years = sorted(
+        int(d) for d in os.listdir(AILMENTS_DIR)
+        if d.isdigit() and os.path.isdir(os.path.join(AILMENTS_DIR, d)))
+    print(f"Years found: {years}")
 
-    print(f"USE_SAMPLE: {USE_SAMPLE}")
-    print(f"Input: {ailments_dir}")
-    print(f"Output: {output_dir}")
-
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Find available years
-    years = []
-    for item in os.listdir(ailments_dir):
-        if item.isdigit() and os.path.isdir(os.path.join(ailments_dir, item)):
-            years.append(int(item))
-    years = sorted(years)
-
-    print(f"\nFound {len(years)} years: {years}")
-
-    # Process each year
-    all_years_data = []
-
+    frames = []
     for year in years:
-        result = process_year(year, ailments_dir)
-        if result is not None:
-            all_years_data.append(result)
+        res = process_year(year)
+        if res is not None:
+            frames.append(res)
 
-    if not all_years_data:
-        print("\nERROR: No data processed successfully")
+    if not frames:
+        print("\nERROR: no data processed.")
         return
 
-    # Combine all years
-    print("\n" + "="*80)
-    print("COMBINING ALL YEARS")
-    print("="*80)
+    combined = pd.concat(frames, ignore_index=True)
 
-    combined_df = pd.concat(all_years_data, ignore_index=True)
-    print(f"\nTotal rows: {len(combined_df):,}")
-    print(f"Unique households: {combined_df['household_id'].nunique():,}")
-    print(f"Years covered: {combined_df['survey_year'].min()} - {combined_df['survey_year'].max()}")
+    for cond in TARGET_CONDITIONS:
+        if cond not in combined.columns:
+            combined[cond] = np.nan
 
-    # Fill missing ailment columns with 0 (not surveyed = assume no ailment)
-    ailment_columns = [c for c in combined_df.columns if c not in ['household_id', 'survey_year']]
-    for col in ailment_columns:
-        combined_df[col] = combined_df[col].fillna(0).astype(int)
+    diabetes_cols = ['prediabetes', 'diabetes_type1', 'diabetes_type2']
+    combined['any_diabetes'] = combined[diabetes_cols].max(axis=1)
+    combined['any_metabolic_disease'] = combined[TARGET_CONDITIONS].max(axis=1)
+    combined['n_dietary_conditions'] = combined[TARGET_CONDITIONS].sum(axis=1)
 
-    # Create composite measures
-    print("\nCreating composite measures...")
+    print(f"\n{'='*70}")
+    print(f"COMBINED: {len(combined):,} HH-year obs, "
+          f"{combined['household_code'].nunique():,} unique HHs, "
+          f"years {combined['panel_year'].min()}–{combined['panel_year'].max()}")
+    print(f"\nOverall prevalence:")
+    for cond in TARGET_CONDITIONS + ['any_diabetes', 'any_metabolic_disease']:
+        rate = combined[cond].mean() * 100
+        print(f"  {cond:<25s}: {rate:.1f}%")
 
-    # Any diabetes (pre-diabetes, type 1, or type 2)
-    diabetes_cols = [c for c in ailment_columns if 'diabetes' in c]
-    if diabetes_cols:
-        combined_df['any_diabetes'] = combined_df[diabetes_cols].max(axis=1)
-        print(f"  any_diabetes (from {diabetes_cols})")
-
-    # Any metabolic disease (diabetes, obesity, hypertension, cholesterol, heart)
-    metabolic_cols = ailment_columns
-    if metabolic_cols:
-        combined_df['any_metabolic_disease'] = combined_df[metabolic_cols].max(axis=1)
-        print(f"  any_metabolic_disease (from all {len(metabolic_cols)} conditions)")
-
-    # Count of conditions
-    combined_df['n_dietary_conditions'] = combined_df[ailment_columns].sum(axis=1)
-    print(f"  n_dietary_conditions (count of conditions)")
-
-    # Summary statistics
-    print("\n" + "="*80)
-    print("SUMMARY STATISTICS")
-    print("="*80)
-
-    print(f"\nHouseholds by year:")
-    year_counts = combined_df.groupby('survey_year')['household_id'].nunique()
-    for year, count in year_counts.items():
-        print(f"  {year}: {count:,} households")
-
-    print(f"\nOverall prevalence rates:")
-    for col in ailment_columns + ['any_diabetes', 'any_metabolic_disease']:
-        if col in combined_df.columns:
-            rate = combined_df[col].mean() * 100
-            print(f"  {col}: {rate:.1f}%")
-
-    print(f"\nCondition counts:")
-    print(combined_df['n_dietary_conditions'].value_counts().sort_index())
-
-    # Save to parquet
-    output_path = os.path.join(output_dir, 'dietary_ailments_by_household.parquet')
-    combined_df.to_parquet(output_path, index=False)
-    print(f"\nSaved to: {output_path}")
-
-    # Also save as CSV for inspection
-    csv_path = os.path.join(output_dir, 'dietary_ailments_by_household.csv')
-    combined_df.to_csv(csv_path, index=False)
-    print(f"Saved to: {csv_path}")
-
-    # Save summary by year
-    summary_by_year = []
-    for year in combined_df['survey_year'].unique():
-        year_data = combined_df[combined_df['survey_year'] == year]
-        row = {'year': year, 'n_households': len(year_data)}
-        for col in ailment_columns + ['any_diabetes', 'any_metabolic_disease']:
-            if col in year_data.columns:
-                row[f'{col}_rate'] = year_data[col].mean() * 100
-        summary_by_year.append(row)
-
-    summary_df = pd.DataFrame(summary_by_year)
-    summary_path = os.path.join(output_dir, 'dietary_ailments_summary_by_year.csv')
-    summary_df.to_csv(summary_path, index=False)
-    print(f"Saved summary to: {summary_path}")
-
-    print("\n" + "="*80)
-    print("AILMENTS CLEANING COMPLETE")
-    print("="*80)
+    out_path = os.path.join(OUTPUT_DIR, 'dietary_ailments_by_household.parquet')
+    combined.to_parquet(out_path, index=False)
+    print(f"\nSaved: {out_path}")
+    print(f"Columns: {list(combined.columns)}")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

@@ -1,7 +1,7 @@
 
 
 clear all
-set more off
+set graphics on 
 
 
 // Panelist cols: 
@@ -15,6 +15,10 @@ set more off
 // ============================================================================
 
 pq use using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panelists/panelists_all_years.parquet", clear
+//
+//
+use "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/ssiv_zip_year.dta", clear
+
 
 // ============================================================================
 // Load HH panel
@@ -27,10 +31,11 @@ pq use using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/inte
 // N = 289k 
 pq use using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/panel_hh_year.parquet", clear
 
+tostring zip_code, replace format(%05.0f)
 
 // N = 289k
 merge 1:1 household_code panel_year using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panelists/panelists_all_years.dta", ///
-	keepusing(hh_avg_yrsofschool hh_avg_workhours hh_employed fips_county_code hh_avg_workhours age_and_presence_of_children age_and_presence_of_children_lab household_composition hispanic_origin hispanic_origin_label race race_label) ///
+	keepusing(hh_avg_yrsofschool hh_avg_workhours hh_employed fips_county_code hh_avg_workhours age_and_presence_of_children age_and_presence_of_children_lab household_composition hispanic_origin hispanic_origin_label race race_label obesity n_dietary_conditions hypertension heart_disease diabetes_type1 diabetes_type2 cholesterol any_metabolic_disease) ///
 	keep(master match)
 
 drop _merge
@@ -39,8 +44,114 @@ merge 1:1 household_code panel_year using "/Users/anyamarchenko/CEGA Dropbox/Any
 	keepusing(iv_income iv_cell_n_lo) ///
 	keep(master match)
 
+drop _merge
 
 rename *, lower
+
+// ============================================================================
+// Check HI is correlated with disease
+
+collapse obesity n_dietary_conditions hypertension heart_disease diabetes_type1 diabetes_type2 cholesterol any_metabolic_disease hi real_income [pw=projection_factor], by(household_code)
+
+#delimit ; 
+binscatter diabetes_type2 hi, 
+    n(50)
+    msymbol(O)
+    linetype(qfit)
+    rd(0)
+    xtitle("Household HI")
+    ytitle("Type 2 Diabetes (any HH member)")
+    savegraph("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/corr_diab_hi.png")
+    replace
+;
+
+binscatter obesity hi, 
+    n(50)
+    msymbol(O)
+    linetype(qfit)
+    rd(0)
+    xtitle("Household HI")
+    ytitle("Obesity (any HH member)")
+    savegraph("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/corr_ob_hi.png")
+    replace;
+	
+binscatter cholesterol hi, 
+    n(50)
+    msymbol(O)
+    linetype(qfit)
+    rd(0)
+    xtitle("Household HI")
+    ytitle("Cholesterol (any HH member)")
+    savegraph("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/corr_chol_hi.png")
+    replace;
+
+binscatter any_metabolic_disease hi, 
+    n(50)
+    msymbol(O)
+    linetype(qfit)
+    rd(0)
+    xtitle("Household HI")
+    ytitle("Any Metabolic Disease (any HH member)")
+    savegraph("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/corr_any_hi.png")
+    replace;
+	
+	
+binscatter obesity real_income, 
+    n(40)
+    msymbol(O)
+    linetype(qfit)
+    xtitle("HH income $1000s")
+    ytitle("Obesity (any HH member)")
+    savegraph("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/corr_ob_inc.png")
+    replace;
+	
+	
+binscatter diabetes_type2 real_income, 
+    n(40)
+    msymbol(O)
+    linetype(qfit)
+    xtitle("HH income $1000s")
+    ytitle("Type 2 Diabetes (any HH member)")
+    savegraph("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/corr_diab_inc.png")
+    replace;
+	
+	
+binscatter diabetes_type2 real_income, 
+    n(40)
+	controls(hi)
+    msymbol(O)
+    linetype(qfit)
+    xtitle("HH income $1000s (CONTROLLING FOR HI)")
+    ytitle("Type 2 Diabetes (any HH member)")
+    savegraph("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/corr_diab_inc2.png")
+    replace;
+	
+binscatter diabetes_type2 hi, 
+    n(40)
+	controls(real_income)
+    msymbol(O)
+    linetype(qfit)
+    rd(0)
+    xtitle("Household HI (CONTROLLING FOR INCOME)")
+    ytitle("Type 2 Diabetes (any HH member)")
+    savegraph("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/corr_diab_hi2.png")
+    replace;
+
+	
+binscatter hi real_income, 
+    n(50)
+    msymbol(O)
+    linetype(qfit)
+    xtitle("HH income $1000s")
+    ytitle("Household HI")
+    savegraph("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/corr_inc_hi.png")
+    replace;
+
+#delimit cr
+
+
+
+
 
 // ============================================================================
 
@@ -56,6 +167,7 @@ reghdfe real_income iv_income [pw = projection_factor], ///
 	absorb(panel_year) vce(cluster zip_code)
 
 // 2SLS 
+// size of IV estimates is 50% larger than OLS.
 ivreghdfe hi (real_income=iv_income) [pw = projection_factor], ///
 	absorb(panel_year zip_code) cluster(zip_code)
 
@@ -65,6 +177,59 @@ ivreghdfe hi (real_income=iv_income) [pw = projection_factor], ///
 	absorb(panel_year zip_code hispanic_origin race age_and_presence_of_children) cluster(zip_code)
 
 
+// MERGE IN TOTAL EXPENDITURE ON FOOD 
+// MERGE IN PRICES PAID???? 
+
+local outcome_vars whole produce sugar_per_1000cal total_cals
+foreach var in `outcome_vars' {
+	
+	ivreghdfe `var' (real_income=iv_income) [pw = projection_factor], absorb(panel_year zip_code hispanic_origin race age_and_presence_of_children) cluster(zip_code)
+
+}
+
+	
+	
+	
+		
+cap drop inc_q
+estimates clear 
+xtile inc_q = hhavincome [aw=projection_factor], nq(5)
+// IV by quintile
+forvalues q = 1/5 {
+    ivreghdfe hi_allcott (real_income = iv_income) [pw=projection_factor] if inc_q == `q', ///
+        absorb(panel_year zip_code hispanic_origin race age_and_presence_of_children) ///
+        cluster(zip_code)
+    estimates store iv_q`q'
+}
+set graphics on
+coefplot iv_q*, keep(real_income) ///
+    rename(real_income = " ") ///
+    xtitle("Income quintile") ytitle("IV effect on HI (std. dev. per $1k)") ///
+    title("Effect of Income on Healthfulness by Income Group") ///
+    vertical yline(0, lcolor(gray) lpattern(dash)) ciopts(recast(rcap))
+//     xlabel(1 "Q1 (Lowest)" 2 "Q2" 3 "Q3" 4 "Q4" 5 "Q5 (Highest)") ///
+
+
+	
+	
+// ============================================================================
+
+// Construct an SSIV at zip-code level 
+
+preserve 
+collapse (mean) hi real_income [aw=projection_factor], by(zip_code panel_year)
+
+merge 1:1 zip_code panel_year using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/ssiv_zip_year.dta", ///
+	keepusing(ssiv_income) ///
+	keep(master match)
+
+
+ivreghdfe hi (real_income=ssiv_income), ///
+	absorb(panel_year zip_code) robust
+
+
+
+restore 
 
 
 
@@ -73,24 +238,22 @@ ivreghdfe hi (real_income=iv_income) [pw = projection_factor], ///
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
 
 
 
