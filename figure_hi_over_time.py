@@ -216,3 +216,109 @@ plt.savefig(FIG_DIR / 'hi_quintile_gaps_over_time.png', bbox_inches='tight', dpi
 plt.close()
 log(f"Saved: {FIG_DIR / 'hi_quintile_gaps_over_time.png'}")
 log("Done!")
+
+# ============================================================
+# FIGURE 4: HI distribution percentiles over time
+# ============================================================
+log("Creating figure 4 (HI percentile trajectories)...")
+
+PERCENTILES = [10, 25, 50, 75, 90]
+
+def weighted_percentile(values, weights, pcts):
+    """Weighted quantile — returns array of len(pcts)."""
+    sorter = np.argsort(values)
+    sv = values[sorter]
+    sw = weights[sorter]
+    cw = np.cumsum(sw)
+    cw /= cw[-1]
+    return np.interp([p / 100 for p in pcts], cw, sv)
+
+pct_rows = []
+for year in all_years:
+    sub = hhy[hhy['panel_year'] == year].dropna(subset=['hi_allcott', 'projection_factor'])
+    if len(sub) < 10:
+        continue
+    pcts = weighted_percentile(sub['hi_allcott'].values,
+                               sub['projection_factor'].values,
+                               PERCENTILES)
+    for p, v in zip(PERCENTILES, pcts):
+        pct_rows.append({'year': year, 'percentile': p, 'hi': v})
+
+pct_df = pd.DataFrame(pct_rows)
+
+pct_colors  = plt.cm.RdYlGn(np.linspace(0.15, 0.85, len(PERCENTILES)))
+pct_styles  = ['-', '--', '-', '--', '-']
+
+fig, ax = plt.subplots(figsize=(10, 5.5))
+for i, p in enumerate(PERCENTILES):
+    d = pct_df[pct_df['percentile'] == p].sort_values('year')
+    ax.plot(d['year'], d['hi'], color=pct_colors[i], linestyle=pct_styles[i],
+            linewidth=2, marker='o', markersize=4, label=f'p{p}')
+
+ax.axhline(0, color='gray', linewidth=0.5, linestyle='--', alpha=0.5)
+ax.set_xlabel('Year', fontsize=12)
+ax.set_ylabel('Health Index (std. dev.)', fontsize=12)
+ax.set_title('Shift in HI Distribution Over Time\n(weighted percentiles)', fontsize=13, fontweight='bold')
+ax.legend(title='Percentile', fontsize=10, title_fontsize=10)
+ax.grid(True, alpha=0.3, axis='y')
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+plt.tight_layout()
+plt.savefig(FIG_DIR / 'hi_percentiles_over_time.png', bbox_inches='tight', dpi=150)
+plt.close()
+log(f"Saved: {FIG_DIR / 'hi_percentiles_over_time.png'}")
+
+# ============================================================
+# FIGURES 5-7: Inequality in produce / whole / sugar by income quintile
+# ============================================================
+log("Creating figures 5-7 (simple measure inequality by income quintile)...")
+
+SIMPLE_MEASURES = [
+    ('produce',          'Produce Share (fraction of calories)', 'produce_inequality_over_time.png'),
+    ('whole',            'Whole Grain Bread Share (fraction of bread cals)', 'whole_inequality_over_time.png'),
+    ('sugar_per_1000cal','Sugar per 1000 kcal (grams)', 'sugar_inequality_over_time.png'),
+]
+
+q_colors_2 = {1: '#d73027', 2: '#fc8d59', 3: '#fee090', 4: '#91bfdb', 5: '#4575b4'}
+
+for var, ylabel, fname in SIMPLE_MEASURES:
+    if var not in hhy.columns:
+        log(f"  Skipping {var} — not in dataset")
+        continue
+
+    rows = []
+    for year in all_years:
+        for q in bin_labels:
+            sub = hhy[(hhy['panel_year'] == year) & (hhy['IncomeBin'] == q)].dropna(subset=[var, 'projection_factor'])
+            if len(sub) < 5:
+                continue
+            rows.append({
+                'year': year, 'income_bin': int(q),
+                'value': np.average(sub[var], weights=sub['projection_factor'])
+            })
+    df_m = pd.DataFrame(rows)
+
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    for q in bin_labels:
+        d = df_m[df_m['income_bin'] == q].sort_values('year')
+        lw = 2.5 if q in (1, 5) else 1.2
+        ls = '-' if q in (1, 5) else '--'
+        lbl = q_labels.get(q, f'Q{q}')
+        ax.plot(d['year'], d['value'], color=q_colors[q - 1], linewidth=lw,
+                linestyle=ls, marker='o', markersize=4 if q in (1, 5) else 2,
+                label=lbl, alpha=0.9)
+
+    ax.set_xlabel('Year', fontsize=12)
+    ax.set_ylabel(ylabel, fontsize=12)
+    ax.set_title(f'{ylabel}\nBy Income Quintile Over Time', fontsize=13, fontweight='bold')
+    ax.legend(title='Income quintile', fontsize=10, title_fontsize=10,
+              loc='best', framealpha=0.9)
+    ax.grid(True, alpha=0.3, axis='y')
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    plt.tight_layout()
+    plt.savefig(FIG_DIR / fname, bbox_inches='tight', dpi=150)
+    plt.close()
+    log(f"Saved: {FIG_DIR / fname}")
+
+log("All done!")

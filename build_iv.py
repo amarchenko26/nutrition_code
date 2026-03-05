@@ -155,6 +155,16 @@ def main():
     # Null out IV for thin cells
     pan_v.loc[pan_v['iv_cell_n_lo'] < MIN_CELL_N, 'iv_income'] = np.nan
 
+    # cell_zip_share: the fraction of the zip-year's total projection weight
+    # accounted for by this HH's cell. Small share → the cell is a minority in
+    # the zip, so national shocks to the cell don't mechanically move local income.
+    zip_w_tot = (pan_v.groupby(['zip', 'panel_year'])['w']
+                 .sum()
+                 .rename('zip_w_tot')
+                 .reset_index())
+    pan_v = pan_v.merge(zip_w_tot, on=['zip', 'panel_year'], how='left')
+    pan_v['cell_zip_share'] = pan_v['cz_w'] / pan_v['zip_w_tot']
+
     # --------------------------------------------------------
     # Diagnostics
     # --------------------------------------------------------
@@ -173,7 +183,7 @@ def main():
     # --------------------------------------------------------
     # Save
     # --------------------------------------------------------
-    out = pan_v[['household_code', 'panel_year', 'iv_income', 'iv_cell_n_lo']].copy()
+    out = pan_v[['household_code', 'panel_year', 'iv_income', 'iv_cell_n_lo', 'cell_zip_share']].copy()
     out.to_parquet(OUT_PATH, index=False)
     out.to_stata("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/iv_income.dta")
 
