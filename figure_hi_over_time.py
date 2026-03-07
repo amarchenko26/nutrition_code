@@ -322,3 +322,70 @@ for var, ylabel, fname in SIMPLE_MEASURES:
     log(f"Saved: {FIG_DIR / fname}")
 
 log("All done!")
+
+# ============================================================
+# FIGURE 8: HI inequality over time — year-specific quintiles
+# Each HH gets a Q1-Q5 based on THAT year's income distribution
+# ============================================================
+log("Creating figure 8 (year-specific income quintile inequality)...")
+
+hhy['YearIncBin'] = np.nan
+for year in all_years:
+    mask = hhy['panel_year'] == year
+    sub = hhy[mask & hhy['real_income'].notna() & hhy['projection_factor'].notna() & (hhy['projection_factor'] > 0)].copy()
+    if len(sub) < N_INCOME_BINS:
+        continue
+    sub_sorted = sub.sort_values('real_income').reset_index(drop=True)
+    cumwt_yr = sub_sorted['projection_factor'].cumsum().to_numpy()
+    cumwt_yr = cumwt_yr / cumwt_yr[-1]
+    cuts_yr = np.interp(np.arange(1, N_INCOME_BINS) / N_INCOME_BINS, cumwt_yr, sub_sorted['real_income'].to_numpy()).tolist()
+    for i in range(1, len(cuts_yr)):
+        if cuts_yr[i] <= cuts_yr[i - 1]:
+            cuts_yr[i] = np.nextafter(cuts_yr[i - 1], np.inf)
+    bins_yr = pd.cut(
+        hhy.loc[mask, 'real_income'],
+        bins=[-np.inf] + cuts_yr + [np.inf],
+        labels=bin_labels, include_lowest=True
+    ).astype(float)
+    hhy.loc[mask, 'YearIncBin'] = bins_yr.values
+
+results_yr = []
+for year in all_years:
+    for q in bin_labels:
+        sub = hhy[(hhy['panel_year'] == year) & (hhy['YearIncBin'] == q)].dropna(subset=['hi_allcott', 'projection_factor'])
+        if len(sub) < 5:
+            continue
+        results_yr.append({
+            'year': year, 'income_bin': int(q),
+            'hi_allcott': np.average(sub['hi_allcott'], weights=sub['projection_factor'])
+        })
+res_yr = pd.DataFrame(results_yr)
+res_yr = res_yr[res_yr['year'] <= 2020]
+
+fig, ax = plt.subplots(figsize=(10, 5.5))
+for year in sorted(res_yr['year'].unique()):
+    yr = res_yr[res_yr['year'] == year].sort_values('income_bin')
+    if len(yr) < 2:
+        continue
+    ax.plot([year, year], [yr['hi_allcott'].iloc[0], yr['hi_allcott'].iloc[-1]],
+            color='gray', linewidth=1.5, zorder=2)
+
+for q_idx, q in enumerate(bin_labels):
+    q_data = res_yr[res_yr['income_bin'] == q].sort_values('year')
+    ax.scatter(q_data['year'], q_data['hi_allcott'],
+               color=q_colors[q_idx], s=60, zorder=5,
+               label=q_labels.get(q, f'Q{q}'), edgecolors='white', linewidth=0.5)
+
+ax.set_xlabel('Year', fontsize=12)
+ax.set_ylabel('Health Index (std. dev.)', fontsize=12)
+ax.set_title('Nutritional Inequality Over Time\n(quintiles defined year-by-year)',
+             fontsize=13, fontweight='bold')
+ax.legend(title='Income quintile', fontsize=10, title_fontsize=10,
+          loc='upper left', framealpha=0.9)
+ax.grid(True, alpha=0.3, axis='y')
+ax.spines['top'].set_visible(False)
+ax.spines['right'].set_visible(False)
+plt.tight_layout()
+plt.savefig(FIG_DIR / 'hi_inequality_yearbin_over_time.png', bbox_inches='tight', dpi=150)
+plt.close()
+log(f"Saved: {FIG_DIR / 'hi_inequality_yearbin_over_time.png'}")

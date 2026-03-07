@@ -1,27 +1,21 @@
 """
 Build leave-one-out income IV for each household-year.
 
-For each HH in a given year, the IV is the projection-factor-weighted
-average income of all other households in the same demographic cell
-(household_size × education × occupation), nationwide, EXCLUDING
-households in the same zip code.
-
-    IV_it = Σ_{j ∉ zip_i, j ∈ cell_i} (w_j * inc_j) / Σ w_j
-
-This instruments for household income using national income trends
-among demographically similar households, purged of local area shocks.
+Builds two IVs:
+  iv_income_zip  -- leave-one-zip-out (excludes own zip code)
+  iv_income_fips -- leave-one-county-out (excludes own 5-digit FIPS county)
 
 Cell definition (coarsened to keep cells populated):
   - household_size_bin: 1, 2, 3-4, 5+
   - educ_bin:           <HS, HS grad, Some college, College+
   - occ_bin:            White collar, Blue collar, Service/Other, Not employed
-  use male if available otherwise fall back to female 
+  use male if available otherwise fall back to female
 
 Output:
-  interim/panel_dataset/iv_income.parquet
-  Columns: household_code, panel_year, iv_income, iv_cell_n_lo
-    iv_income    -- leave-one-zip-out weighted mean income of cell ($000s)
-    iv_cell_n_lo -- leave-out sample size (use to drop weak cells)
+  interim/panel_dataset/iv_income.parquet / .dta
+  Columns: household_code, panel_year,
+           iv_income_zip, iv_cell_n_lo_zip, cell_zip_share,
+           iv_income_fips, iv_cell_n_lo_fips, cell_fips_share
 """
 
 import pandas as pd
@@ -82,6 +76,37 @@ def bin_occupation(pan):
     return occ
 
 
+def leave_one_out_iv(pan_v, geo_col):
+    """
+    Compute leave-one-geo-out IV.
+    Returns DataFrame with household_code, panel_year, iv_income, iv_cell_n_lo, cell_geo_share.
+    """
+    cell_tot = (pan_v.groupby('cell')[['wi', 'w']]
+                .sum()
+                .rename(columns={'wi': 'cell_wi', 'w': 'cell_w'}))
+    cell_geo_tot = (pan_v.groupby(['cell', geo_col])[['wi', 'w']]
+                    .sum()
+                    .rename(columns={'wi': 'cz_wi', 'w': 'cz_w'})
+                    .reset_index())
+
+    pv = pan_v[['household_code', 'panel_year', 'cell', geo_col, 'w', 'wi']].copy()
+    pv = pv.merge(cell_tot, on='cell', how='left')
+    pv = pv.merge(cell_geo_tot, on=['cell', geo_col], how='left')
+
+    lo_wi = pv['cell_wi'] - pv['cz_wi']
+    lo_w  = pv['cell_w']  - pv['cz_w']
+    pv['iv_income']    = lo_wi / lo_w.replace(0, np.nan)
+    pv['iv_cell_n_lo'] = lo_w
+    pv.loc[pv['iv_cell_n_lo'] < MIN_CELL_N, 'iv_income'] = np.nan
+
+    geo_w_tot = (pan_v.groupby([geo_col, 'panel_year'])['w']
+                 .sum().rename('geo_w_tot').reset_index())
+    pv = pv.merge(geo_w_tot, on=[geo_col, 'panel_year'], how='left')
+    pv['cell_geo_share'] = pv['cz_w'] / pv['geo_w_tot']
+
+    return pv[['household_code', 'panel_year', 'iv_income', 'iv_cell_n_lo', 'cell_geo_share']]
+
+
 def main():
     print("Loading panelists...")
     pan = pd.read_parquet(PANELISTS)
@@ -90,15 +115,16 @@ def main():
     # --------------------------------------------------------
     # Prep variables
     # --------------------------------------------------------
-    pan['inc'] = pd.to_numeric(pan['household_income_midpoint'], errors='coerce') / 1000  # $000s
-    pan['zip'] = pan['panelist_zip_code'].astype(str).str.zfill(5)
-    pan['w']   = pd.to_numeric(pan['projection_factor'], errors='coerce')
+    pan['inc']  = pd.to_numeric(pan['household_income_midpoint'], errors='coerce') / 1000
+    pan['zip']  = pan['panelist_zip_code'].astype(str).str.zfill(5)
+    pan['fips'] = (pan['fips_state_code'].astype(str).str.zfill(2) +
+                   pan['fips_county_code'].astype(str).str.zfill(3))
+    pan['w']    = pd.to_numeric(pan['projection_factor'], errors='coerce')
 
     # Education bin
     if 'hh_avg_yrsofschool' in pan.columns:
         educ_src = pan['hh_avg_yrsofschool']
     else:
-        # Fall back to male head education code midpoints
         educ_src = pd.to_numeric(pan['male_head_education'], errors='coerce').map(
             {0: np.nan, 1: 6, 2: 10, 3: 12, 4: 14, 5: 16, 6: 18})
     pan['educ_bin'] = pd.cut(educ_src, bins=EDUC_BINS, labels=EDUC_LABELS)
@@ -120,7 +146,7 @@ def main():
     # --------------------------------------------------------
     # Drop rows missing any cell-defining or income variable
     # --------------------------------------------------------
-    req = ['inc', 'zip', 'w', 'size_bin', 'educ_bin', 'occ_bin']
+    req = ['inc', 'zip', 'fips', 'w', 'size_bin', 'educ_bin', 'occ_bin']
     pan_v = pan.dropna(subset=req).copy()
     pan_v = pan_v[pan_v['w'] > 0]
     print(f"  {len(pan_v):,} rows with complete cell + income data")
@@ -128,62 +154,36 @@ def main():
     pan_v['wi'] = pan_v['w'] * pan_v['inc']
 
     # --------------------------------------------------------
-    # Efficient leave-one-zip-out computation
-    #
-    # IV_i = (Σ_{cell} w*inc - Σ_{cell,zip_i} w*inc)
-    #        / (Σ_{cell} w    - Σ_{cell,zip_i} w)
+    # Compute both IVs
     # --------------------------------------------------------
-    print("Computing cell totals...")
-    cell_tot = (pan_v.groupby('cell')[['wi', 'w']]
-                .sum()
-                .rename(columns={'wi': 'cell_wi', 'w': 'cell_w'}))
+    print("Computing zip IV...")
+    zip_iv = leave_one_out_iv(pan_v, 'zip').rename(columns={
+        'iv_income':    'iv_income_zip',
+        'iv_cell_n_lo': 'iv_cell_n_lo_zip',
+        'cell_geo_share': 'cell_zip_share',
+    })
 
-    cell_zip_tot = (pan_v.groupby(['cell', 'zip'])[['wi', 'w']]
-                    .sum()
-                    .rename(columns={'wi': 'cz_wi', 'w': 'cz_w'})
-                    .reset_index())
+    print("Computing FIPS IV...")
+    fips_iv = leave_one_out_iv(pan_v, 'fips').rename(columns={
+        'iv_income':    'iv_income_fips',
+        'iv_cell_n_lo': 'iv_cell_n_lo_fips',
+        'cell_geo_share': 'cell_fips_share',
+    })
 
-    pan_v = pan_v.merge(cell_tot, on='cell', how='left')
-    pan_v = pan_v.merge(cell_zip_tot, on=['cell', 'zip'], how='left')
-
-    lo_wi = pan_v['cell_wi'] - pan_v['cz_wi']
-    lo_w  = pan_v['cell_w']  - pan_v['cz_w']
-
-    pan_v['iv_income']    = lo_wi / lo_w.replace(0, np.nan)
-    pan_v['iv_cell_n_lo'] = lo_w   # weighted N of leave-out group
-
-    # Null out IV for thin cells
-    pan_v.loc[pan_v['iv_cell_n_lo'] < MIN_CELL_N, 'iv_income'] = np.nan
-
-    # cell_zip_share: the fraction of the zip-year's total projection weight
-    # accounted for by this HH's cell. Small share → the cell is a minority in
-    # the zip, so national shocks to the cell don't mechanically move local income.
-    zip_w_tot = (pan_v.groupby(['zip', 'panel_year'])['w']
-                 .sum()
-                 .rename('zip_w_tot')
-                 .reset_index())
-    pan_v = pan_v.merge(zip_w_tot, on=['zip', 'panel_year'], how='left')
-    pan_v['cell_zip_share'] = pan_v['cz_w'] / pan_v['zip_w_tot']
+    out = zip_iv.merge(fips_iv, on=['household_code', 'panel_year'], how='outer')
 
     # --------------------------------------------------------
     # Diagnostics
     # --------------------------------------------------------
-    n_valid = pan_v['iv_income'].notna().sum()
-    print(f"\n  IV non-null:  {n_valid:,} / {len(pan_v):,} HH-years")
-    print(f"  IV mean:      {pan_v['iv_income'].mean():.2f} ($000s)")
-    print(f"  IV std:       {pan_v['iv_income'].std():.2f}")
-    print(f"  Corr(iv, inc): {pan_v[['iv_income','inc']].corr().iloc[0,1]:.3f}")
-
-    cell_sizes = pan_v.groupby('cell')['w'].sum()
-    print(f"\n  Cells: {len(cell_sizes):,} unique cell-years")
-    print(f"  Median cell weight: {cell_sizes.median():.0f}")
-    print(f"  Cells with lo_n < {MIN_CELL_N}: "
-          f"{(pan_v.groupby('cell')['iv_cell_n_lo'].first() < MIN_CELL_N).sum()}")
+    for col, label in [('iv_income_zip', 'zip'), ('iv_income_fips', 'FIPS')]:
+        n_valid = out[col].notna().sum()
+        print(f"\n  {label} IV non-null: {n_valid:,} / {len(out):,}")
+        print(f"  {label} IV mean:     {out[col].mean():.2f} ($000s)")
+        print(f"  {label} IV std:      {out[col].std():.2f}")
 
     # --------------------------------------------------------
     # Save
     # --------------------------------------------------------
-    out = pan_v[['household_code', 'panel_year', 'iv_income', 'iv_cell_n_lo', 'cell_zip_share']].copy()
     out.to_parquet(OUT_PATH, index=False)
     out.to_stata("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/iv_income.dta")
 

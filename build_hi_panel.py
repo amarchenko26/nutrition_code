@@ -39,7 +39,7 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 OUT_PATH  = OUT_DIR / 'panel_hh_year.parquet'
 
 YEARS           = range(2004, 2021)  # years to process (skips missing years automatically)
-SAMPLE_FRAC     = 0.3                # fraction of households to sample (1.0 = all)
+SAMPLE_FRAC     = 1.0                # fraction of households to sample (1.0 = all)
 MIN_ANNUAL_CALS = 50_000             # drop HH-years below this calorie threshold
 RANDOM_SEED     = 42
 FORCE_REBUILD   = False              # set True to ignore existing output and rebuild
@@ -91,7 +91,8 @@ log("Loading panelists...")
 pan = pd.read_parquet(PANELISTS)
 pan = pan[pan['panel_year'].isin(YEARS)].copy()
 
-cpi_base = CPI[2010]
+# use 2013 as base year to match purchases also deflated to 2013
+cpi_base = CPI[2013]
 pan['real_income'] = pan['household_income_midpoint'] * (cpi_base / pan['panel_year'].map(CPI)) / 1000
 hh_av = pan.groupby('household_code')['real_income'].mean().rename('hh_real_income_avg')
 pan = pan.merge(hh_av, on='household_code', how='left')
