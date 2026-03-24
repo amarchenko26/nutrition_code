@@ -249,7 +249,7 @@ binscatter r_fhi r_Dhat [aw = projection_factor], ///
 
 * Pre-trend placebo (expect flat/zero)
 binscatter r_dhi r_fhat [aw = projection_factor], ///
-    nquantiles(4) ///
+    nquantiles(40) ///
     xtitle("{&Delta} Instrumented Income Year After", size(medlarge)) ///
     ytitle("{&Delta} Nutrition Year Prior", size(medlarge)) ///
     title("Pre-trend", size(large)) ///
