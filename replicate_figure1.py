@@ -84,19 +84,19 @@ def binscatter(df, yvar, xvar='hh_real_income_avg', controls=None, wvar='project
 # ============================================================
 log("Creating figures...")
 panels = [
-    ('sugar_per_1000cal', 'Sugars (g per 1,000 Cal)', 'Panel A: Sugars',       'fig1a_sugars'),
-    ('whole',             'Share bread calories from whole grains',          'Panel B: Whole Grains', 'fig1b_whole_grains'),
-    ('produce',           'Calorie share from fruit+veg', 'Panel C: Produce',      'fig1c_produce'),
-    ('hi_allcott',        'Health Index (std. dev.)',    'Panel D: Health Index', 'fig1d_health_index'),
+    ('sugar_per_1000cal', 'Sugars (g per 1,000 Cal)', ' ',       'fig1a_sugars'),
+    ('whole',             'Share bread calories from whole grains',          ' ', 'fig1b_whole_grains'),
+    ('produce',           'Calorie share from fruit+veg', ' ',      'fig1c_produce'),
+    ('hi_allcott',        'Nutrition (std. dev.)',    ' ', 'fig1d_health_index'),
 ]
 for var, ylabel, title, fname in panels:
     log(f"  Plotting {var}...")
     xb, yb = binscatter(hhy, var, 'hh_real_income_avg', ctl_cols, 'projection_factor', N_QUANTILES)
     fig, ax = plt.subplots(figsize=(6, 5))
     ax.scatter(xb, yb, color='#2c5f8a', s=50, zorder=5, edgecolors='white', linewidth=0.5)
-    ax.set_xlabel('Household income ($000s)', fontsize=11)
-    ax.set_ylabel(ylabel, fontsize=11)
-    ax.set_title(title, fontsize=13, fontweight='bold')
+    ax.set_xlabel('Income ($000s)', fontsize=17)
+    ax.set_ylabel(ylabel, fontsize=19)
+    ax.set_title(title, fontsize=14, fontweight='bold')
     ax.grid(True, alpha=0.3)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)

@@ -19,10 +19,11 @@ from clean_syndigo import convert_itemsize_to_grams
 # CONFIGURATION
 # ============================================================================
 
-BASE_DATA_DIR = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data'
-SYNDIGO_PATH  = os.path.join(BASE_DATA_DIR, 'interim', 'syndigo', 'syndigo_nutrients_master.parquet')
-PURCHASES_DIR = os.path.join(BASE_DATA_DIR, 'interim', 'purchases_food')
-OUTPUT_DIR    = os.path.join(BASE_DATA_DIR, 'interim', 'syndigo_nielsen_merged')
+BASE_DATA_DIR    = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data'
+SYNDIGO_PATH     = os.path.join(BASE_DATA_DIR, 'interim', 'syndigo', 'syndigo_nutrients_master.parquet')
+PURCHASES_DIR    = os.path.join(BASE_DATA_DIR, 'interim', 'purchases_food')
+OUTPUT_DIR       = os.path.join(BASE_DATA_DIR, 'interim', 'syndigo_nielsen_merged')
+RMS_PRODUCTS_TSV = os.path.join(BASE_DATA_DIR, 'raw', 'products.tsv')
 
 NUTRIENT_COL_MAP = {
     'Calories':            'cal_per_100g',
@@ -117,7 +118,33 @@ def main():
         merged.loc[can_fill & filled.reindex(merged.index, fill_value=False), 'g_total'] = nielsen_grams[filled]
 
         n_filled_upcs = merged.loc[can_fill, 'upc'][filled.reindex(merged.loc[can_fill].index, fill_value=False)].nunique()
-        print(f"\n  Filled g_total from Nielsen size1 for {n_filled_upcs:,} UPCs")
+        print(f"\n  Filled g_total from HMS size1 for {n_filled_upcs:,} UPCs")
+
+    # ---- Fill remaining missing g_total from RMS products.tsv ----
+    print("\nLoading RMS products.tsv for additional size imputation...")
+    rms = pd.read_csv(RMS_PRODUCTS_TSV, sep='\t', low_memory=False, encoding='latin-1',
+                      usecols=['upc', 'size1_amount', 'size1_units'],
+                      dtype={'upc': str, 'size1_amount': str, 'size1_units': str})
+    rms['upc'] = harmonize_nielsen_upc(rms['upc'])
+    rms['size1_amount'] = pd.to_numeric(rms['size1_amount'], errors='coerce')
+    rms = (rms[rms['size1_amount'].notna()]
+           .drop_duplicates('upc')
+           .rename(columns={'size1_amount': 'rms_size1_amount', 'size1_units': 'rms_size1_units'}))
+    print(f"  {len(rms):,} RMS UPCs with size info")
+
+    merged = merged.merge(rms, on='upc', how='left')
+    missing_g = merged['g_total'].isna()
+    has_rms = merged['rms_size1_amount'].notna()
+    can_fill_rms = missing_g & has_rms
+    if can_fill_rms.any():
+        rms_grams = convert_itemsize_to_grams(
+            merged.loc[can_fill_rms, 'rms_size1_amount'],
+            merged.loc[can_fill_rms, 'rms_size1_units'])
+        filled_rms = rms_grams.notna()
+        merged.loc[can_fill_rms & filled_rms.reindex(merged.index, fill_value=False), 'g_total'] = rms_grams[filled_rms]
+        n_filled_rms = merged.loc[can_fill_rms, 'upc'][filled_rms.reindex(merged.loc[can_fill_rms].index, fill_value=False)].nunique()
+        print(f"  Filled g_total from RMS size1 for {n_filled_rms:,} additional UPCs")
+    merged = merged.drop(columns=['rms_size1_amount', 'rms_size1_units'])
 
     # Fill serving size from package grams / servings where direct serving size is missing.
     missing_ss = (

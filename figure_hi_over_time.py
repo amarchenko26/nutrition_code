@@ -332,22 +332,15 @@ log("Creating figure 8 (year-specific income quintile inequality)...")
 hhy['YearIncBin'] = np.nan
 for year in all_years:
     mask = hhy['panel_year'] == year
-    sub = hhy[mask & hhy['real_income'].notna() & hhy['projection_factor'].notna() & (hhy['projection_factor'] > 0)].copy()
-    if len(sub) < N_INCOME_BINS:
+    valid = mask & hhy['real_income'].notna()
+    if valid.sum() < N_INCOME_BINS:
         continue
-    sub_sorted = sub.sort_values('real_income').reset_index(drop=True)
-    cumwt_yr = sub_sorted['projection_factor'].cumsum().to_numpy()
-    cumwt_yr = cumwt_yr / cumwt_yr[-1]
-    cuts_yr = np.interp(np.arange(1, N_INCOME_BINS) / N_INCOME_BINS, cumwt_yr, sub_sorted['real_income'].to_numpy()).tolist()
-    for i in range(1, len(cuts_yr)):
-        if cuts_yr[i] <= cuts_yr[i - 1]:
-            cuts_yr[i] = np.nextafter(cuts_yr[i - 1], np.inf)
-    bins_yr = pd.cut(
-        hhy.loc[mask, 'real_income'],
-        bins=[-np.inf] + cuts_yr + [np.inf],
-        labels=bin_labels, include_lowest=True
+    # Rank-based quintiles: breaks ties by first occurrence,
+    # ensuring exactly 5 equal groups even when income is coarsely bucketed
+    hhy.loc[valid, 'YearIncBin'] = pd.qcut(
+        hhy.loc[valid, 'real_income'].rank(method='first'),
+        q=N_INCOME_BINS, labels=bin_labels
     ).astype(float)
-    hhy.loc[mask, 'YearIncBin'] = bins_yr.values
 
 results_yr = []
 for year in all_years:
