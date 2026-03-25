@@ -95,11 +95,9 @@ print("Building county income quintiles...")
 county_income = (pan[pan['year'] <= 2020]
                  .merge(hhy[['household_code', 'year', 'real_income']], on=['household_code', 'year'], how='inner')
                  .dropna(subset=['real_income', 'projection_factor']))
-county_income = (county_income.groupby('fips', as_index=False)
-                 .apply(lambda g: pd.Series({
-                     'avg_income': np.average(g['real_income'], weights=g['projection_factor'])
-                 }), include_groups=False)
-                 .reset_index(drop=True))
+county_income = (county_income.groupby('fips')
+                 .apply(lambda g: np.average(g['real_income'], weights=g['projection_factor']))
+                 .rename('avg_income').reset_index())
 county_income['county_inc_bin'] = pd.qcut(
     county_income['avg_income'].rank(method='first'),
     q=N_INCOME_BINS, labels=bin_labels
@@ -145,9 +143,10 @@ cell['ssnp'] = cell['ssnp_num'] / cell['total_spending']
 # ============================================================
 print("Creating figure (SSNP by healthiness × income)...")
 
-q_labels = {1: 'Q1 (Lowest income)', 2: 'Q2', 3: 'Q3', 4: 'Q4 (Highest income)'}
-inc_colors = plt.cm.RdYlGn(np.linspace(0.15, 0.85, N_INCOME_BINS))
+q_labels   = {1: 'Q1 (Lowest income)', 2: 'Q2', 3: 'Q3', 4: 'Q4 (Highest income)'}
+inc_colors = plt.cm.Blues(np.linspace(0.35, 0.85, N_INCOME_BINS))
 hi_xticks  = ['Q1\n(least\nhealthy)', 'Q2', 'Q3', 'Q4\n(most\nhealthy)']
+hi_colors_vivid = ['#c0392b', '#e67e22', '#27ae60', '#1a5e33']
 xs = list(range(4))
 
 fig, ax = plt.subplots(figsize=(7, 5))
@@ -161,14 +160,16 @@ for spine in ['left', 'bottom']:
 for q in bin_labels:
     d = cell[cell['county_inc_bin'] == q].copy()
     d = d.set_index('hi_quartile').reindex(hi_xticks)
-    lw = 2.0 if q in (1, 5) else 1.2
-    ls = '-' if q in (1, 5) else '--'
+    lw = 2.2 if q in (1, N_INCOME_BINS) else 1.3
+    ls = '-' if q in (1, N_INCOME_BINS) else '--'
     ax.plot(xs, d['ssnp'].values, color=inc_colors[q - 1], linewidth=lw,
             linestyle=ls, marker='o', markersize=7, label=q_labels[q],
             markeredgewidth=0, zorder=3)
 
 ax.set_xticks(xs)
-ax.set_xticklabels(hi_xticks, fontsize=10)
+ax.set_xticklabels(hi_xticks, fontsize=12, fontweight='bold')
+for tick, c in zip(ax.get_xticklabels(), hi_colors_vivid):
+    tick.set_color(c)
 ax.set_xlabel(r'$\bf{Nutrition}$ of product category', fontsize=11, labelpad=8)
 ax.set_ylabel(r'$\bf{Expenditure\ share}$ on new products', fontsize=11, labelpad=8)
 ax.tick_params(axis='both', length=0)

@@ -81,6 +81,11 @@ winsor2 hi, replace cuts(1 99)
 
 
 // ============================================================================
+// Make income 10k rather than 1k 
+replace real_income = real_income / 10
+
+
+// ============================================================================
 // Define Movers
 
 bysort hhid zip_code (year): gen byte uniq_zip = (_n == 1)
@@ -102,16 +107,10 @@ la var movers_f "FIPS movers"
 label define movers_lblf 0 "non-mover" 1 "mover"
 label values movers_f movers_lblf
 
-
 xtset hhid year
 
-// Save final dataset
-save "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/final_reg_data.dta", replace
 
-
-
-* 2. Construct first differences
-*------------------------------------------------------------*
+// ============================================================================
 // define forward diff
 cap drop f_hi
 gen f_hi = F.hi - hi
@@ -124,7 +123,12 @@ gen f_iv = F.iv_income_fips - iv_income_fips
 
 
 // ============================================================================
+// Save final dataset
+save "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/final_reg_data.dta", replace
 
+
+
+// ============================================================================
 
 eststo clear
 
@@ -185,9 +189,21 @@ esttab m1 m2 m6 m7 m8 using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Ap
 	keep(real_income D.real_income f_inc) ///
 	varlabels(real_income "Income (t)" D.real_income "Income (t-1)" f_inc "Income (t+1)") ///
 	stats(N r2, fmt(%9.0fc %9.4f) labels("N" "R-squared")) ///
-	nonotes addnotes("* p$<$0.10, ** p$<$0.05, *** p$<$0.01. Outcome variable is differences of nutrition. Income is in 1000s.")
+	nonotes addnotes("* p$<$0.10, ** p$<$0.05, *** p$<$0.01. Outcome variable is differences of nutrition. Income is in 10,000s.")
+	
+	
+esttab m4 m5 using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/tabs/results_robust.tex", ///
+	replace booktabs label ///
+	b(3) se(3) ///
+	star(* 0.10 ** 0.05 *** 0.01) ///
+	mtitles("2SLS" "2SLS Small Share") ///
+	keep(real_income) ///
+	varlabels(real_income "Income (t)" D.real_income "Income (t-1)" f_inc "Income (t+1)") ///
+	stats(N r2, fmt(%9.0fc %9.4f) labels("N" "R-squared")) ///
+	nonotes addnotes("* p$<$0.10, ** p$<$0.05, *** p$<$0.01. Outcome variable is nutrition. Income is in 10,000s.")
 	
 restore 
+
 
 
 
@@ -238,7 +254,7 @@ predict r_fhat, resid
 * --- 3. Binned scatter plots --------------------------------
 
 binscatter r_fhi r_Dhat [aw = projection_factor], ///
-    nquantiles(40) ///
+    nquantiles(20) ///
     xtitle("{&Delta} Instrumented Income Year Prior", size(medlarge)) ///
     ytitle("{&Delta} Nutrition Year After", size(medlarge)) ///
     title("Forward Difference", size(large)) ///
@@ -249,7 +265,7 @@ binscatter r_fhi r_Dhat [aw = projection_factor], ///
 
 * Pre-trend placebo (expect flat/zero)
 binscatter r_dhi r_fhat [aw = projection_factor], ///
-    nquantiles(40) ///
+    nquantiles(20) ///
     xtitle("{&Delta} Instrumented Income Year After", size(medlarge)) ///
     ytitle("{&Delta} Nutrition Year Prior", size(medlarge)) ///
     title("Pre-trend", size(large)) ///
