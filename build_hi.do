@@ -127,6 +127,7 @@ gen f_iv = F.iv_income_fips - iv_income_fips
 save "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/final_reg_data.dta", replace
 
 
+use "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/final_reg_data.dta", replace
 
 // ============================================================================
 
@@ -206,8 +207,72 @@ restore
 
 
 
+*------------------------------------------------------------
+* Forward difference regression by quartile
+*------------------------------------------------------------
+cap drop inc_q
+estimates clear 
+
+// Sort HHs by baseline income
+bysort hhid (year): gen baseline_income = real_income[1]
+xtile inc_q = baseline_income [aw=projection_factor], nquantiles(4)
+
+// 2SLS by quintile
+forvalues q = 1/4 {
+	reghdfejl hi (real_income=iv_income_fips) [pw = projection_factor] if movers==0 & inc_q == `q', ///
+	absorb(year hhid kids avg_age_hh_head hh_comp) cluster(fips)
+    
+	estimates store iv_q`q'
+}
+set graphics on
+coefplot iv_q*, keep(real_income) ///
+    rename(real_income = " ") ///
+    xtitle("Income quartile", size(medlarge)) ytitle("IV effect on Nutrition (std. dev. per $10k)", size(medlarge)) ///
+    title("Effect of Income on Nutrition by Baseline Income") ///
+    vertical yline(0, lcolor(gray) lpattern(solid)) ciopts(recast(rcap) lwidth(medthick)) ///
+    yline(0.02, lcolor(blue) lpattern(shortdash) lwidth(medthick)) legend(off) ///
+    text(.025 .57 "Overall", color(blue) size(medlarge)) ///
+    xlabel(.7 "Q1 (Lowest)" .9 "Q2" 1.1 "Q3" 1.3 "Q4 (Highest)", labsize(medlarge)) ///
+    ylabel(, labsize(medlarge))
+
+graph export "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/baseline_inc.png", replace 
+
+// Export one blank one 
+coefplot iv_q*, keep(real_income) ///
+    rename(real_income = " ") ///
+    xtitle("Income quartile", size(medlarge)) ytitle("IV effect on Nutrition (std. dev. per $10k)", size(medlarge)) ///
+    title("Effect of Income on Nutrition by Baseline Income") ///
+    vertical yline(0, lcolor(gray) lpattern(solid)) ///
+    yline(0.02, lcolor(blue) lpattern(shortdash) lwidth(medthick)) legend(off) ///
+    text(.025 .57 "Overall", color(blue) size(medlarge)) ///
+    xlabel(.7 "Q1 (Lowest)" .9 "Q2" 1.1 "Q3" 1.3 "Q4 (Highest)", labsize(medlarge)) ///
+    ylabel(, labsize(medlarge)) ///
+    mcolor(white) mlcolor(white) ciopts(recast(rcap) lwidth(medthick) lcolor(white))
+	
+graph export "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/baseline_inc_blank.png", replace 
+
+	
+// 2SLS by quintile
+forvalues q = 1/4 {
+	reghdfejl real_income iv_income_fips [pw = projection_factor] if movers==0 & inc_q == `q', ///
+	absorb(year hhid kids avg_age_hh_head hh_comp) cluster(fips)
+    
+	estimates store iv_q`q'
+}
 
 
+*------------------------------------------------------------
+* Binned scatter plots using fitted (instrumented) income
+*------------------------------------------------------------
+
+* Flag households where occupation never changes from baseline
+bysort hhid (year): gen baseline_occ = male_head_occupation[1]
+gen occ_match = (male_head_occupation == baseline_occ)
+bysort hhid: egen occupation_stable = min(occ_match)
+
+reghdfejl hi (real_income = iv_income_fips) ///
+    [pw = projection_factor] if movers_f==0 & occupation_stable==1, ///
+    absorb(year hhid kids avg_age_hh_head hh_comp) cluster(fips)
 
 
 *------------------------------------------------------------
@@ -254,7 +319,7 @@ predict r_fhat, resid
 * --- 3. Binned scatter plots --------------------------------
 
 binscatter r_fhi r_Dhat [aw = projection_factor], ///
-    nquantiles(20) ///
+    nquantiles(15) ///
     xtitle("{&Delta} Instrumented Income Year Prior", size(medlarge)) ///
     ytitle("{&Delta} Nutrition Year After", size(medlarge)) ///
     title("Forward Difference", size(large)) ///
@@ -265,7 +330,7 @@ binscatter r_fhi r_Dhat [aw = projection_factor], ///
 
 * Pre-trend placebo (expect flat/zero)
 binscatter r_dhi r_fhat [aw = projection_factor], ///
-    nquantiles(20) ///
+    nquantiles(15) ///
     xtitle("{&Delta} Instrumented Income Year After", size(medlarge)) ///
     ytitle("{&Delta} Nutrition Year Prior", size(medlarge)) ///
     title("Pre-trend", size(large)) ///
@@ -282,36 +347,63 @@ graph combine g1 g2, ///
 graph export "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/iv_binscatter.png", replace width(2400)
 
 
-************* Diet vars
-local diet_vars whole produce sugar_per_1000cal total_cals 
-foreach var in `diet_vars' {
-    eststo `var': ivreghdfe `var' (real_income=iv_income_fips) [pw = projection_factor] if movers_f==0, ///
-    absorb(year hhid kids avg_age_hh_head hh_comp) cluster(fips)
-}
 
+*------------------------------------------------------------
+* Other outcomes
+*------------------------------------------------------------
+
+************* Diet vars
+local diet_vars whole produce sugar_per_1000cal total_cals
+foreach var in `diet_vars' {
+    quietly eststo `var': ivreghdfe `var' (real_income=iv_income_fips) [pw = projection_factor] if movers_f==0, ///
+        absorb(year hhid kids avg_age_hh_head hh_comp) cluster(fips)
+    quietly summarize `var' if e(sample)
+    local mean_`var' = r(mean)
+    estadd scalar mean_y = `mean_`var'': `var'
+}
 esttab `diet_vars', ///
     keep(real_income) compress ///
     b(3) p(3) ///
     star(* 0.10 ** 0.05 *** 0.01) ///
     title("IV Regression Results: Effect of Income") ///
-    mtitles(`diet_vars')
+    mtitles(`diet_vars') ///
+    stats(mean_y N, fmt(%9.3fc %9.0fc) labels("Mean outcome" "N"))
 
-*************
 ************* Spend vars
 local spend_vars spend_total spend_produce spend_high_sugar spend_soda spend_cookies spend_icecream spend_share_produce
 foreach var in `spend_vars' {
-    eststo `var': ivreghdfe `var' (real_income=iv_income_fips) [pw = projection_factor] if movers_f==0, ///
-    absorb(year hhid kids avg_age_hh_head hh_comp) cluster(fips)
+    quietly eststo `var': ivreghdfe `var' (real_income=iv_income_fips) [pw = projection_factor] if movers_f==0, ///
+        absorb(year hhid kids avg_age_hh_head hh_comp) cluster(fips)
+    quietly summarize `var' if e(sample)
+    local mean_`var' = r(mean)
+    estadd scalar mean_y = `mean_`var'': `var'
 }
 
-* Print table 
+* Print table
 esttab spend_total spend_produce spend_high_sugar spend_soda, ///
     keep(real_income) compress ///
     b(3) p(3) ///
     star(* 0.10 ** 0.05 *** 0.01) ///
     title("IV Regression Results: Effect of Income") ///
-    mlabels("total" "produce" "high_sugar" "soda" "cookies" "icecream" "share_produce")
+    mlabels("total" "produce" "high_sugar" "soda") ///
+    stats(mean_y N, fmt(%9.3fc %9.0fc) labels("Mean outcome" "N"))
 
+esttab spend_total spend_high_sugar spend_soda total_cals sugar_per_1000cal  ///
+    using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/tabs/expenditure.tex", replace ///
+    keep(real_income) ///
+    b(3) se(3) ///
+    star(* 0.10 ** 0.05 *** 0.01) ///
+    mlabels("Total spend" "High sugar spend" "Soda spend" "Total calories" "Sugar per 1000 cal") ///
+    mgroups("Expenditure" "Nutrition Components", pattern(1 0 0 1 0) ///
+        prefix(\multicolumn{@span}{c}{) suffix(}) ///
+        span erepeat(\cmidrule(lr){@span})) ///
+    collabels(none) ///
+    booktabs ///
+    varlabels(real_income "$m_t$") ///
+    stats(mean_y N, fmt(%9.0fc %9.0fc) labels("Mean outcome" "N")) ///
+    nonotes addnotes("* p\$<\$0.10, ** p\$<\$0.05, *** p\$<\$0.01. 2SLS specification using non-movers with household and year fixed effects. Controlling for household size, composition, age of household head.")
+	
+	
 	
 ************* Health vars
 local health_vars any_diabetes obesity any_metabolic_disease cholesterol diabetes_type2 heart_disease hypertension obesity
@@ -328,7 +420,17 @@ esttab `health_vars', ///
     title("IV Regression Results: Effect of Income") ///
     mtitles(`health_vars')
 
+	
+*------------------------------------------------------------
+* Compliers
+*------------------------------------------------------------
 
+	
+reghdfejl male_head_occupation  (real_income = iv_income_fips) [pw = projection_factor] if movers_f==0, absorb(year hhid kids hh_comp) cluster(fips)
+	
+	
+	
+	
 	
 ************* First Differences Setup
 * Generate first differences for all outcomes
@@ -385,27 +487,7 @@ esttab d_any_diabetes d_any_metabolic_disease d_cholesterol d_diabetes_type1 d_d
 
 
 		
-cap drop inc_q
-estimates clear 
-xtile inc_q = real_income [aw=projection_factor], nq(5)
 
-// IV by quintile
-forvalues q = 1/5 {
-    ivreghdfe d_hi (d_real_income=d_iv_income_fips) [pw = projection_factor] if movers_f==0 & inc_q == `q', ///
-	absorb(year d_kids d_hh_comp d_avg_age_hh_head) cluster(fips)
-
-    estimates store iv_q`q'
-}
-set graphics on
-coefplot iv_q*, keep(d_real_income) ///
-    rename(d_real_income = " ") ///
-    xtitle("Income quintile") ytitle("IV effect on HI (std. dev. per $1k)") ///
-    title("Effect of Income on Healthfulness by Income Group") ///
-    vertical yline(0, lcolor(gray) lpattern(dash)) ciopts(recast(rcap))
-//     xlabel(1 "Q1 (Lowest)" 2 "Q2" 3 "Q3" 4 "Q4" 5 "Q5 (Highest)") ///
-
-
-	
 	
 // ============================================================================
 

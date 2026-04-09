@@ -464,3 +464,95 @@ plt.tight_layout()
 plt.savefig(FIG_DIR / 'variety_price_gap_hh_income_by_healthiness.png', bbox_inches='tight', dpi=150)
 plt.close()
 print("  Saved variety_price_gap_hh_income_by_healthiness.png")
+
+# ============================================================
+# FIGURE 5: Fixed-bundle (Laspeyres) VA price index by income quartile
+#
+# Each quartile's BASELINE (2008) spending shares across modules are
+# fixed, then we track what that specific basket costs at VA prices
+# over time. Separates composition (what they buy) from price changes.
+# ============================================================
+print("\nCreating Figure 5 (Laspeyres VA price index by income quartile)...")
+
+# Baseline bundle: each HH's FIRST observed year in hh_mod
+# hh_mod already loaded above (all years 2008-2020)
+pi_levels = pi[['product_module_code', 'year', 'level_ces', 'level_va']].copy()
+pi_modules = set(pi_levels['product_module_code'].unique())
+
+# Find first year per HH, then subset to those (HH, module) rows
+first_year = hh_mod.groupby('household_code')['year'].min().rename('first_year').reset_index()
+hh_mod_fy  = hh_mod.merge(first_year, on='household_code', how='inner')
+baseline   = hh_mod_fy[hh_mod_fy['year'] == hh_mod_fy['first_year']].copy()
+baseline   = baseline[baseline['product_module_code'].isin(pi_modules)]
+baseline   = baseline.drop(columns=['inc_bin'], errors='ignore')
+
+# Assign income quartile from first-year income (rank-based within first year)
+inc_fy = (hh_mod_fy[hh_mod_fy['year'] == hh_mod_fy['first_year']]
+          [['household_code', 'real_income', 'first_year']].drop_duplicates())
+for yr in sorted(inc_fy['first_year'].unique()):
+    mask = inc_fy['first_year'] == yr
+    inc_fy.loc[mask, 'inc_bin'] = pd.qcut(
+        inc_fy.loc[mask, 'real_income'].rank(method='first'),
+        q=N_INCOME_BINS, labels=bin_labels
+    ).astype(float)
+baseline = baseline.merge(inc_fy[['household_code', 'inc_bin']].dropna(),
+                          on='household_code', how='inner')
+
+# Spending share per HH x module (within each HH's baseline year)
+baseline['hh_total'] = baseline.groupby('household_code')['total_price_paid'].transform('sum')
+baseline['share']    = baseline['total_price_paid'] / baseline['hh_total']
+
+# Aggregate shares to (inc_bin, module): weighted average across HHs
+bundle = (baseline.groupby(['inc_bin', 'product_module_code'], as_index=False)
+          .agg(share=('share', 'mean')))
+# Re-normalize within income bin
+bundle['share'] = bundle['share'] / bundle.groupby('inc_bin')['share'].transform('sum')
+
+# Compute Laspeyres index: sum_m share_{q,m,2008} * level_{m,t}, then average over years
+bundle_long = bundle.merge(pi_levels, on='product_module_code', how='inner')
+bundle_long['laspeyres_ces'] = bundle_long['share'] * bundle_long['level_ces']
+bundle_long['laspeyres_va']  = bundle_long['share'] * bundle_long['level_va']
+
+# Sum within (inc_bin, year), then average across years
+laspeyres_yr = (bundle_long.groupby(['inc_bin', 'year'])[['laspeyres_ces', 'laspeyres_va']]
+                .sum().reset_index())
+laspeyres_cs = laspeyres_yr.groupby('inc_bin')[['laspeyres_ces', 'laspeyres_va']].mean().reset_index()
+
+# Cross-sectional plot: x = income quartile, two lines (CES and VA), dual axis
+inc_xs = list(range(N_INCOME_BINS))
+inc_xtick_labels = ['Q1\n(Lowest income)', 'Q2', 'Q3', 'Q4\n(Highest income)']
+
+fig, ax1 = plt.subplots(figsize=(7, 5))
+ax2 = ax1.twinx()
+style_ax(ax1)
+ax2.spines['top'].set_visible(False)
+ax2.spines['left'].set_visible(False)
+ax2.spines['bottom'].set_visible(False)
+ax2.spines['right'].set_color('#cccccc')
+ax2.tick_params(axis='both', length=0)
+
+ax1.plot(inc_xs, laspeyres_cs['laspeyres_ces'].values,
+         color='#666666', linewidth=2.4, linestyle='--',
+         marker='o', markersize=7, markeredgewidth=0, zorder=3,
+         label='Unadjusted price (left axis)')
+ax2.plot(inc_xs, laspeyres_cs['laspeyres_va'].values,
+         color='#2c5f8a', linewidth=2.4, linestyle='-',
+         marker='o', markersize=7, markeredgewidth=0, zorder=3,
+         label='Variety-adjusted (right axis)')
+
+ax1.set_xticks(inc_xs)
+ax1.set_xticklabels(inc_xtick_labels, fontsize=11)
+ax1.set_xlabel(r'$\bf{HH\ income\ quartile}$' + '\n(bundle fixed at 2008 baseline)', fontsize=11, labelpad=8)
+ax1.set_ylabel('CES cost of baseline bundle\n(averaged 2008–2020)', fontsize=11, labelpad=8)
+ax2.set_ylabel('VA cost of baseline bundle\n(averaged 2008–2020)', fontsize=11, labelpad=8)
+
+lines1, labels1 = ax1.get_legend_handles_labels()
+lines2, labels2 = ax2.get_legend_handles_labels()
+ax1.legend(lines1 + lines2, labels1 + labels2, fontsize=9, framealpha=0.9, loc='upper right')
+plt.tight_layout()
+plt.savefig(FIG_DIR / 'variety_bundle_cost_by_income.png', bbox_inches='tight', dpi=150)
+plt.close()
+print("  Saved variety_bundle_cost_by_income.png")
+
+print("\nCross-sectional bundle cost by income quartile:")
+print(laspeyres_cs.to_string(index=False))

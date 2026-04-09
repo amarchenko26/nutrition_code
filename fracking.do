@@ -35,13 +35,14 @@ keep if id_industry ==1
 encode fips, gen(fips_code)
 xtset fips_code year 
 
+
+
+
 // Let's try running their main regression of how fracking affects hh income
 // This is their Table 1 IV Panel regression 
 // I can recreate it exactly 
 // Outcome = one year change in annual income divided by the one year lag of total employment.
 xtivreg2 d_irsagi_capita (L(0/1).newvalue_capita = L(0/1).newvalue_capita_ins) yeardum* if id==1 & sample, cluster($cluster_county) fe partial(yeardum*)
-
-
 
 
 // REDUCED FORM 
