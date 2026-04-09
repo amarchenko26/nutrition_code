@@ -124,10 +124,10 @@ gen f_iv = F.iv_income_fips - iv_income_fips
 
 // ============================================================================
 // Save final dataset
-save "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/final_reg_data.dta", replace
+save "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/final/final_reg_data.dta", replace
 
 
-use "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/final_reg_data.dta", replace
+use "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/final/final_reg_data.dta", replace
 
 // ============================================================================
 

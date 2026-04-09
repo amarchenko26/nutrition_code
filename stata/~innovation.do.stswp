@@ -1,0 +1,17 @@
+use "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/innovation_reg_data.dta"
+
+
+// national data defines new relative to nation
+// log_real_spending = log(nominal_spending) − log(price_level_ces) — the level of log real spending in module m, year t
+// d_spending = first difference of log_real_spending within module (or module×county) — the growth rate, i.e. ≈ % change in real spending year-over-year-over-year
+
+xtset module_code year 
+reghdfejl ssnp (d_spending = iv_bartik) [aw=spending], absorb(module_code year)
+
+
+// County data defines new relative to county 
+xtset fips year 
+
+use "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/innovation_reg_data_county.dta", clear 
+
+reghdfejl ssnp (d_spending = iv_income) [aw=spending], absorb(module_code fips year)
