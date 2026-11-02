@@ -11,6 +11,11 @@ Uses the price index computed on OSCAR (build_price_index.py) to plot:
   Fig 2b: price LEVELS over time for healthy (Q3+Q4) and unhealthy (Q1+Q2)
          categories, unadjusted CES (dashed) and variety-adjusted (solid)
          (added 2026-11-02: the ces_vs_va comparison year by year, two groups)
+  Fig 2c: REAL price levels (CPI-U deflated, 2007 = 1) for the healthier and less
+         healthy halves of modules by the USDA-LABEL Allcott index (hi_per_100g in
+         module_healthiness_usda.parquet, not the Claude score), spending-weighted
+         (left) and equal-weighted across modules (right); CES dashed, VA solid
+         (added 2026-11-02 for notes/obesity.tex)
 
   Fig 3: Price level by healthiness quartile x county income quartile
          (variety-adjusted)
@@ -30,6 +35,9 @@ FIG_DIR.mkdir(parents=True, exist_ok=True)
 # 2007 -> 2008 (build_price_index.py starts at 2007 because RMS begins in 2006, so entry
 # shares are undefined for 2006). The first level is therefore the 2008 value with 2007 = 1.
 BASE_YEAR = 2007
+# CPI-U annual averages (same table as build/hi/usda/build_hi_usda_panel.py)
+CPI = {2004: 188.9, 2005: 195.3, 2006: 201.6, 2007: 207.3, 2008: 215.3, 2009: 214.5, 2010: 218.1, 2011: 224.9,
+       2012: 229.6, 2013: 233.0, 2014: 236.7, 2015: 237.0, 2016: 240.0, 2017: 245.1, 2018: 251.1, 2019: 255.7, 2020: 258.8}
 
 N_INCOME_BINS = 4
 bin_labels    = list(range(1, N_INCOME_BINS + 1))
@@ -46,7 +54,7 @@ claude_hi     = pd.read_parquet(RMS_VAR / 'claude_hi_scores.parquet',
 # coverage gate from the USDA-label module healthiness (2026-11-02; the paper's outcome
 # now uses USDA labels; 547 vs 543 modules pass the 1% gate under the Syndigo file)
 module_health = pd.read_parquet(RMS_VAR / 'module_healthiness_usda.parquet',
-                                 columns=['product_module_code', 'pct_coverage'])
+                                 columns=['product_module_code', 'pct_coverage', 'hi_per_100g'])
 
 # Merge healthiness
 pi = pi.merge(claude_hi, on='product_module_code', how='inner')
@@ -237,6 +245,40 @@ print("  Levels by year (healthy CES, healthy VA, unhealthy CES, unhealthy VA):"
 for i, yr in enumerate(years):
     print(f"    {yr}  {lvl[('healthy','level_ces')][i]:.4f}  {lvl[('healthy','level_va')][i]:.4f}  "
           f"{lvl[('unhealthy','level_ces')][i]:.4f}  {lvl[('unhealthy','level_va')][i]:.4f}")
+
+# ============================================================
+# FIGURE 2c: REAL price levels by USDA-label healthiness, spending- and equal-weighted
+# ============================================================
+print("Creating Figure 2c (real price levels, USDA-label halves, two weightings)...")
+usda_mod = pi.drop_duplicates('product_module_code')[['product_module_code', 'hi_per_100g']].dropna()
+cut = usda_mod['hi_per_100g'].median()
+usda_mod['usda_half'] = np.where(usda_mod['hi_per_100g'] >= cut, 'healthier', 'less healthy')
+pi = pi.merge(usda_mod[['product_module_code', 'usda_half']], on='product_module_code', how='left')
+print(f"  USDA-label split at hi_per_100g = {cut:.3f}: "
+      f"{(usda_mod.usda_half == 'healthier').sum()} healthier / {(usda_mod.usda_half == 'less healthy').sum()} less healthy modules")
+deflator = {y: CPI[y] / CPI[BASE_YEAR] for y in CPI}
+
+fig, axes = plt.subplots(1, 2, figsize=(16, 5.5), sharey=True)
+for ax, weighted, title in [(axes[0], True, 'Spending-weighted across modules'), (axes[1], False, 'Equal-weighted across modules')]:
+    style_ax(ax)
+    for half, color, lab in [('less healthy', '#d73027', 'Less healthy half (USDA-label index)'), ('healthier', '#2ca25f', 'Healthier half (USDA-label index)')]:
+        for col, ls, lw, suffix in [('level_ces', '--', 1.8, 'unadjusted CES'), ('level_va', '-', 2.4, 'variety-adjusted')]:
+            vals = []
+            for yr in years:
+                g = pi[(pi['year'] == yr) & (pi['usda_half'] == half)]
+                v = np.average(g[col], weights=g['total_spending']) if weighted else g[col].mean()
+                vals.append(v / deflator[yr])
+            ax.plot(years, vals, color=color, linestyle=ls, linewidth=lw, marker='o', markersize=4, markeredgewidth=0,
+                    alpha=0.85 if ls == '--' else 1.0, label=f'{lab}, {suffix}')
+    ax.axhline(1, color='#aaaaaa', linewidth=0.8, linestyle=':')
+    ax.set_title(title, fontsize=12)
+    ax.set_xlabel('Year', fontsize=11, labelpad=8)
+axes[0].set_ylabel(f'Real price level ({BASE_YEAR} = 1, CPI-U deflated)', fontsize=11, labelpad=8)
+axes[0].legend(fontsize=8.5, framealpha=0.9, loc='upper left', title='Solid = variety-adjusted  |  Dashed = unadjusted CES', title_fontsize=8)
+plt.tight_layout()
+plt.savefig(FIG_DIR / 'variety_price_level_by_usda_label.png', bbox_inches='tight', dpi=150)
+plt.close()
+print("  Saved variety_price_level_by_usda_label.png")
 
 # ============================================================
 # FIGURE 3: Variety-adjusted price level by healthiness x income quartile
