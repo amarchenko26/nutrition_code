@@ -6,6 +6,7 @@ Reads interim/movers/event_study_coefs.csv and event_study_summary.csv
 Outputs (figs/movers/):
   event_study_hei.png        FGW Fig. VI: theta_r for HEI, all moves between employed occupations
   event_study_outcomes.png   theta_r for HEI, the simple USDA index and the simple Syndigo index
+  event_study_samples.png    theta_r for HEI: all moves, moves not later reversed, first moves, single-change households
 """
 
 import pandas as pd
@@ -40,7 +41,9 @@ def es_panel(ax, d, rmax=6):
     ax.set_ylim(-0.6, 1.2)
 
 
-def header(s, short=False):
+def header(s, short=False, lines=False):
+    if lines:
+        return f'{int(s["n_events"]):,} moves\npost-move share {s["jump"]:.2f} (SE {s["jump_se"]:.2f}) · pre-trend p = {s["p_pretrend"]:.2f}'
     if short:
         return f'{int(s["n_events"]):,} moves · post-move share {s["jump"]:.2f} (SE {s["jump_se"]:.2f}) · pre-trend p = {s["p_pretrend"]:.2f}'
     return (f'{int(s["n_events"]):,} moves, {int(s["n_households"]):,} households · '
@@ -75,11 +78,27 @@ def fig_outcomes(coefs, summ):
     save(fig, 'event_study_outcomes.png')
 
 
+def fig_samples(coefs, summ):
+    panels = [('main', 'All moves between employed occupations'), ('noreversal', 'Moves not later reversed'),
+              ('firstmove', 'First move of each household'), ('single', 'Single-change households')]
+    fig, axes = plt.subplots(1, 4, figsize=(22, 5.5), sharey=True)
+    fig.subplots_adjust(wspace=0.15)
+    for ax, (spec, title) in zip(axes, panels):
+        d = coefs[(coefs['spec'] == spec) & (coefs['outcome'] == 'hei_usda')]
+        s = summ[(summ['spec'] == spec) & (summ['outcome'] == 'hei_usda')].iloc[0]
+        es_panel(ax, d)
+        ax.set_title(f'{title}\n{header(s, lines=True)}', fontsize=9.5)
+        ax.set_xlabel('Year relative to the move')
+    axes[0].set_ylabel('$\\theta_r$: share of the origin–destination HEI gap')
+    save(fig, 'event_study_samples.png')
+
+
 def main():
     coefs = pd.read_csv(BASE / 'event_study_coefs.csv')
     summ = pd.read_csv(BASE / 'event_study_summary.csv')
     fig_event_study(coefs, summ)
     fig_outcomes(coefs, summ)
+    fig_samples(coefs, summ)
     print(summ.round(3).to_string())
 
 

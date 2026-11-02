@@ -154,8 +154,11 @@ may be stale, and anything Claude writes there overwrites her Overleaf edits. So
 and `tabs/`, and when writing tex stay inside `claude_fig.tex` and `claude_tab.tex`, unless explicitly
 directed otherwise (e.g. a named note in `notes/`). Never compile tex locally; Anya compiles.
 
-Overleaf notes (when directed to write one): concise. State a result once; short table title; spec details
-in a footnote only; at most 3 sentences of interpretation.
+Overleaf notes (when directed to write one): no summary text and no interpretation. The note is the figures
+and tables Anya asked for, in order, plus a short Definitions section for sample rules and citations that
+captions cannot repeat. Each caption carries the regression or definitional information needed to read the
+exhibit (sample, outcome, controls, weights, standard errors, what the headers report). Never judge a result
+in the note (no "small", "flat", "rules out"); state numbers in the reply to Anya instead (2026-11-02).
 
 ## Workflow
 

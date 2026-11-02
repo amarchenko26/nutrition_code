@@ -15,8 +15,9 @@
 // share of the origin-destination gap that the mover's own nutrition closes.
 //
 // Runs: main (all employed-to-employed moves) for HEI, the simple USDA index
-// and the simple Syndigo index; HEI on single-change households and on first
-// moves only (the old designs); HEI on moves into or out of not employed.
+// and the simple Syndigo index; HEI on moves not later reversed, on first
+// moves only and on single-change households (the old design); HEI on moves
+// into or out of not employed.
 //
 // Outputs (interim/movers/): event_study_coefs.csv, event_study_summary.csv
 // ============================================================================
@@ -101,6 +102,7 @@ es_run "main"      "hi_usda"  "emp2emp == 1"
 es_run "main"      "hi"       "emp2emp == 1"
 es_run "single"    "hei_usda" "emp2emp == 1 & single == 1"
 es_run "firstmove" "hei_usda" "emp2emp == 1 & first_event == 1"
+es_run "noreversal" "hei_usda" "emp2emp == 1 & reversed == 0"
 es_run "notemp"    "hei_usda" "notemp == 1"
 
 di "4_build_movers_event_study.do complete"
