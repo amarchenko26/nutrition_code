@@ -81,15 +81,17 @@ def fig_outcomes(coefs, summ):
 def fig_samples(coefs, summ):
     panels = [('main', 'All moves between employed occupations'), ('noreversal', 'Moves not later reversed'),
               ('firstmove', 'First move of each household'), ('single', 'Single-change households')]
-    fig, axes = plt.subplots(1, 4, figsize=(22, 5.5), sharey=True)
-    fig.subplots_adjust(wspace=0.15)
-    for ax, (spec, title) in zip(axes, panels):
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10), sharex=True, sharey=True)
+    fig.subplots_adjust(wspace=0.12, hspace=0.35)
+    for ax, (spec, title) in zip(axes.flat, panels):
         d = coefs[(coefs['spec'] == spec) & (coefs['outcome'] == 'hei_usda')]
         s = summ[(summ['spec'] == spec) & (summ['outcome'] == 'hei_usda')].iloc[0]
         es_panel(ax, d)
-        ax.set_title(f'{title}\n{header(s, lines=True)}', fontsize=9.5)
+        ax.set_title(f'{title}\n{header(s, lines=True)}', fontsize=11)
+    for ax in axes[-1]:
         ax.set_xlabel('Year relative to the move')
-    axes[0].set_ylabel('$\\theta_r$: share of the origin–destination HEI gap')
+    for ax in axes[:, 0]:
+        ax.set_ylabel('$\\theta_r$: share of the origin–destination HEI gap')
     save(fig, 'event_study_samples.png')
 
 
