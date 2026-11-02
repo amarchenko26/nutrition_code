@@ -6,10 +6,11 @@ Uses the price index computed on OSCAR (build_price_index.py) to plot:
   Fig 1: Price level by healthiness quartile over time
          Two sets of 4 lines: unadjusted CES and variety-adjusted (VA)
 
-  Fig 2: P_healthy / P_unhealthy (Q4 / Q1) over time
+  Fig 2: P_healthy / P_unhealthy ((Q3+Q4) / (Q1+Q2)) over time
          Two lines: unadjusted CES vs Feenstra variety-adjusted
-         Shows how much the relative price increase of healthy food is
-         understated when ignoring innovation.
+  Fig 2b: price LEVELS over time for healthy (Q3+Q4) and unhealthy (Q1+Q2)
+         categories, unadjusted CES (dashed) and variety-adjusted (solid)
+         (added 2026-11-02: the ces_vs_va comparison year by year, two groups)
 
   Fig 3: Price level by healthiness quartile x county income quartile
          (variety-adjusted)
@@ -22,8 +23,13 @@ from pathlib import Path
 
 BASE    = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data')
 RMS_VAR = BASE / 'interim' / 'rms_variety'
-FIG_DIR = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs')
+FIG_DIR = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs') / 'variety' / 'price'
 FIG_DIR.mkdir(parents=True, exist_ok=True)
+
+# Price levels are cumulative products of year-on-year indices whose first pair is
+# 2007 -> 2008 (build_price_index.py starts at 2007 because RMS begins in 2006, so entry
+# shares are undefined for 2006). The first level is therefore the 2008 value with 2007 = 1.
+BASE_YEAR = 2007
 
 N_INCOME_BINS = 4
 bin_labels    = list(range(1, N_INCOME_BINS + 1))
@@ -37,7 +43,9 @@ print(f"  {len(pi):,} module-year rows, years {pi['year'].min()}–{pi['year'].m
 
 claude_hi     = pd.read_parquet(RMS_VAR / 'claude_hi_scores.parquet',
                                  columns=['product_module_code', 'claude_hi'])
-module_health = pd.read_parquet(RMS_VAR / 'module_healthiness.parquet',
+# coverage gate from the USDA-label module healthiness (2026-11-02; the paper's outcome
+# now uses USDA labels; 547 vs 543 modules pass the 1% gate under the Syndigo file)
+module_health = pd.read_parquet(RMS_VAR / 'module_healthiness_usda.parquet',
                                  columns=['product_module_code', 'pct_coverage'])
 
 # Merge healthiness
@@ -45,16 +53,17 @@ pi = pi.merge(claude_hi, on='product_module_code', how='inner')
 pi = pi.merge(module_health, on='product_module_code', how='inner')
 pi = pi[pi['pct_coverage'] >= 0.01].copy()
 
-# Assign healthiness quartiles (based on overall module distribution)
+# Healthiness groups: FIXED cut points on the integer Claude score (0-10). Until 2026-11-02 the
+# groups came from pd.qcut on the score, which is discrete, so the cut points moved whenever the
+# set of modules passing the coverage gate changed (the USDA gate admits 4 more modules and qcut
+# then put score 4 in Q2 and score 5 alone in Q3). The ranges below are the ones qcut produced for
+# the 2026-03-29 figures: 0-2 / 3 / 4-5 / 6-10 (about 150 / 115 / 160 / 110 modules).
+HI_CUTS = [-1, 2, 3, 5, 10]
 mod_info = pi.drop_duplicates('product_module_code')[['product_module_code', 'claude_hi']].copy()
-lo, hi_val = mod_info['claude_hi'].quantile([0.01, 0.99])
-w = mod_info['claude_hi'].clip(lo, hi_val)
-mod_info['claude_hi_z'] = (w - w.mean()) / w.std()
-mod_info['hi_quartile'] = pd.qcut(
-    mod_info['claude_hi_z'], 4,
-    labels=['Q1\n(least healthy)', 'Q2', 'Q3', 'Q4\n(most healthy)']
-)
+mod_info['hi_quartile'] = pd.cut(mod_info['claude_hi'], bins=HI_CUTS,
+                                 labels=['Q1\n(least healthy)', 'Q2', 'Q3', 'Q4\n(most healthy)'])
 pi = pi.merge(mod_info[['product_module_code', 'hi_quartile']], on='product_module_code')
+print("  Modules per healthiness group:", mod_info['hi_quartile'].value_counts().sort_index().to_dict())
 
 print(f"  Modules after coverage filter: {pi['product_module_code'].nunique()}")
 
@@ -125,7 +134,7 @@ for q, c in zip(hi_labels, hi_colors):
 
 ax.axhline(1, color='#aaaaaa', linewidth=0.8, linestyle=':')
 ax.set_xlabel('Year', fontsize=11, labelpad=8)
-ax.set_ylabel(r'Price level (base = 1 at 2008)', fontsize=11, labelpad=8)
+ax.set_ylabel(f'Price level ({BASE_YEAR} = 1)', fontsize=11, labelpad=8)
 ax.legend(fontsize=7.5, framealpha=0.9, ncol=2,
           title='Solid = variety-adjusted  |  Dashed = unadjusted CES',
           title_fontsize=8)
@@ -184,13 +193,50 @@ ax.fill_between(years_plot, ratio_ces_plot, ratio_va_plot,
 ax.axhline(1, color='#444444', linewidth=1.2, linestyle='--', zorder=1)
 ax.set_xlabel('Year', fontsize=11, labelpad=8)
 ax.set_ylabel(r'$P_{\mathrm{healthy}}\ /\ P_{\mathrm{unhealthy}}$' +
-              '\n(Q3+Q4 / Q1+Q2, spending-weighted, base = 1 at 2008)', fontsize=11, labelpad=8)
+              f'\n(Q3+Q4 / Q1+Q2, spending-weighted, {BASE_YEAR} = 1)', fontsize=11, labelpad=8)
 ax.legend(fontsize=10, framealpha=0.9, loc='upper left')
 ax.tick_params(axis='both', length=0)
 plt.tight_layout()
 plt.savefig(FIG_DIR / 'variety_price_ratio_adjusted_vs_not.png', bbox_inches='tight', dpi=150)
 plt.close()
 print("  Saved variety_price_ratio_adjusted_vs_not.png")
+
+# ============================================================
+# FIGURE 2b: price LEVELS over time, healthy vs unhealthy, CES vs VA
+# ============================================================
+print("Creating Figure 2b (price levels, healthy vs unhealthy, over time)...")
+
+def group_level_by_year(qs, col):
+    out = []
+    for yr in years:
+        g = grp2[(grp2['year'] == yr) & grp2['hi_quartile'].isin(qs)]
+        out.append(np.average(g[col], weights=g['total_spending']))
+    return np.array(out)
+
+lvl = {('healthy', c): group_level_by_year(healthy_qs, c) for c in ['level_ces', 'level_va']}
+lvl.update({('unhealthy', c): group_level_by_year(unhealthy_qs, c) for c in ['level_ces', 'level_va']})
+
+fig, ax = plt.subplots(figsize=(8, 5))
+style_ax(ax)
+for grp_name, color, lab in [('unhealthy', '#d73027', 'Less healthy (Q1+Q2)'),
+                             ('healthy', '#2ca25f', 'More healthy (Q3+Q4)')]:
+    ax.plot(years, lvl[(grp_name, 'level_ces')], color=color, linewidth=1.8, linestyle='--',
+            marker='o', markersize=4, markeredgewidth=0, alpha=0.8, label=f'{lab}, unadjusted CES')
+    ax.plot(years, lvl[(grp_name, 'level_va')], color=color, linewidth=2.4, linestyle='-',
+            marker='o', markersize=4, markeredgewidth=0, label=f'{lab}, variety-adjusted')
+ax.axhline(1, color='#aaaaaa', linewidth=0.8, linestyle=':')
+ax.set_xlabel('Year', fontsize=11, labelpad=8)
+ax.set_ylabel(f'Price level ({BASE_YEAR} = 1), spending-weighted', fontsize=11, labelpad=8)
+ax.legend(fontsize=9, framealpha=0.9, loc='upper left',
+          title='Solid = variety-adjusted  |  Dashed = unadjusted CES', title_fontsize=8.5)
+plt.tight_layout()
+plt.savefig(FIG_DIR / 'variety_price_level_healthy_vs_unhealthy.png', bbox_inches='tight', dpi=150)
+plt.close()
+print("  Saved variety_price_level_healthy_vs_unhealthy.png")
+print("  Levels by year (healthy CES, healthy VA, unhealthy CES, unhealthy VA):")
+for i, yr in enumerate(years):
+    print(f"    {yr}  {lvl[('healthy','level_ces')][i]:.4f}  {lvl[('healthy','level_va')][i]:.4f}  "
+          f"{lvl[('unhealthy','level_ces')][i]:.4f}  {lvl[('unhealthy','level_va')][i]:.4f}")
 
 # ============================================================
 # FIGURE 3: Variety-adjusted price level by healthiness x income quartile
@@ -320,8 +366,10 @@ def make_ces_va_fig(show_va):
                  marker='o', markersize=6, markeredgewidth=0, zorder=3,
                  label='Variety-adjusted')
 
-    ax1.set_ylim(1.08, 1.13)
-    ax2.set_ylim(1.01, 1.06)
+    # axis limits from the data, same span on both axes so the two slopes are comparable
+    span = max(ces_vals.max() - ces_vals.min(), va_vals.max() - va_vals.min()) + 0.01
+    ax1.set_ylim(ces_vals.min() - 0.005, ces_vals.min() - 0.005 + span)
+    ax2.set_ylim(va_vals.min() - 0.005, va_vals.min() - 0.005 + span)
 
     color_hi_xticks(ax1, hi_labels)
     ax1.set_xlabel(r'$\bf{Nutrition}$ of product category', fontsize=11, labelpad=8)
@@ -375,6 +423,11 @@ for yr in all_years:
     print(f"  {yr:>4}   {r_ces:.4f}  {r_va:.4f}")
 
 print("\nDone.")
+
+import sys
+if '--skip-hh' in sys.argv:          # the household-purchase figures below take minutes; skip when iterating on 1-3
+    print("--skip-hh: stopping before the household-level figures (4 and 5).")
+    sys.exit(0)
 
 # ============================================================
 # FIGURE 4: Rich–poor HH price gap by healthiness quartile

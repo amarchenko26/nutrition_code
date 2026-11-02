@@ -19,7 +19,7 @@ from pathlib import Path
 
 base    = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data')
 OUT_DIR = base / 'interim' / 'rms_variety'
-FIG_DIR = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs')
+FIG_DIR = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs') / 'variety' / 'entry'
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 
 # nutrition source: `python analyze_variety_healthiness.py [syndigo|usda]`.
