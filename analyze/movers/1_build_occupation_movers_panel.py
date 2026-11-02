@@ -6,6 +6,10 @@ Input:  final/labor_supply_reg_data.dta (household x panel year)
 Output: interim/movers/occupation_movers_panel.parquet       household-year panel (descriptives)
         interim/movers/movers_events_panel.parquet / .dta    stacked event panel (estimation sample)
         interim/movers/occupation_means.csv                  mean outcome by occupation, y_j
+The household-year panel also carries the life-event switches for 8_build_life_event_studies.do:
+birth (r_birth/birth_grp), death of a head (r_death/death_grp) and an education increase
+(r_educ/educ_grp, delta_educ_hei); first consecutive-year change of the state, panel cut
+before the state's next change; never-changers are the comparison group.
 
 Occupation: the household's assigned Nielsen occupation code -- the male head's
 unless he is absent (0) or in the armed forces (7), then the female head's (the
@@ -70,12 +74,38 @@ SIZE_BINS = [0, 1, 2, 4, np.inf]
 COLS = ['hhid', 'year', 'male_head_occupation', 'female_head_occupation',
         'hh_avg_yrsofschool', 'hh_size', 'avg_age_hh_head', 'kids', 'hh_comp',
         'fips_state_code', 'fips', 'zip_code', 'projection_factor', 'real_income',
-        'movers_f'] + [v for v in OUTCOMES if v != 'real_income']
+        'movers_f', 'n_heads', 'marital_status'] + [v for v in OUTCOMES if v != 'real_income']
 
 
 def wmean(x, w):
     ok = x.notna() & w.notna()
     return np.average(x[ok], weights=w[ok]) if ok.any() else np.nan
+
+
+def first_switch_events(df, state, name, is_event):
+    """First change of `state` over the household's observed years (8_build_life_event_studies.do).
+    The household is a `name` mover if that first change is between consecutive years and
+    satisfies is_event (a function of the row, with _prev = previous state, _size_prev =
+    previous household size, _nheads_prev = previous number of heads); r_<name> follows the
+    FGW timing (r = 0 is file year m-1) and is cut before the state's next change.
+    <name>_grp: 1 mover, 0 never-changer, missing otherwise."""
+    df = df.sort_values(['hhid', 'year']).reset_index(drop=True)
+    g = df.groupby('hhid')
+    df['_prev'] = g[state].shift(1)
+    df['_size_prev'] = g['hh_size'].shift(1)
+    df['_nheads_prev'] = g['n_heads'].shift(1)
+    df['_chg'] = df['_prev'].notna() & (df[state] != df['_prev'])
+    df['_chgno'] = g['_chg'].cumsum()
+    n_chg = g['_chg'].transform('sum')
+    first = df[df['_chg'] & (df['_chgno'] == 1)]
+    ok = is_event(first) & (first['gap'] == 1)
+    ev = first.loc[ok, ['hhid', 'year', '_prev', state]].rename(
+        columns={'year': f'm_{name}', '_prev': f'{name}_orig', state: f'{name}_dest'})
+    df = df.merge(ev, on='hhid', how='left')
+    df[f'r_{name}'] = df['year'] - (df[f'm_{name}'] - 1)
+    df.loc[df['_chgno'] >= 2, f'r_{name}'] = np.nan
+    df[f'{name}_grp'] = np.where(df[f'm_{name}'].notna(), 1.0, np.where(n_chg == 0, 0.0, np.nan))
+    return df.drop(columns=['_prev', '_size_prev', '_nheads_prev', '_chg', '_chgno'])
 
 
 def smooth_reversals(df):
@@ -133,6 +163,26 @@ def main():
     df['age5'] = (np.floor(df['avg_age_hh_head'] / 5) * 5).clip(upper=85)
     df['state'] = pd.to_numeric(df['fips_state_code'], errors='coerce')
     df['county'] = pd.to_numeric(df['fips'], errors='coerce')
+
+    # ------------------------------------------ life events (8_build_life_event_studies.do)
+    # birth: no child under 6 -> child under 6 with household size up; death: two heads -> one
+    # widowed head; educ_up: the heads' average years of schooling rises by 2+ with the number
+    # of heads unchanged (a head's reported education rises: graduation or a correction)
+    df['young_child'] = df['kids'].isin([1, 4, 5, 7]).astype(int)
+    df['death_state'] = np.where(df['n_heads'] == 2, 0.0,
+                                 np.where((df['n_heads'] == 1) & (df['marital_status'] == 2), 1.0, np.nan))
+    df['educ_yrs'] = df['hh_avg_yrsofschool'].round(1)
+    df = first_switch_events(df, 'young_child', 'birth',
+                             lambda d: (d['_prev'] == 0) & (d['young_child'] == 1) & (d['hh_size'] > d['_size_prev']))
+    df = first_switch_events(df, 'n_heads', 'death',
+                             lambda d: (d['_prev'] == 2) & (d['n_heads'] == 1) & (d['marital_status'] == 2))
+    df = first_switch_events(df, 'educ_yrs', 'educ',
+                             lambda d: (d['educ_yrs'] - d['_prev'] >= 2) & (d['n_heads'] == d['_nheads_prev']))
+    for name in ['birth', 'death', 'educ']:
+        print(f"{name}: movers {int((df.groupby('hhid')[f'{name}_grp'].first() == 1).sum()):,}, "
+              f"never-changers {int((df.groupby('hhid')[f'{name}_grp'].first() == 0).sum()):,}")
+    df = df.sort_values(['hhid', 'year']).reset_index(drop=True)
+    g = df.groupby('hhid')
 
     # ------------------------------------------------------------ events
     ev = df[df['switch_consec'] & ~df['occ'].isin(DROP_FROM_ANALYSIS) & ~df['occ_prev'].isin(DROP_FROM_ANALYSIS)]
@@ -199,6 +249,13 @@ def main():
 
     for v in OUTCOMES:
         ev[f'delta_{v}'] = ev['dest'].map(means[f'ybar_{v}']) - ev['origin'].map(means[f'ybar_{v}'])
+    # education gap for the educ_up events: mean HEI by education bin on never-changers (by year, averaged)
+    nc = df[(df['educ_grp'] == 0) & (df['analysis'] == 1)]
+    eb = nc.groupby(['educ_bin', 'year']).apply(lambda x: wmean(x['hei_usda'], x['projection_factor'])).groupby(level=0).mean()
+    orig_bin = pd.cut(df['educ_orig'], bins=EDUC_BINS, labels=[1, 2, 3, 4]).astype(float)
+    dest_bin = pd.cut(df['educ_dest'], bins=EDUC_BINS, labels=[1, 2, 3, 4]).astype(float)
+    df['delta_educ_hei'] = dest_bin.map(eb) - orig_bin.map(eb)
+    print('HEI by education bin (never-changers):', eb.round(2).to_dict())
     df['income_rank'] = df['occ'].map(means12['income_rank'])
     ev['rank_orig'] = ev['origin'].map(means12['income_rank'])
     ev['rank_dest'] = ev['dest'].map(means12['income_rank'])
@@ -226,11 +283,14 @@ def main():
     keep = ['hhid', 'year', 'occ', 'occ_raw', 'mover_type', 'n_events', 'n_events_ee', 'n_obs', 'n_switch',
             'switch', 'switch_consec', 'gap', 'occ_prev', 'seg', 'is_r0', 'analysis', 'educ_bin', 'size_bin',
             'age5', 'state', 'county', 'kids', 'hh_comp', 'hh_size', 'avg_age_hh_head', 'projection_factor',
-            'real_income', 'income_rank'] + [v for v in OUTCOMES if v != 'real_income']
+            'real_income', 'income_rank', 'n_heads', 'marital_status', 'young_child', 'death_state', 'educ_yrs',
+            'm_birth', 'r_birth', 'birth_grp', 'm_death', 'r_death', 'death_grp', 'm_educ', 'r_educ', 'educ_grp',
+            'educ_orig', 'educ_dest', 'delta_educ_hei'] + [v for v in OUTCOMES if v != 'real_income']
     out = df[keep].copy()
     for c in ['switch', 'switch_consec']:
         out[c] = out[c].astype(int)
     out.to_parquet(OUT_DIR / 'occupation_movers_panel.parquet', index=False)
+    out.to_stata(OUT_DIR / 'occupation_movers_panel.dta', write_index=False, version=118)
 
     # ------------------------------------------------------------ summary
     print('\nhouseholds by mover type (0 never changes, 1 one employed-to-employed move only, '

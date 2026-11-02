@@ -17,7 +17,8 @@
 // Runs: main (all employed-to-employed moves) for HEI, the simple USDA index
 // and the simple Syndigo index; HEI on moves not later reversed, on first
 // moves only and on single-change households (the old design); HEI on moves
-// into or out of not employed.
+// into or out of not employed; household income scaled by the occupation
+// income gap (the wage validation); HEI per $10k of the occupation income gap.
 //
 // Outputs (interim/movers/): event_study_coefs.csv, event_study_summary.csv
 // ============================================================================
@@ -47,15 +48,17 @@ file open fh using "$out/event_study_summary.csv", write replace
 file write fh "spec,outcome,jump,jump_se,jump_late,jump_late_se,pre,pre_se,p_pretrend,N,n_events,n_households" _n
 file close fh
 
-// es_run "spec" "outcome" "sample condition"
+// es_run "spec" "outcome" "sample condition" ["delta variable"]
+// (delta defaults to delta_<outcome>; pass delta_real_income to scale by the occupation INCOME gap)
 cap program drop es_run
 program define es_run
-	args spec outcome cond
+	args spec outcome cond dvar
+	if "`dvar'" == "" local dvar delta_`outcome'
 	local ddlist
 	local dlist
 	foreach s of global rlist {
 		cap drop dd_`s'
-		quietly gen dd_`s' = d_`s' * delta_`outcome'
+		quietly gen dd_`s' = d_`s' * `dvar'
 		local ddlist `ddlist' dd_`s'
 		local dlist  `dlist'  d_`s'
 	}
@@ -100,9 +103,18 @@ end
 es_run "main"      "hei_usda" "emp2emp == 1"
 es_run "main"      "hi_usda"  "emp2emp == 1"
 es_run "main"      "hi"       "emp2emp == 1"
-es_run "single"    "hei_usda" "emp2emp == 1 & single == 1"
-es_run "firstmove" "hei_usda" "emp2emp == 1 & first_event == 1"
-es_run "noreversal" "hei_usda" "emp2emp == 1 & reversed == 0"
+// the other three samples, all three outcomes (figure event_study_outcomes, 4 x 3)
+foreach o in hei_usda hi_usda hi {
+	es_run "noreversal" "`o'" "emp2emp == 1 & reversed == 0"
+	es_run "firstmove"  "`o'" "emp2emp == 1 & first_event == 1"
+	es_run "single"     "`o'" "emp2emp == 1 & single == 1"
+}
 es_run "notemp"    "hei_usda" "notemp == 1"
+// income: theta_r = share of the cross-sectional occupation INCOME gap realized (household income, $10k 2013$)
+es_run "income"        "real_income" "emp2emp == 1"
+es_run "income_notemp" "real_income" "notemp == 1"
+es_run "income_single" "real_income" "emp2emp == 1 & single == 1"
+// HEI scaled by the occupation INCOME gap: theta_r = HEI points per $10k of cross-sectional income gap
+es_run "hei_per_inc" "hei_usda"    "emp2emp == 1" "delta_real_income"
 
 di "4_build_movers_event_study.do complete"

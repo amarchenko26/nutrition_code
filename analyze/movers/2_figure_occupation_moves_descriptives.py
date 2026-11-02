@@ -11,6 +11,9 @@ Outputs (figs/movers/, tabs/movers/):
   hei_by_occupation.png                  mean HEI by occupation, raw and age/year-adjusted
   hei_gradient_income_vs_occupation.png  HEI net of age, kids and year: income binscatter and the
                                          occupation means on the same income axis, with both slopes
+  hei_by_education_and_occupation_income.png  mean HEI by education bin and by occupation: raw,
+                                         adjusted for age, kids and year, and additionally for income
+                                         (ventile dummies) -- how much of each gradient is income
   occupation_means.tex                   table: N, income, age, HEI, simple indices, in/out-move rates
   moves_summary.tex                      table: ever-move shares, reversals removed, events, up/down counts
 Retired 2026-11-02: ever_move_by_tenure.png, move_symmetry_pairs.png.
@@ -242,6 +245,53 @@ def gradient_income_vs_occupation(df, nq=20):
             'x_lo': pts['x'].iloc[0], 'x_hi': pts['x'].iloc[-1], 'n': len(sub)}
 
 
+def gradient_education_income(df, means, nq=20):
+    """Mean HEI by education bin and by occupation, (a) raw, (b) adjusted for 5-year age bins,
+    kids and year, (c) additionally adjusted for household income (within-sample ventile
+    dummies). Coefficients on group dummies with demeaned controls; household-clustered SE."""
+    sub = df[~df['occ'].isin([7, 10]) & df['hei_usda'].notna() & df['real_income'].notna() & df['educ_bin'].notna()].copy()
+    p1, p99 = sub['real_income'].quantile([0.01, 0.99])
+    sub = sub[sub['real_income'].between(p1, p99)].reset_index(drop=True)
+    sub['inc_q'] = pd.qcut(sub['real_income'].rank(method='first'), nq, labels=False)
+    w = sub['projection_factor'].values
+
+    def fit(group, controls):
+        G = pd.get_dummies(sub[group].astype(int), prefix='g', drop_first=False).astype(float)
+        X = G.values if not controls else np.column_stack([G.values, demeaned_dummies(sub, controls, w).values])
+        res = sm.WLS(sub['hei_usda'].values, X, weights=w).fit(cov_type='cluster', cov_kwds={'groups': sub['hhid'].values})
+        ids = [int(c.split('_')[1]) for c in G.columns]
+        return pd.Series(res.params[:len(ids)], index=ids), pd.Series(res.bse[:len(ids)], index=ids)
+
+    specs = [('Raw', []), ('+ age bins, kids, year', ['age5', 'kids', 'year']), ('+ income ventiles', ['age5', 'kids', 'year', 'inc_q'])]
+    colors = [GREY, BLUE, RED]
+    EDU = {1: 'Under 12 years', 2: '12 years', 3: '13-15 years', 4: '16+ years'}
+    fig, axes = plt.subplots(1, 2, figsize=(17, 6.5), gridspec_kw={'width_ratios': [1, 2]})
+    out = {}
+    for ax, group, labels, order in [(axes[0], 'educ_bin', EDU, [1, 2, 3, 4]),
+                                     (axes[1], 'occ', OCC_LABELS, means.loc[[k for k in means.index if k not in (7, 10)]].sort_values('income_w').index.tolist())]:
+        x = np.arange(len(order))
+        for i, ((lab, ctr), col) in enumerate(zip(specs, colors)):
+            est, se = fit(group, ctr)
+            ax.errorbar(x + (i - 1) * 0.22, est.loc[order], yerr=1.96 * se.loc[order], fmt='o', color=col, ms=7,
+                        capsize=3, elinewidth=1.3, label=f'{lab}: range {est.loc[order].max() - est.loc[order].min():.2f} points')
+            out[(group, lab)] = (est.loc[order].max() - est.loc[order].min(), est.loc[order].to_dict())
+        ax.set_xticks(x)
+        if group == 'educ_bin':
+            ax.set_xticklabels([labels[k] for k in order], fontsize=10)
+            ax.set_xlabel("Heads' average years of schooling")
+            ax.set_title('By education bin')
+        else:
+            ax.set_xticklabels([f'{labels[k]}\n${means.loc[k, "income_w"] * 10:.0f}k' for k in order], rotation=45, ha='right', fontsize=9.5)
+            ax.set_xlabel('Occupation, sorted by mean household income')
+            ax.set_title('By occupation')
+        ax.set_ylabel('Mean HEI (0–100)')
+        ax.legend(frameon=False, fontsize=9.5, loc='upper left')
+    save(fig, 'hei_by_education_and_occupation_income.png')
+    for k, (rng, vals) in out.items():
+        print(f'{k[0]:9s} {k[1]:24s} range {rng:.2f}; ' + ', '.join(f'{g}: {v:.2f}' for g, v in vals.items()))
+    return out
+
+
 def tables(df, ev, means, counts, mv, stats, n_blip):
     pairs = df[(df['gap'] == 1) & df['occ_prev'].notna()]
     out_rate = pairs.groupby('occ_prev').apply(lambda d: 100 * (d['occ'] != d['occ_prev']).mean())
@@ -309,6 +359,7 @@ def main():
     stats = move_stats(mv, means)
     gradient(df, means)
     gradient_income_vs_occupation(df)
+    gradient_education_income(df, means)
     tables(df, ev, means, counts, mv, stats, n_blip)
     print(stats)
 
