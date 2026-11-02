@@ -1,21 +1,24 @@
 """
 Descriptive figures and tables on occupation moves and the occupation gradient
 in nutrition (occupation-movers design). Reads interim/movers/
-occupation_movers_panel.parquet and occupation_means.csv (1_).
+occupation_movers_panel.parquet, movers_events_panel.parquet and
+occupation_means.csv (1_). Occupation codes are the reversal-smoothed ones.
 
 Outputs (figs/movers/, tabs/movers/):
-  occupation_histogram.png        household-years by Nielsen occupation code (12 codes)
-  ever_move_by_tenure.png         share of households that ever change code, by years observed
-  transition_heatmap.png          origin (t-1) x destination (t) transition matrix, row percent
-  top_moves.png                   the 20 most common origin -> destination moves
-  move_symmetry_pairs.png         moves up vs down the income ladder, one point per pair
-  hei_by_occupation.png           mean HEI by occupation, raw and age/year-adjusted
-  occupation_means.tex            table: N, income, age, HEI, simple indices, in/out-move rates
-  moves_summary.tex               table: ever-move shares, moves per household, up/down counts
+  occupation_histogram.png               household-years by Nielsen occupation code (12 codes)
+  transition_heatmap.png                 origin (t-1) x destination (t) transition matrix, row percent
+  top_moves.png                          the 20 most common origin -> destination moves
+  hei_by_occupation.png                  mean HEI by occupation, raw and age/year-adjusted
+  hei_gradient_income_vs_occupation.png  HEI net of age, kids and year: income binscatter and the
+                                         occupation means on the same income axis, with both slopes
+  occupation_means.tex                   table: N, income, age, HEI, simple indices, in/out-move rates
+  moves_summary.tex                      table: ever-move shares, reversals removed, events, up/down counts
+Retired 2026-11-02: ever_move_by_tenure.png, move_symmetry_pairs.png.
 """
 
 import numpy as np
 import pandas as pd
+import statsmodels.api as sm
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -51,7 +54,7 @@ def save(fig, name):
     print(f'saved {FIG / name}')
 
 
-def occupation_histogram(df, means):
+def occupation_histogram(df):
     counts = df.groupby('occ').agg(hh_years=('hhid', 'size'), households=('hhid', 'nunique'))
     counts = counts.reindex(range(1, 13)).fillna(0)
     fig, ax = plt.subplots(figsize=(11, 5.5))
@@ -65,26 +68,6 @@ def occupation_histogram(df, means):
     ax.set_title('Household-years by occupation code')
     save(fig, 'occupation_histogram.png')
     return counts
-
-
-def ever_move(df):
-    hh = df.groupby('hhid').agg(n_obs=('n_obs', 'first'), n_switch=('n_switch', 'first'),
-                                mover_type=('mover_type', 'first'))
-    hh['ever'] = hh['n_switch'] > 0
-    hh['tenure'] = hh['n_obs'].clip(upper=10)
-    by = hh[hh['n_obs'] >= 2].groupby('tenure').agg(share=('ever', 'mean'), n=('ever', 'size'))
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.bar(by.index, 100 * by['share'], color=BLUE, width=0.7)
-    for t, r in by.iterrows():
-        ax.text(t, 100 * r['share'] + 1, f'{100 * r["share"]:.0f}%', ha='center', fontsize=11)
-    ax.set_xticks(by.index)
-    ax.set_xticklabels([str(t) if t < 10 else '10+' for t in by.index])
-    ax.set_xlabel('Years the household is observed')
-    ax.set_ylabel('Share ever changing occupation code (%)')
-    ax.set_title('Households that ever change occupation code')
-    ax.set_ylim(0, 100)
-    save(fig, 'ever_move_by_tenure.png')
-    return hh
 
 
 def transitions(df):
@@ -133,67 +116,44 @@ def transitions(df):
     ax.text(0.98, 0.04, 'red = into or out of not employed', transform=ax.transAxes,
             ha='right', color=RED, fontsize=11)
     save(fig, 'top_moves.png')
-    return pairs, mv, tm
+    return pairs, mv
 
 
-def symmetry(mv, means):
+def move_stats(mv, means):
     rank = means['income_rank'].to_dict()
     mv = mv.copy()
     mv['up'] = mv['occ'].map(rank) > mv['occ_prev'].map(rank)
-    mv['lo'] = np.minimum(mv['occ'], mv['occ_prev'])
-    mv['hi_'] = np.maximum(mv['occ'], mv['occ_prev'])
-    pair = mv.groupby(['lo', 'hi_']).agg(n=('up', 'size'), n_up=('up', 'sum'))
-    pair['n_down'] = pair['n'] - pair['n_up']
-    pair = pair[pair['n'] >= 30]
-    fig, ax = plt.subplots(figsize=(7.5, 7))
-    inv = pair.index.map(lambda t: 12 in t)
-    ax.scatter(pair.loc[~inv, 'n_up'], pair.loc[~inv, 'n_down'], s=40, color=BLUE, label='between employed occupations')
-    ax.scatter(pair.loc[inv, 'n_up'], pair.loc[inv, 'n_down'], s=40, color=RED, label='into / out of not employed')
-    lim = [20, pair[['n_up', 'n_down']].max().max() * 1.5]
-    ax.plot(lim, lim, color=GREY, lw=1.5, ls='--')
-    ax.set_xscale('log'); ax.set_yscale('log'); ax.set_xlim(lim); ax.set_ylim(lim)
-    big = pair.sort_values('n', ascending=False).head(8)
-    for i, ((lo, hi_), r) in enumerate(big.iterrows()):
-        dx, dy = (6, 6) if i % 2 == 0 else (6, -12)
-        ax.annotate(f'{SHORT[lo]}–{SHORT[hi_]}', (r['n_up'], r['n_down']), fontsize=9,
-                    xytext=(dx, dy), textcoords='offset points')
-    ax.set_xlabel('Moves up the income ladder (count)')
-    ax.set_ylabel('Moves down the income ladder (count)')
-    ax.set_title('Up vs down moves, one point per occupation pair')
-    ax.legend(loc='upper left', frameon=False)
-    save(fig, 'move_symmetry_pairs.png')
     e2e = mv[mv['occ'].isin(EMPLOYED) & mv['occ_prev'].isin(EMPLOYED)]
-    stats = {'n_moves': len(mv), 'n_e2e': len(e2e), 'share_up_e2e': e2e['up'].mean(),
-             'n_into_notemp': int((mv['occ'] == 12).sum()), 'n_outof_notemp': int((mv['occ_prev'] == 12).sum()),
-             'share_up_all': mv['up'].mean(),
-             'n_bounce': int(((mv['occ'] != mv['occ_prev'])).sum())}
-    return stats, pair
+    return {'n_moves': len(mv), 'n_e2e': len(e2e), 'share_up_e2e': e2e['up'].mean(),
+            'n_into_notemp': int((mv['occ'] == 12).sum()), 'n_outof_notemp': int((mv['occ_prev'] == 12).sum())}
+
+
+def demeaned_dummies(sub, cols, w):
+    parts = [pd.get_dummies(sub[c].astype(int), prefix=c, drop_first=True).astype(float) for c in cols]
+    C = pd.concat(parts, axis=1)
+    return C - np.average(C.values, weights=w, axis=0)
+
+
+def occupation_adjusted(sub, controls):
+    """Coefficients on a full set of occupation dummies with demeaned control dummies:
+    each is the occupation's mean HEI at the sample's average mix of the controls;
+    household-clustered SE."""
+    w = sub['projection_factor'].values
+    O = pd.get_dummies(sub['occ'].astype(int), prefix='o', drop_first=False).astype(float)
+    C = demeaned_dummies(sub, controls, w)
+    res = sm.WLS(sub['hei_usda'].values, np.column_stack([O.values, C.values]), weights=w).fit(
+        cov_type='cluster', cov_kwds={'groups': sub['hhid'].values})
+    ids = [int(c.split('_')[1]) for c in O.columns]
+    return pd.Series(res.params[:len(ids)], index=ids), pd.Series(res.bse[:len(ids)], index=ids)
 
 
 def gradient(df, means):
     sub = df[~df['occ'].isin([7, 10]) & df['hei_usda'].notna()].copy()
     order = means.loc[[k for k in means.index if k not in (7, 10)]].sort_values('income_w').index.tolist()
-    # raw weighted mean and SE (clustered by household: SE of the household means)
     raw = sub.groupby('occ').apply(lambda d: pd.Series({
         'mean': wmean(d['hei_usda'], d['projection_factor']),
         'se': d.groupby('hhid')['hei_usda'].mean().std() / np.sqrt(d['hhid'].nunique())}))
-    # adjusted: weighted regression of HEI on a full set of occupation dummies plus
-    # DEMEANED 5-year age-bin and year dummies, so each occupation coefficient is the
-    # mean HEI at the sample's average age and year mix, with a household-clustered SE
-    import statsmodels.api as sm
-    X = pd.get_dummies(sub['occ'].astype(int), prefix='o', drop_first=False).astype(float)
-    A = pd.get_dummies(sub['age5'].astype(int), prefix='a', drop_first=True).astype(float)
-    Y = pd.get_dummies(sub['year'].astype(int), prefix='y', drop_first=True).astype(float)
-    w = sub['projection_factor'].values
-    for Z in (A, Y):
-        Z -= np.average(Z.values, weights=w, axis=0)
-    Xf = pd.concat([X, A, Y], axis=1)
-    res = sm.WLS(sub['hei_usda'].values, Xf.values, weights=w).fit(
-        cov_type='cluster', cov_kwds={'groups': sub['hhid'].values})
-    occ_cols = [i for i, c in enumerate(Xf.columns) if c.startswith('o_')]
-    occ_ids = [int(Xf.columns[i].split('_')[1]) for i in occ_cols]
-    adj = pd.Series(res.params[occ_cols], index=occ_ids)
-    se = pd.Series(res.bse[occ_cols], index=occ_ids)
+    adj, se = occupation_adjusted(sub, ['age5', 'year'])
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5.8), sharey=True)
     x = np.arange(len(order))
@@ -214,8 +174,75 @@ def gradient(df, means):
     return raw, adj, se
 
 
-def tables(df, means, counts, hh, mv, stats, raw, adj, adj_se):
-    # occupation means table (12 codes, descriptives sample)
+def gradient_income_vs_occupation(df, nq=20):
+    """HEI net of 5-year age bins, kids and year, against household income: a binscatter over
+    income quantiles (Allcott-style: outcome and income both residualized on the controls, means
+    added back) and, on the same axes, each occupation's adjusted mean HEI at its mean income."""
+    sub = df[~df['occ'].isin([7, 10]) & df['hei_usda'].notna() & df['real_income'].notna()].copy()
+    p1, p99 = sub['real_income'].quantile([0.01, 0.99])
+    sub = sub[sub['real_income'].between(p1, p99)].reset_index(drop=True)
+    w = sub['projection_factor'].values
+    C = demeaned_dummies(sub, ['age5', 'kids', 'year'], w)
+    X = np.column_stack([np.ones(len(sub)), C.values])
+    sw = np.sqrt(w)
+
+    def resid(y):
+        beta = np.linalg.lstsq(X * sw[:, None], y * sw, rcond=None)[0]
+        return y - X @ beta + np.average(y, weights=w)
+
+    y = resid(sub['hei_usda'].values.astype(float))
+    x = resid(sub['real_income'].values.astype(float) * 10)       # $000s, 2013$
+    edges = np.percentile(x, np.linspace(0, 100, nq + 1)); edges[-1] += 1
+    b = np.digitize(x, edges)
+    pts = pd.DataFrame([(np.average(x[b == i], weights=w[b == i]), np.average(y[b == i], weights=w[b == i]))
+                        for i in range(1, nq + 1)], columns=['x', 'y'])
+    inc = sm.WLS(y, sm.add_constant(x / 10), weights=w).fit(cov_type='cluster', cov_kwds={'groups': sub['hhid'].values})
+    b_inc, se_inc = inc.params[1], inc.bse[1]                        # HEI points per $10k
+
+    adj, se = occupation_adjusted(sub, ['age5', 'kids', 'year'])
+    occ_x = sub.groupby('occ').apply(lambda d: wmean(d['real_income'], d['projection_factor'])) * 10
+    occ_w = sub.groupby('occ')['projection_factor'].sum()
+    emp = [k for k in adj.index if k in EMPLOYED]
+    occ = sm.WLS(adj.loc[emp].values, sm.add_constant(occ_x.loc[emp].values / 10), weights=occ_w.loc[emp].values).fit()
+    b_occ, se_occ = occ.params[1], occ.bse[1]
+
+    fig, ax = plt.subplots(figsize=(11, 7))
+    ax.scatter(pts['x'], pts['y'], s=55, color=BLUE, zorder=4,
+               label=f'Households, {nq} income bins: slope {b_inc:.2f} per \\$10k (SE {se_inc:.2f})')
+    xx = np.linspace(pts['x'].min(), pts['x'].max(), 10)
+    ax.plot(xx, inc.params[0] + b_inc * xx / 10, color=BLUE, lw=2, zorder=3)
+    ax.errorbar(occ_x.loc[emp], adj.loc[emp], yerr=1.96 * se.loc[emp], fmt='s', ms=9, color=RED, ecolor=RED,
+                elinewidth=1.2, capsize=3, zorder=5,
+                label=f'Employed occupations, adjusted means: slope {b_occ:.2f} per \\$10k of occupation mean income (SE {se_occ:.2f})')
+    xo = np.linspace(occ_x.loc[emp].min(), occ_x.loc[emp].max(), 10)
+    ax.plot(xo, occ.params[0] + b_occ * xo / 10, color=RED, lw=2, ls='--', zorder=3)
+    if 12 in adj.index:
+        ax.errorbar([occ_x.loc[12]], [adj.loc[12]], yerr=[1.96 * se.loc[12]], fmt='s', ms=9, mfc='white',
+                    color=RED, ecolor=RED, elinewidth=1.2, capsize=3, zorder=5, label='Not employed (not in the occupation fit)')
+    # label placement: (dx, dy) in points and horizontal alignment, chosen by hand to avoid overlaps
+    place = {1: (8, -4, 'left'), 2: (8, -14, 'left'), 3: (-8, 6, 'right'), 4: (8, 2, 'left'), 5: (8, -4, 'left'),
+             6: (8, -14, 'left'), 8: (-8, -16, 'right'), 9: (-8, -4, 'right'), 11: (-8, -14, 'right'), 12: (-8, 6, 'right')}
+    for k in adj.index:
+        dx, dy, ha = place.get(k, (8, -4, 'left'))
+        ax.annotate(OCC_LABELS[k], (occ_x.loc[k], adj.loc[k]), xytext=(dx, dy), textcoords='offset points',
+                    fontsize=10, color=RED, ha=ha)
+    ax.set_xlabel('Household income (\\$000s, 2013\\$)')
+    ax.set_ylabel('HEI (0–100), net of age bins, kids and year')
+    ax.set_title('HEI by household income and by occupation')
+    ax.legend(loc='lower right', frameon=False, fontsize=10.5)
+    save(fig, 'hei_gradient_income_vs_occupation.png')
+    rng_inc = pts['y'].iloc[-1] - pts['y'].iloc[0]
+    rng_occ = adj.loc[emp].max() - adj.loc[emp].min()
+    print(f'income gradient: {b_inc:.3f} (SE {se_inc:.3f}) HEI points per $10k; bottom to top income bin '
+          f'({pts["x"].iloc[0]:.0f}k to {pts["x"].iloc[-1]:.0f}k): {rng_inc:.2f} points')
+    print(f'occupation gradient: {b_occ:.3f} (SE {se_occ:.3f}) points per $10k of occupation mean income; '
+          f'range across employed occupations: {rng_occ:.2f} points '
+          f'({OCC_LABELS[adj.loc[emp].idxmin()]} {adj.loc[emp].min():.1f} to {OCC_LABELS[adj.loc[emp].idxmax()]} {adj.loc[emp].max():.1f})')
+    return {'b_inc': b_inc, 'se_inc': se_inc, 'b_occ': b_occ, 'se_occ': se_occ, 'rng_inc': rng_inc, 'rng_occ': rng_occ,
+            'x_lo': pts['x'].iloc[0], 'x_hi': pts['x'].iloc[-1], 'n': len(sub)}
+
+
+def tables(df, ev, means, counts, mv, stats, n_blip):
     pairs = df[(df['gap'] == 1) & df['occ_prev'].notna()]
     out_rate = pairs.groupby('occ_prev').apply(lambda d: 100 * (d['occ'] != d['occ_prev']).mean())
     in_share = mv.groupby('occ').size() / len(mv) * 100
@@ -237,22 +264,25 @@ def tables(df, means, counts, hh, mv, stats, raw, adj, adj_se):
         fmt.setdefault(c, '{:.1f}'.format)
     with open(TAB / 'occupation_means.tex', 'w') as fh:
         fh.write(t.to_latex(escape=False, column_format='l' + 'r' * t.shape[1], formatters=fmt))
-    # moves summary table
+
+    hh = df.groupby('hhid').agg(n_obs=('n_obs', 'first'), n_switch=('n_switch', 'first'), n_ee=('n_events_ee', 'first'))
     hh2 = hh[hh['n_obs'] >= 2]
+    ee = ev[ev['emp2emp'] == 1]
+    n_pairs = int(((df['gap'] == 1) & df['occ_prev'].notna()).sum())
     rows = [
         ('Households observed at least twice', f'{len(hh2):,}'),
-        ('\\quad ever change occupation code (\\%)', f'{100 * hh2["ever"].mean():.1f}'),
-        ('\\quad change exactly once, dated (single movers)', f'{int((hh2["mover_type"] == 1).sum()):,}'),
-        ('\\quad change more than once', f'{int((hh2["mover_type"] == 2).sum()):,}'),
-        ('\\quad change across a gap in the panel (undated)', f'{int((hh2["mover_type"] == 3).sum()):,}'),
-        ('Consecutive household-year pairs', f'{int(((df["gap"] == 1) & df["occ_prev"].notna()).sum()):,}'),
-        ('\\quad with an occupation change (\\%)', f'{100 * stats["n_moves"] / int(((df["gap"] == 1) & df["occ_prev"].notna()).sum()):.1f}'),
-        ('Occupation changes', f'{stats["n_moves"]:,}'),
-        ('\\quad between employed occupations', f'{stats["n_e2e"]:,}'),
-        ('\\quad\\quad of which up the income ladder (\\%)', f'{100 * stats["share_up_e2e"]:.1f}'),
+        ('\\quad ever change occupation code (\\%)', f'{100 * (hh2["n_switch"] > 0).mean():.1f}'),
+        ('\\quad with a dated move between employed occupations', f'{int((hh2["n_ee"] >= 1).sum()):,}'),
+        ('\\quad\\quad one such move', f'{int((hh2["n_ee"] == 1).sum()):,}'),
+        ('\\quad\\quad two or more', f'{int((hh2["n_ee"] >= 2).sum()):,}'),
+        ('One-year reversals set back to the origin code (household-years)', f'{n_blip:,}'),
+        ('Consecutive household-year pairs', f'{n_pairs:,}'),
+        ('\\quad with an occupation change (\\%)', f'{100 * stats["n_moves"] / n_pairs:.1f}'),
+        ('Occupation changes between consecutive years', f'{stats["n_moves"]:,}'),
+        ('\\quad between employed occupations (the events)', f'{len(ee):,}'),
+        ('\\quad\\quad of which up the income ladder (\\%)', f'{100 * ee["up_income"].mean():.1f}'),
         ('\\quad into not employed', f'{stats["n_into_notemp"]:,}'),
         ('\\quad out of not employed', f'{stats["n_outof_notemp"]:,}'),
-        ('\\quad reversed the following year (\\%)', f'{100 * stats["share_bounce"]:.1f}'),
     ]
     with open(TAB / 'moves_summary.tex', 'w') as fh:
         fh.write('\\begin{tabular}{lr}\n\\toprule\n')
@@ -261,27 +291,25 @@ def tables(df, means, counts, hh, mv, stats, raw, adj, adj_se):
         fh.write('\\bottomrule\n\\end{tabular}\n')
     print(t.to_string())
     for a, b in rows:
-        print(f'{a:60s} {b}')
+        print(f'{a:70s} {b}')
 
 
 def main():
     FIG.mkdir(parents=True, exist_ok=True)
     TAB.mkdir(parents=True, exist_ok=True)
     df = pd.read_parquet(BASE / 'occupation_movers_panel.parquet')
+    ev = pd.read_parquet(BASE / 'movers_events_panel.parquet').drop_duplicates('event_id')
     means = pd.read_csv(BASE / 'occupation_means.csv').set_index('occ')
-    print(f'{len(df):,} household-years, {df.hhid.nunique():,} households (geographic non-movers, 12 codes)')
+    n_blip = int((df['occ'] != df['occ_raw']).sum())
+    print(f'{len(df):,} household-years, {df.hhid.nunique():,} households (geographic non-movers, 12 codes); '
+          f'{n_blip:,} one-year reversals smoothed')
 
-    counts = occupation_histogram(df, means)
-    hh = ever_move(df)
-    pairs, mv, tm = transitions(df)
-    stats, pair = symmetry(mv, means)
-    # reversal rate: the next observed year returns to the origin code
-    nxt = df[['hhid', 'year', 'occ']].copy(); nxt['year'] -= 1
-    nxt = nxt.rename(columns={'occ': 'occ_next'})
-    mv2 = mv.merge(nxt, on=['hhid', 'year'], how='left')
-    stats['share_bounce'] = (mv2['occ_next'] == mv2['occ_prev']).mean()
-    raw, adj, adj_se = gradient(df, means)
-    tables(df, means, counts, hh, mv, stats, raw, adj, adj_se)
+    counts = occupation_histogram(df)
+    pairs, mv = transitions(df)
+    stats = move_stats(mv, means)
+    gradient(df, means)
+    gradient_income_vs_occupation(df)
+    tables(df, ev, means, counts, mv, stats, n_blip)
     print(stats)
 
 
