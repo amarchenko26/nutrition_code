@@ -15,13 +15,21 @@ Output: figs/health/hei_gradients_income_education.png
 import numpy as np
 import pandas as pd
 import statsmodels.api as sm
+import sys
+from pathlib import Path
+_r = Path(__file__).resolve().parent
+while not (_r / "paths.py").exists():
+    _r = _r.parent
+sys.path.insert(0, str(_r))
+from paths import *
+
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-BASE = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data') / 'interim' / 'movers'
-FIG = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs') / 'health'
+BASE = idir / 'movers'
+FIG = fdir / 'health' / 'education'
 FIG.mkdir(parents=True, exist_ok=True)
 BLUE, RED, GREY = '#2c5f8a', '#a63d40', '#7a7a7a'
 EDU_COL = {2: '#d73027', 3: '#3b6b9a', 4: '#1a5e33'}

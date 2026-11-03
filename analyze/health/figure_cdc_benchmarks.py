@@ -11,13 +11,21 @@ sources, for notes/obesity.tex. No Nielsen data.
 Values downloaded from the CDC open-data API on 2026-11-02 and typed in below with their source.
 Outputs: figs/health/
 """
+import sys
+from pathlib import Path
+_r = Path(__file__).resolve().parent
+while not (_r / "paths.py").exists():
+    _r = _r.parent
+sys.path.insert(0, str(_r))
+from paths import *
+
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-FIG = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs') / 'health'
-FIG.mkdir(parents=True, exist_ok=True)
+FIG = fdir / 'health'
+(FIG / 'obesity').mkdir(parents=True, exist_ok=True); (FIG / 'activity').mkdir(parents=True, exist_ok=True)
 BLUE, RED, GREY = '#2c5f8a', '#a63d40', '#7a7a7a'
 plt.rcParams.update({'font.size': 13, 'axes.labelsize': 14, 'axes.titlesize': 13, 'legend.fontsize': 10.5,
                      'axes.spines.top': False, 'axes.spines.right': False})
@@ -49,7 +57,7 @@ ax.set_xlabel('Year')
 ax.set_ylim(20, 50)
 ax.set_title('Adult obesity in the United States, NHANES')
 ax.legend(loc='upper left', frameon=False)
-save(fig, 'cdc_obesity_trend.png')
+save(fig, 'obesity/cdc_obesity_trend.png')
 
 fig, ax = plt.subplots(figsize=(10, 6))
 ax.plot(list(BRFSS_AEROBIC), list(BRFSS_AEROBIC.values()), color=BLUE, lw=2.5, marker='o', ms=6,
@@ -60,4 +68,4 @@ ax.set_xlabel('Year')
 ax.set_ylim(0, 70)
 ax.set_title('Adult physical activity, BRFSS self-reports')
 ax.legend(loc='center left', frameon=False, fontsize=10)
-save(fig, 'cdc_physical_activity_trend.png')
+save(fig, 'activity/cdc_physical_activity_trend.png')

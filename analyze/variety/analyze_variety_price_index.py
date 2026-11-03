@@ -11,15 +11,15 @@ Uses the price index computed on OSCAR (build_price_index.py) to plot:
   Fig 2b: price LEVELS over time for healthy (Q3+Q4) and unhealthy (Q1+Q2)
          categories, unadjusted CES (dashed) and variety-adjusted (solid)
          (added 2026-11-02: the ces_vs_va comparison year by year, two groups)
-  Fig 2c: REAL price levels (CPI-U deflated, 2007 = 1) for the healthier and less
-         healthy halves of modules by the USDA-LABEL Allcott index (hi_per_100g in
-         module_healthiness_usda.parquet, not the Claude score), spending-weighted
-         (left) and equal-weighted across modules (right); CES dashed, VA solid
-         (added 2026-11-02 for notes/obesity.tex)
-  Fig 2d: the same for modules split by their ULTRA-PROCESSED share: the share of a
-         module's USDA-matched UPCs whose ingredient list carries a NOVA group-4 marker
-         (clean/usda/build_usda_upf.py); modules with a share above the median are the
-         "mostly ultra-processed" half (added 2026-11-03 for notes/obesity.tex)
+  Fig 2d: REAL price levels (CPI-U deflated, 2007 = 1) for modules split by their
+         ULTRA-PROCESSED share: the share of a module's USDA-matched UPCs whose ingredient
+         list carries a NOVA group-4 marker (clean/usda/build_usda_nova.py); modules with a
+         share above the median are the "mostly ultra-processed" half; spending-weighted
+         (left) and equal-weighted across modules (right); CES dashed, VA solid; each line
+         ends with its percent change since 2007 (added 2026-11-03 for notes/obesity.tex;
+         the USDA-label-halves version, Fig 2c, was deleted the same day)
+  Fig 2e: the same for modules split by preparation score (1 / 2-3 / 4-9;
+         interim/rms_variety/prep_time_scores.parquet)
 
   Fig 3: Price level by healthiness quartile x county income quartile
          (variety-adjusted)
@@ -253,44 +253,61 @@ for i, yr in enumerate(years):
 # ============================================================
 # FIGURE 2c: REAL price levels by USDA-label healthiness, spending- and equal-weighted
 # ============================================================
-print("Creating Figure 2c (real price levels, USDA-label halves, two weightings)...")
-usda_mod = pi.drop_duplicates('product_module_code')[['product_module_code', 'hi_per_100g']].dropna()
-cut = usda_mod['hi_per_100g'].median()
-usda_mod['usda_half'] = np.where(usda_mod['hi_per_100g'] >= cut, 'healthier', 'less healthy')
-pi = pi.merge(usda_mod[['product_module_code', 'usda_half']], on='product_module_code', how='left')
-print(f"  USDA-label split at hi_per_100g = {cut:.3f}: "
-      f"{(usda_mod.usda_half == 'healthier').sum()} healthier / {(usda_mod.usda_half == 'less healthy').sum()} less healthy modules")
+# FIGURES 2d, 2e: REAL price levels (CPI-U deflated, 2007 = 1), modules split by
+#   2d: ultra-processed share (NOVA group-4 markers on the USDA ingredient list)
+#   2e: preparation score (hand-assigned per module, build/prep_time/)
+# Figure 2c (USDA-label halves) was deleted on 2026-11-03 at Anya's request.
+# Each line ends with its percent change since the base year.
+# ============================================================
 deflator = {y: CPI[y] / CPI[BASE_YEAR] for y in CPI}
 
-fig, axes = plt.subplots(1, 2, figsize=(16, 5.5), sharey=True)
-for ax, weighted, title in [(axes[0], True, 'Spending-weighted across modules'), (axes[1], False, 'Equal-weighted across modules')]:
-    style_ax(ax)
-    for half, color, lab in [('less healthy', '#d73027', 'Less healthy half (USDA-label index)'), ('healthier', '#2ca25f', 'Healthier half (USDA-label index)')]:
-        for col, ls, lw, suffix in [('level_ces', '--', 1.8, 'unadjusted CES'), ('level_va', '-', 2.4, 'variety-adjusted')]:
-            vals = []
-            for yr in years:
-                g = pi[(pi['year'] == yr) & (pi['usda_half'] == half)]
-                v = np.average(g[col], weights=g['total_spending']) if weighted else g[col].mean()
-                vals.append(v / deflator[yr])
-            ax.plot(years, vals, color=color, linestyle=ls, linewidth=lw, marker='o', markersize=4, markeredgewidth=0,
-                    alpha=0.85 if ls == '--' else 1.0, label=f'{lab}, {suffix}')
-    ax.axhline(1, color='#aaaaaa', linewidth=0.8, linestyle=':')
-    ax.set_title(title, fontsize=12)
-    ax.set_xlabel('Year', fontsize=11, labelpad=8)
-axes[0].set_ylabel(f'Real price level ({BASE_YEAR} = 1, CPI-U deflated)', fontsize=11, labelpad=8)
-axes[0].legend(fontsize=8.5, framealpha=0.9, loc='upper left', title='Solid = variety-adjusted  |  Dashed = unadjusted CES', title_fontsize=8)
-plt.tight_layout()
-plt.savefig(FIG_DIR / 'variety_price_level_by_usda_label.png', bbox_inches='tight', dpi=150)
-plt.close()
-print("  Saved variety_price_level_by_usda_label.png")
 
-# ============================================================
-# FIGURE 2d: REAL price levels by module ultra-processed share (NOVA markers)
-# ============================================================
-upf_path = BASE / 'interim' / 'usda_nielsen_merged' / 'usda_upf.parquet'
-if upf_path.exists():
+def label_line_ends(ax, ends, min_gap=0.012):
+    """Write each line's percent change since BASE_YEAR at its last point; nudge labels apart."""
+    ends = sorted(ends, key=lambda e: e[1])
+    ys = [e[1] for e in ends]
+    for i in range(1, len(ys)):
+        if ys[i] - ys[i - 1] < min_gap:
+            ys[i] = ys[i - 1] + min_gap
+    for (x, y, color), yl in zip(ends, ys):
+        ax.text(x + 0.25, yl, f'{100 * (y - 1):+.0f}%', color=color, fontsize=9, va='center', fontweight='bold')
+    ax.set_xlim(right=max(e[0] for e in ends) + 1.6)
+
+
+def real_level_figure(group_col, groups, fname, legend_title):
+    """groups: list of (group value, color, label). Spending-weighted (left) and equal-weighted (right)."""
+    fig, axes = plt.subplots(1, 2, figsize=(16, 5.5), sharey=True)
+    for ax, weighted, title in [(axes[0], True, 'Spending-weighted across modules'), (axes[1], False, 'Equal-weighted across modules')]:
+        style_ax(ax)
+        ends = []
+        for gval, color, lab in groups:
+            for col, ls, lw, suffix in [('level_ces', '--', 1.8, 'unadjusted CES'), ('level_va', '-', 2.4, 'variety-adjusted')]:
+                vals = []
+                for yr in years:
+                    g = pi[(pi['year'] == yr) & (pi[group_col] == gval)]
+                    v = np.average(g[col], weights=g['total_spending']) if weighted else g[col].mean()
+                    vals.append(v / deflator[yr])
+                ax.plot(years, vals, color=color, linestyle=ls, linewidth=lw, marker='o', markersize=4, markeredgewidth=0,
+                        alpha=0.85 if ls == '--' else 1.0, label=f'{lab}, {suffix}')
+                ends.append((years[-1], vals[-1], color))
+                print(f'    {title[:8]:8s} {lab}, {suffix}: {BASE_YEAR} = 1 -> {years[-1]} = {vals[-1]:.3f} ({100 * (vals[-1] - 1):+.1f}%)')
+        label_line_ends(ax, ends)
+        ax.axhline(1, color='#aaaaaa', linewidth=0.8, linestyle=':')
+        ax.set_title(title, fontsize=12)
+        ax.set_xlabel('Year', fontsize=11, labelpad=8)
+    axes[0].set_ylabel(f'Real price level ({BASE_YEAR} = 1, CPI-U deflated)', fontsize=11, labelpad=8)
+    h, l = axes[0].get_legend_handles_labels()
+    fig.legend(h, l, fontsize=9, frameon=False, loc='lower center', ncol=3, bbox_to_anchor=(0.5, -0.12), title=legend_title, title_fontsize=9)
+    plt.tight_layout()
+    plt.savefig(FIG_DIR / fname, bbox_inches='tight', dpi=150)
+    plt.close()
+    print(f"  Saved {fname}")
+
+
+nova_path = BASE / 'interim' / 'usda_nielsen_merged' / 'usda_nova.parquet'
+if nova_path.exists():
     print("Creating Figure 2d (real price levels, modules by ultra-processed share)...")
-    upf = pd.read_parquet(upf_path, columns=['upc13', 'upf'])
+    upf = pd.read_parquet(nova_path, columns=['upc13', 'upf'])
     prods = pd.read_csv(BASE / 'raw' / 'products.tsv', sep='\t', usecols=['upc', 'product_module_code'], dtype={'upc': str}, encoding='latin-1')
     prods['upc13'] = '0' + prods['upc'].str.zfill(12)
     mod_upf = (prods.merge(upf, on='upc13', how='inner').dropna(subset=['upf'])
@@ -302,27 +319,22 @@ if upf_path.exists():
     pi.loc[pi['upf_share'].isna(), 'upf_half'] = np.nan
     print(f"  module ultra-processed share: median {ucut:.2f}; "
           f"{(um.upf_share >= ucut).sum()} mostly ultra-processed / {(um.upf_share < ucut).sum()} mostly not modules")
-    fig, axes = plt.subplots(1, 2, figsize=(16, 5.5), sharey=True)
-    for ax, weighted, title in [(axes[0], True, 'Spending-weighted across modules'), (axes[1], False, 'Equal-weighted across modules')]:
-        style_ax(ax)
-        for half, color, lab in [('mostly ultra-processed', '#d73027', 'Mostly ultra-processed modules'), ('mostly not ultra-processed', '#2c5f8a', 'Mostly not ultra-processed modules')]:
-            for col, ls, lw, suffix in [('level_ces', '--', 1.8, 'unadjusted CES'), ('level_va', '-', 2.4, 'variety-adjusted')]:
-                vals = []
-                for yr in years:
-                    g = pi[(pi['year'] == yr) & (pi['upf_half'] == half)]
-                    v = np.average(g[col], weights=g['total_spending']) if weighted else g[col].mean()
-                    vals.append(v / deflator[yr])
-                ax.plot(years, vals, color=color, linestyle=ls, linewidth=lw, marker='o', markersize=4, markeredgewidth=0,
-                        alpha=0.85 if ls == '--' else 1.0, label=f'{lab}, {suffix}')
-        ax.axhline(1, color='#aaaaaa', linewidth=0.8, linestyle=':')
-        ax.set_title(title, fontsize=12)
-        ax.set_xlabel('Year', fontsize=11, labelpad=8)
-    axes[0].set_ylabel(f'Real price level ({BASE_YEAR} = 1, CPI-U deflated)', fontsize=11, labelpad=8)
-    axes[0].legend(fontsize=8.5, framealpha=0.9, loc='upper left', title='Solid = variety-adjusted  |  Dashed = unadjusted CES', title_fontsize=8)
-    plt.tight_layout()
-    plt.savefig(FIG_DIR / 'variety_price_level_by_upf.png', bbox_inches='tight', dpi=150)
-    plt.close()
-    print("  Saved variety_price_level_by_upf.png")
+    real_level_figure('upf_half', [('mostly ultra-processed', '#d73027', 'Mostly ultra-processed modules'),
+                                   ('mostly not ultra-processed', '#2c5f8a', 'Mostly not ultra-processed modules')],
+                      'variety_price_level_by_upf.png',
+                      f'Solid = variety-adjusted  |  Dashed = unadjusted CES  |  labels = change since {BASE_YEAR}')
+
+print("Creating Figure 2e (real price levels, modules by preparation score)...")
+prep = pd.read_parquet(RMS_VAR / 'prep_time_scores.parquet', columns=['product_module_code', 'prep_time'])
+pi = pi.merge(prep, on='product_module_code', how='left')
+pi['prep_group'] = pd.cut(pi['prep_time'], bins=[0, 1, 3, 9], labels=['open and eat (1)', 'little preparation (2-3)', 'cooking (4-9)'])
+pm = pi.drop_duplicates('product_module_code')
+print("  modules per preparation group:", pm['prep_group'].value_counts().to_dict(), f"({pm.prep_time.isna().sum()} unscored)")
+real_level_figure('prep_group', [('open and eat (1)', '#d73027', 'Open and eat (score 1)'),
+                                 ('little preparation (2-3)', '#fc8d59', 'Little preparation (score 2-3)'),
+                                 ('cooking (4-9)', '#2c5f8a', 'Cooking (score 4-9)')],
+                  'variety_price_level_by_prep_time.png',
+                  f'Solid = variety-adjusted  |  Dashed = unadjusted CES  |  labels = change since {BASE_YEAR}')
 
 # ============================================================
 # FIGURE 3: Variety-adjusted price level by healthiness x income quartile
