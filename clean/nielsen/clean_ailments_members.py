@@ -63,12 +63,29 @@ def main_file(d):
 
 
 def read_main(path):
-    xl = pd.ExcelFile(path, engine='openpyxl')
-    for sh in xl.sheet_names:
-        df = xl.parse(sh)
-        if sum(str(c).startswith('Unnamed:') for c in df.columns) <= 2:
-            return df
-    return xl.parse(xl.sheet_names[0])
+    """The data sheet is the widest one (2020 has a two-column summary sheet first; 2022 has a
+    'Sheet2' with corrected panelist ids, applied below)."""
+    from openpyxl import load_workbook
+    wb = load_workbook(path, read_only=True)
+    widths = {sh: len(next(wb[sh].iter_rows(values_only=True))) for sh in wb.sheetnames}
+    wb.close()
+    main = max(widths, key=widths.get)
+    df = pd.read_excel(path, sheet_name=main, engine='openpyxl')
+    others = [sh for sh in widths if sh != main]
+    for sh in others:
+        o = pd.read_excel(path, sheet_name=sh, engine='openpyxl')
+        if any('corrected' in str(c).lower() for c in o.columns) and len(o) == len(df):
+            # 2022: the ids in the data sheet carry an extra trailing digit; the sheet gives the
+            # corrected id as a formula column and a values column -- use the last (values) column
+            orig, corr = o.columns[0], [c for c in o.columns if 'corrected' in str(c).lower()][-1]
+            m = dict(zip(pd.to_numeric(o[orig], errors='coerce'), pd.to_numeric(o[corr], errors='coerce')))
+            m = {k: v for k, v in m.items() if pd.notna(v)}
+            hc = hh_col(df)
+            before = pd.to_numeric(df[hc], errors='coerce')
+            after = before.map(m).fillna(before)
+            log(f'    applied corrected panelist ids from sheet {sh}: {(before != after).sum():,} ids changed')
+            df[hc] = after
+    return df
 
 
 def format_lines(year):
@@ -153,7 +170,7 @@ def members_2016_plus(df, year):
     cols = {str(c).strip(): c for c in df.columns}
     blocks = grid_block_order(year)
     tgt = match_targets(blocks)
-    log(f'    grid blocks: {len(blocks)}; targets at {tgt}')
+    log(f'    format grid blocks: {len(blocks)}; targets at {tgt}')
     # household-level list
     if year <= 2017:
         hh_name = lambda j: f'Q16_Ailment{j}'
@@ -161,18 +178,26 @@ def members_2016_plus(df, year):
     elif year == 2018:
         hh_name = lambda j: f'Q10_Ailment{j}'
         grid = lambda k, j: f'Q18_mem{k}_Ailment{j}'
-    elif year <= 2021:
-        q36 = {int(m.group(1)): c for c in cols for m in [re.match(r'^Q36_(\d+)', c)] if m}
-        hh_name = lambda j: q36.get(j, f'Q36_{j}')
-        grid = lambda k, j: f'18 (Q9_A_{(j - 1) * 9 + k})'
     else:
-        hh_name = lambda j: f'10 (Q36_{j})'
-        grid = lambda k, j: f'18 (Q9_A_{(j - 1) * 9 + k})'
+        # 2019+: the per-member grid has one block of 9 member columns per item, in the order of
+        # the Q36 columns PRESENT in the data file (a subset of the format's numbering), so an
+        # item's block is the rank of its Q36 number among the present numbers (validated below)
+        if year <= 2021:
+            q36 = {int(m.group(1)): c for c in cols for m in [re.match(r'^Q36_(\d+)', c)] if m}
+        else:
+            q36 = {int(m.group(1)): c for c in cols for m in [re.match(r'^10 \(Q36_(\d+)\)', c)] if m}
+        present = sorted(q36)
+        rank = {n: i + 1 for i, n in enumerate(present)}
+        hh_name = lambda j: q36.get(j, f'Q36_{j}')
+        grid = lambda k, j: f'18 (Q9_A_{(rank.get(j, 0) - 1) * 9 + k})'
+        log(f'    Q36 numbers present: {len(present)}; grid blocks in data: {sum("(Q9_A_" in c for c in cols) // 9}')
     # household-level positions: 2016-2018 and 2022-23 use the format's Q36 numbering; 2019-21 match by label
     hh_lines = [l for l in format_lines(year) if re.match(r'^Q36_\d+ \|', l)]
     q36_names = {int(re.match(r'^Q36_(\d+)', l).group(1)): l.split('|')[-1].strip() for l in hh_lines}
     hh_tgt = match_targets([q36_names.get(i, '') for i in range(1, max(q36_names) + 1)])
     log(f'    household list: {len(q36_names)} items; targets at {hh_tgt}')
+    if year >= 2019:
+        tgt = {c: j for c, j in hh_tgt.items() if c != 'none'}   # grid uses the Q36 numbering via rank
     house = pd.DataFrame({'household_code': hh, 'panel_year': year})
     for cond, j in hh_tgt.items():
         c = hh_name(j)
@@ -232,17 +257,24 @@ def members_2016_plus(df, year):
             anym = mem.groupby('household_code')[cond].max()
             v = house.set_index('household_code')[f'hh_{cond}'].to_frame('hh').join(anym.rename('mem'))
             v = v.dropna()
+            agree = (v.hh == v.mem).mean()
             log(f'    validate {cond:14s}: household flag {v.hh.mean():.3f}, any-member grid {v.mem.mean():.3f}, '
-                f'agreement {(v.hh == v.mem).mean():.3f}, P(member|hh) {v.loc[v.hh == 1, "mem"].mean():.3f}')
+                f'agreement {agree:.3f}, P(member|hh) {v.loc[v.hh == 1, "mem"].mean():.3f}')
+            assert agree > 0.95, f'{year}: grid mapping for {cond} disagrees with the household list'
     return mem, house
 
 
 def main():
     os.makedirs(OUT, exist_ok=True)
-    years = [int(sys.argv[1])] if len(sys.argv) > 1 else list(range(2011, 2024))
+    years = [int(a) for a in sys.argv[1:] if a.isdigit()] or list(range(2011, 2024))
+    force = '--force' in sys.argv
+    cache = os.path.join(OUT, 'by_year'); os.makedirs(cache, exist_ok=True)
     mems, houses = [], []
     for y in years:
         d = f'{RAW}/{y}'
+        if not force and os.path.exists(f'{cache}/members_{y}.parquet'):
+            log(f'\n{y}: cached'); mems.append(pd.read_parquet(f'{cache}/members_{y}.parquet'))
+            houses.append(pd.read_parquet(f'{cache}/households_{y}.parquet')); continue
         f = main_file(d)
         log(f'\n{y}: {f}')
         df = read_main(f'{d}/{f}')
@@ -255,6 +287,7 @@ def main():
         log(f'    members: {len(mem):,} rows, {mem.household_code.nunique():,} households; '
             f'obesity (member rows) {mem.obesity.mean():.3f}; adults 18+ {mem.loc[mem.age >= 18, "obesity"].mean() if mem.age.notna().any() else float("nan"):.3f}; '
             f'any-member {mem.groupby("household_code").obesity.max().mean():.3f}')
+        mem.to_parquet(f'{cache}/members_{y}.parquet', index=False); house.to_parquet(f'{cache}/households_{y}.parquet', index=False)
         mems.append(mem); houses.append(house)
     mem = pd.concat(mems, ignore_index=True)
     house = pd.concat(houses, ignore_index=True)

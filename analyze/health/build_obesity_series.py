@@ -92,6 +92,9 @@ def main():
 
     # ---------------------------------------------------------------- members
     mem = mem.merge(pan[['household_code', 'panel_year', 'projection_factor']], on=['household_code', 'panel_year'], how='left')
+    match = mem.drop_duplicates(['household_code', 'panel_year']).groupby('panel_year')['projection_factor'].apply(lambda s: s.notna().mean())
+    print('share of surveyed households found in the Kilts panelist file, by year:'); print(match.round(3).to_dict())
+    mem = mem[mem['projection_factor'].notna()]
     mem['w'] = mem['projection_factor']
     mem.loc[mem['age'].isna() & mem['age_bracket'].notna(), 'age'] = mem['age_bracket'].map(BRACKET_MID)
     mem = mem[mem['age'] >= 18].copy()
