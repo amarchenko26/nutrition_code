@@ -1,17 +1,21 @@
 """
-figure_variety_and_upf.py -- product variety and ultra-processed products over time, from the
-household purchase files, for notes/obesity.tex.
-Reads interim/health/upc_year_spending.parquet (build/health/build_upc_year_spending.py: one
-row per UPC x panel year with spending, quantity, households) and, when present,
-interim/usda_nielsen_merged/usda_upf.parquet (clean/usda/build_usda_upf.py: NOVA-marker
-ultra-processed flag per UPC from USDA ingredient lists).
+figure_variety_and_upf.py -- product variety and ultra-processed products over time, for
+notes/obesity.tex.
 
-  upc_counts_by_category.png   distinct UPCs bought by panelists in the year, selected categories,
-                               indexed to 2004 = 100 (left) and in levels (right)
-  upf_counts.png               distinct UPCs bought per year by ultra-processed status (matched UPCs
-                               only), and the ultra-processed share of UPCs and of spending
-A UPC counts in a year if at least one panelist bought it; counts therefore depend on the panel's
-size (about 40,000 households 2004-2006, 60,000 from 2007), so the indexed panel starts in 2007.
+  upc_counts_by_category.png   number of UPCs sold in a county in the year, averaged over the
+                               counties present in every year 2007-2020, for selected categories;
+                               from the Nielsen Retail Scanner module x county x year file
+                               (interim/rms_variety/rms_variety_module_fips_year.parquet, n_upcs).
+                               Levels (right) and indexed to 2007 = 100 (left).
+  upf_counts.png               ultra-processed products among the UPCs bought by panelists in the year
+                               (interim/health/upc_year_spending.parquet, build/health/) that match a
+                               USDA ingredient list (interim/usda_nielsen_merged/usda_upf.parquet,
+                               clean/usda/build_usda_upf.py, NOVA group-4 markers): the share of matched
+                               UPCs and of matched spending that is ultra-processed, the match rate, and
+                               the matched counts. The USDA file is a 2024 snapshot, so products gone
+                               before about 2018 have no ingredient list and the match rate rises over
+                               time; the counts are therefore not a measure of how many such products
+                               existed, only the shares are comparable across years.
 Outputs: figs/health/
 """
 import numpy as np
@@ -56,30 +60,37 @@ def main():
     hh = u.groupby('panel_year')['n_households'].max()
     print('max households buying any one UPC, by year (panel size proxy):', hh.to_dict())
 
-    # ---- UPC counts by category
+    # ---- UPC counts by category, from the retail scanner: UPCs per county, balanced counties
+    v = pd.read_parquet(BASE / 'rms_variety' / 'rms_variety_module_fips_year.parquet',
+                        columns=['product_module_code', 'product_module_descr', 'fips', 'year', 'n_upcs', 'total_spending'])
+    v = v[(v['year'] >= 2007) & (v['year'] <= 2020)]
+    v['descr'] = v['product_module_descr'].astype(str).str.upper()
+    cty_years = v.groupby('fips')['year'].nunique()
+    balanced = cty_years[cty_years == 14].index
+    v = v[v['fips'].isin(balanced)]
+    print(f'counties present in all of 2007-2020: {len(balanced):,}')
     rows = {}
     for name, f in CATS.items():
-        m = u[f(u['descr'])]
-        rows[name] = m.groupby('panel_year')['upc'].nunique().reindex(years)
+        m = v[f(v['descr'])]
+        per_cty = m.groupby(['fips', 'year'])['n_upcs'].sum()          # UPCs of the category sold in the county that year
+        rows[name] = per_cty.groupby('year').mean()
     cnt = pd.DataFrame(rows)
-    print('\ndistinct UPCs bought per year:'); print(cnt.to_string())
+    print('\nmean UPCs per county, by category and year:'); print(cnt.round(0).to_string())
     fig, axes = plt.subplots(1, 2, figsize=(17, 6.5))
     ax = axes[0]
     base_year = 2007
-    for (name, s), c in zip(cnt.items(), COLORS):
-        idx = 100 * s / s.loc[base_year]
-        ax.plot(idx.index[idx.index >= base_year], idx[idx.index >= base_year], color=c, lw=2, marker='o', ms=4, label=name)
+    for (name, s_), c in zip(cnt.items(), COLORS):
+        idx = 100 * s_ / s_.loc[base_year]
+        ax.plot(idx.index, idx, color=c, lw=2, marker='o', ms=4, label=name)
     ax.axhline(100, color=GREY, lw=1, ls='--')
-    ax.set_ylabel(f'Distinct UPCs bought, {base_year} = 100')
+    ax.set_ylabel(f'UPCs per county, {base_year} = 100')
     ax.set_xlabel('Year'); ax.set_title('Variety by category, indexed')
     ax.legend(frameon=False, ncol=2)
     ax = axes[1]
-    for (name, s), c in zip(cnt.items(), COLORS):
-        ax.plot(s.index, s / 1000, color=c, lw=2, marker='o', ms=4, label=name)
-    ax.set_ylabel('Distinct UPCs bought (thousands)')
+    for (name, s_), c in zip(cnt.items(), COLORS):
+        ax.plot(s_.index, s_, color=c, lw=2, marker='o', ms=4, label=name)
+    ax.set_ylabel('UPCs sold per county (mean over counties)')
     ax.set_xlabel('Year'); ax.set_title('Variety by category, levels')
-    ax.axvline(2006.5, color=GREY, lw=1, ls=':')
-    ax.text(2006.6, ax.get_ylim()[1] * 0.97, 'panel enlarged', fontsize=9, color=GREY, va='top')
     save(fig, 'upc_counts_by_category.png')
 
     # ---- ultra-processed
@@ -101,19 +112,22 @@ def main():
     print(g.round(3).to_string())
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
     ax = axes[0]
-    ax.plot(g.index, g['upf_upcs'] / 1000, color=RED, lw=2.5, marker='o', ms=5, label='Ultra-processed (at least one NOVA marker)')
-    ax.plot(g.index, g['nonupf_upcs'] / 1000, color=BLUE, lw=2.5, marker='o', ms=5, label='Not ultra-processed')
-    ax.set_ylabel('Distinct UPCs bought (thousands), matched to an ingredient list')
-    ax.set_xlabel('Year'); ax.set_title('Number of products by ultra-processed status')
-    ax.legend(frameon=False)
-    ax = axes[1]
-    ax.plot(g.index, 100 * g['upf_share_upcs'], color=RED, lw=2.5, marker='o', ms=5, label='Share of matched UPCs')
+    ax.plot(g.index, 100 * g['upf_share_upcs'], color=RED, lw=2.5, marker='o', ms=5, label='Share of matched UPCs bought')
     ax.plot(g.index, 100 * g['upf_share_spend'], color=RED, lw=2, ls='--', marker='s', ms=4, label='Share of matched spending')
     ax.plot(g.index, 100 * g['upf_strict_share_spend'], color=GREY, lw=2, ls=':', marker='^', ms=4, label='Share of matched spending, two or more markers')
-    ax.plot(g.index, 100 * g['match_rate'], color='black', lw=1.2, ls='-.', label='Match rate: UPCs with an ingredient list')
-    ax.set_ylabel('Percent'); ax.set_ylim(0, 100)
-    ax.set_xlabel('Year'); ax.set_title('Ultra-processed share')
+    ax.set_ylabel('Percent ultra-processed'); ax.set_ylim(0, 100)
+    ax.set_xlabel('Year'); ax.set_title('Ultra-processed share among products with an ingredient list')
     ax.legend(frameon=False, loc='lower left')
+    ax = axes[1]
+    ax.plot(g.index, g['upf_upcs'] / 1000, color=RED, lw=2.5, marker='o', ms=5, label='Ultra-processed UPCs bought (thousands)')
+    ax.plot(g.index, g['nonupf_upcs'] / 1000, color=BLUE, lw=2.5, marker='o', ms=5, label='Not ultra-processed UPCs bought (thousands)')
+    ax2 = ax.twinx()
+    ax2.plot(g.index, 100 * g['match_rate'], color='black', lw=1.2, ls='-.', label='Share of UPCs bought that have an ingredient list (%, right axis)')
+    ax2.set_ylim(0, 100); ax2.set_ylabel('Percent with an ingredient list'); ax2.spines['top'].set_visible(False)
+    ax.set_ylabel('UPCs bought by panelists (thousands)')
+    ax.set_xlabel('Year'); ax.set_title('Matched counts, and why they rise: label coverage')
+    h1, l1 = ax.get_legend_handles_labels(); h2, l2 = ax2.get_legend_handles_labels()
+    ax.legend(h1 + h2, l1 + l2, frameon=False, loc='upper left', fontsize=9)
     save(fig, 'upf_counts.png')
 
 
