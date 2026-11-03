@@ -79,6 +79,7 @@ def rake(df, margins, w0='projection_factor', iters=30):
 def main():
     mem = pd.read_parquet(AIL / 'ailments_members.parquet')
     hh = pd.read_parquet(AIL / 'ailments_households.parquet')
+    assert mem['panel_year'].nunique() >= 10, f'ailments_members.parquet holds only {sorted(mem.panel_year.unique())}; rerun clean_ailments_members.py'
     pan = pd.read_parquet(PAN, columns=['household_code', 'panel_year', 'projection_factor', 'household_size',
                                         'household_income_midpoint', 'male_head_age_exact', 'female_head_age_exact',
                                         'region_code'])

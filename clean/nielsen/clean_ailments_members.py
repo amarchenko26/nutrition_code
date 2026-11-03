@@ -90,7 +90,7 @@ def read_main(path):
 
 def format_lines(year):
     """All rows of the (non-corrected) format file as ' | '-joined strings."""
-    fs = [f for f in glob.glob(f'{RAW}/{year}/*') if 'format' in os.path.basename(f).lower()
+    fs = [f for f in glob.glob(f'{RAW}/{year}/*') if any(k in os.path.basename(f).lower() for k in ('format', 'layout'))
           and 'corrected' not in os.path.basename(f).lower() and not os.path.basename(f).startswith('~')]
     fs = [f for f in fs if f.endswith(('.xls', '.xlsx'))]
     assert fs, f'no format file for {year}'
@@ -189,8 +189,33 @@ def members_2016_plus(df, year):
         present = sorted(q36)
         rank = {n: i + 1 for i, n in enumerate(present)}
         hh_name = lambda j: q36.get(j, f'Q36_{j}')
-        grid = lambda k, j: f'18 (Q9_A_{(rank.get(j, 0) - 1) * 9 + k})'
-        log(f'    Q36 numbers present: {len(present)}; grid blocks in data: {sum("(Q9_A_" in c for c in cols) // 9}')
+        n_blocks = sum('(Q9_A_' in c for c in cols) // 9
+        log(f'    Q36 numbers present: {len(present)}; grid blocks in data: {n_blocks}')
+        # block for item j: the rank rule, unless the data say otherwise -- for each target the block
+        # whose any-member flag agrees best with the household-level flag is used when the rank
+        # block agrees with it in fewer than 95% of households (2023's grid is ordered differently)
+        block_of = {}
+
+        def any_member(b):
+            cs = [cols.get(f'18 (Q9_A_{(b - 1) * 9 + k})') for k in range(1, 10)]
+            cs = [c for c in cs if c is not None]
+            return (df[cs].apply(pd.to_numeric, errors='coerce') == 1).any(axis=1).astype(int)
+
+        def resolve_block(j):
+            if j in block_of:
+                return block_of[j]
+            flag = to01(df[cols.get(hh_name(j).strip(), hh_name(j))]) if cols.get(hh_name(j).strip(), hh_name(j)) in df.columns else None
+            b0 = rank.get(j, 0)
+            if flag is None or b0 == 0:
+                block_of[j] = b0; return b0
+            if (any_member(b0) == flag).mean() >= 0.95:
+                block_of[j] = b0; return b0
+            best = max(range(1, n_blocks + 1), key=lambda b: (any_member(b) == flag).mean())
+            log(f'    item {j}: rank block {b0} disagrees with the household flag; using block {best} '
+                f'(agreement {(any_member(best) == flag).mean():.3f})')
+            block_of[j] = best; return best
+
+        grid = lambda k, j: f'18 (Q9_A_{(resolve_block(j) - 1) * 9 + k})'
     # household-level positions: 2016-2018 and 2022-23 use the format's Q36 numbering; 2019-21 match by label
     hh_lines = [l for l in format_lines(year) if re.match(r'^Q36_\d+ \|', l)]
     q36_names = {int(re.match(r'^Q36_(\d+)', l).group(1)): l.split('|')[-1].strip() for l in hh_lines}
