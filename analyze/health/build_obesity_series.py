@@ -182,14 +182,14 @@ def main():
     ax.plot(ser.index, ser['all_adults_std'], color=BLUE, lw=1.8, ls='--', marker='o', ms=4, label='Nielsen: all adult members (2016+ includes proxy reports)')
     ax.plot(list(BRFSS), list(BRFSS.values()), color=GREY, lw=2, marker='s', ms=4, label='CDC BRFSS: self-reported BMI ≥ 30, adults 18+')
     ax.scatter(list(NHANES), list(NHANES.values()), color='black', marker='D', s=40, zorder=5, label='NHANES: measured BMI ≥ 30, adults 20+')
-    for x, lab in [(2015.5, 'one respondent\nper household,\nmember grid'), (2018.5, 'list renumbered')]:
+    for x, lab in [(2015.5, 'one respondent per household,\nmember grid'), (2018.5, 'list renumbered')]:
         ax.axvline(x, color=GREY, lw=1, ls=':')
-        ax.text(x + 0.1, ax.get_ylim()[0] + 0.5 if False else 12.5, lab, fontsize=8.5, color=GREY, va='bottom')
+        ax.text(x + 0.1, 44.5, lab, fontsize=8.5, color=GREY, va='top')
     ax.set_ylabel('Percent of adults')
     ax.set_xlabel('Survey year')
     ax.set_title('Adults reporting obesity / overweight')
     ax.set_ylim(10, 45)
-    ax.legend(loc='upper left', frameon=False, fontsize=9)
+    ax.legend(loc='lower right', frameon=False, fontsize=9)
     ax = axes[1]
     ax.plot(ser.index, ser['hh_any_adult_pw'], color=RED, lw=2.5, marker='o', label='Any adult member flagged, projection-weighted')
     ax.plot(ser.index, ser['hh_any_adult_raked'], color=RED, lw=2, ls='--', marker='o', ms=4, label='Same, respondents re-weighted to the panel\n(head age × size × income tercile × region)')
@@ -199,7 +199,7 @@ def main():
     ax.set_ylabel('Percent of households')
     ax.set_xlabel('Survey year')
     ax.set_title('Households with any adult reporting obesity / overweight')
-    ax.legend(loc='upper left', frameon=False, fontsize=9)
+    ax.legend(loc='lower left', frameon=False, fontsize=9)
     fig.savefig(FIG / 'obesity_series.png', bbox_inches='tight', dpi=150)
     plt.close(fig)
     print(f'saved {FIG / "obesity_series.png"}')
