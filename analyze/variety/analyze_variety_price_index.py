@@ -291,7 +291,7 @@ upf_path = BASE / 'interim' / 'usda_nielsen_merged' / 'usda_upf.parquet'
 if upf_path.exists():
     print("Creating Figure 2d (real price levels, modules by ultra-processed share)...")
     upf = pd.read_parquet(upf_path, columns=['upc13', 'upf'])
-    prods = pd.read_csv(BASE / 'raw' / 'products.tsv', sep='\t', usecols=['upc', 'product_module_code'], dtype={'upc': str})
+    prods = pd.read_csv(BASE / 'raw' / 'products.tsv', sep='\t', usecols=['upc', 'product_module_code'], dtype={'upc': str}, encoding='latin-1')
     prods['upc13'] = '0' + prods['upc'].str.zfill(12)
     mod_upf = (prods.merge(upf, on='upc13', how='inner').dropna(subset=['upf'])
                .groupby('product_module_code').agg(upf_share=('upf', 'mean'), n_matched=('upf', 'size')).reset_index())
