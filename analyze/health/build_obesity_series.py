@@ -182,9 +182,9 @@ def main():
     ax.plot(ser.index, ser['all_adults_std'], color=BLUE, lw=1.8, ls='--', marker='o', ms=4, label='Nielsen: all adult members (2016+ includes proxy reports)')
     ax.plot(list(BRFSS), list(BRFSS.values()), color=GREY, lw=2, marker='s', ms=4, label='CDC BRFSS: self-reported BMI ≥ 30, adults 18+')
     ax.scatter(list(NHANES), list(NHANES.values()), color='black', marker='D', s=40, zorder=5, label='NHANES: measured BMI ≥ 30, adults 20+')
-    for x, lab in [(2015.5, 'one respondent per household,\nmember grid'), (2018.5, 'list renumbered')]:
+    for x, y, lab in [(2015.5, 44.5, 'one respondent per household,\nmember grid'), (2018.5, 36.5, 'list renumbered')]:
         ax.axvline(x, color=GREY, lw=1, ls=':')
-        ax.text(x + 0.1, 44.5, lab, fontsize=8.5, color=GREY, va='top')
+        ax.text(x + 0.1, y, lab, fontsize=8.5, color=GREY, va='top')
     ax.set_ylabel('Percent of adults')
     ax.set_xlabel('Survey year')
     ax.set_title('Adults reporting obesity / overweight')
