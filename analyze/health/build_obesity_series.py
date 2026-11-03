@@ -46,8 +46,9 @@ BRFSS = {2011: 27.4, 2012: 27.7, 2013: 28.3, 2014: 28.9, 2015: 28.9, 2016: 29.6,
 # NHANES measured obesity, adults 20+, age-adjusted (NCHS data briefs 360 and 508); plotted at cycle midpoints
 NHANES = {2011.5: 34.9, 2013.5: 37.7, 2015.5: 39.6, 2017.5: 42.4, 2022.5: 40.3}
 
-AGE_BINS = [18, 35, 50, 65, 200]
-AGE_LAB = ['18-34', '35-49', '50-64', '65+']
+# age bins follow the 2011-2015 questionnaire's brackets (Q7): 18-24, 25-34, 35-44, 45-54, 55-64, 65+
+AGE_BINS = [18, 25, 35, 45, 55, 65, 200]
+AGE_LAB = ['18-24', '25-34', '35-44', '45-54', '55-64', '65+']
 BRACKET_MID = {1: 3, 2: 9, 3: 15, 4: 19, 5: 22.5, 6: 29.5, 7: 39.5, 8: 49.5, 9: 59.5, 10: 72}
 
 
@@ -69,9 +70,11 @@ def rake(df, margins, w0='projection_factor', iters=30):
     w = df[w0].astype(float).values.copy()
     for _ in range(iters):
         for col, target in margins.items():
-            cur = pd.Series(w).groupby(df[col].values).sum()
+            vals = df[col].astype(str).values
+            cur = pd.Series(w).groupby(vals).sum()
             cur = cur / cur.sum()
-            adj = (target / cur).reindex(df[col].values).fillna(1.0).values
+            t = target.copy(); t.index = t.index.astype(str)
+            adj = (t / cur).reindex(vals).fillna(1.0).values
             w = w * adj
     return w
 
@@ -97,7 +100,10 @@ def main():
     print('share of surveyed households found in the Kilts panelist file, by year:'); print(match.round(3).to_dict())
     mem = mem[mem['projection_factor'].notna()]
     mem['w'] = mem['projection_factor']
-    mem.loc[mem['age'].isna() & mem['age_bracket'].notna(), 'age'] = mem['age_bracket'].map(BRACKET_MID)
+    # 2011-2015: age from the Q7 bracket (the birth-year field Q13a_yy is unreliable: it gives a mean
+    # adult age above 70); 2016+: age in years from the roster
+    br = mem['age_bracket'].notna()
+    mem.loc[br, 'age'] = mem.loc[br, 'age_bracket'].map(BRACKET_MID)
     mem = mem[mem['age'] >= 18].copy()
     mem = mem[mem['gender'].isin([1, 2])]
     if 'answered' in mem.columns:
@@ -131,11 +137,12 @@ def main():
     hh['w_raked'] = np.nan
     margins_cols = ['head_age_bin', 'size_bin', 'inc_ter', 'region']
     for y in years:
-        tgt = pan[pan['panel_year'] == y]
-        m = (hh['panel_year'] == y) & hh[margins_cols].notna().all(axis=1)
-        d = hh[m]
+        tgt = pan[(pan['panel_year'] == y) & pan[margins_cols].notna().all(axis=1)]
+        m = (hh['panel_year'] == y) & hh[margins_cols].notna().all(axis=1) & hh['any_adult'].notna()
+        d = hh[m].copy()
         margins = {c: tgt.groupby(c, observed=True)['projection_factor'].sum().pipe(lambda s: s / s.sum()) for c in margins_cols}
-        hh.loc[m, 'w_raked'] = rake(d, margins)
+        d['w_raked'] = rake(d, margins)
+        hh.loc[m, 'w_raked'] = d['w_raked'].values
         ser.loc[y, 'hh_any_adult_pw'] = 100 * wmean(d['any_adult'], d['projection_factor'])
         ser.loc[y, 'hh_any_adult_raked'] = 100 * wmean(d['any_adult'], d['w_raked'])
         ser.loc[y, 'hh_list_obesity_pw'] = 100 * wmean(d['hh_obesity'], d['projection_factor']) if 'hh_obesity' in d else np.nan

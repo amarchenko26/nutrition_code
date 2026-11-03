@@ -119,6 +119,12 @@ def grid_block_order(year):
     return out
 
 
+def q36_items(year):
+    """{Q36 number: item label} from the format/layout file."""
+    return {int(re.match(r'^Q36_(\d+)', l).group(1)): l.split('|')[-1].strip()
+            for l in format_lines(year) if re.match(r'^Q36_\d+ \|', l)}
+
+
 def match_targets(names):
     """{condition: 1-based block index} from a list of ailment labels."""
     found = {}
@@ -191,31 +197,33 @@ def members_2016_plus(df, year):
         hh_name = lambda j: q36.get(j, f'Q36_{j}')
         n_blocks = sum('(Q9_A_' in c for c in cols) // 9
         log(f'    Q36 numbers present: {len(present)}; grid blocks in data: {n_blocks}')
-        # block for item j: the rank rule, unless the data say otherwise -- for each target the block
-        # whose any-member flag agrees best with the household-level flag is used when the rank
-        # block agrees with it in fewer than 95% of households (2023's grid is ordered differently)
-        block_of = {}
+        # grid layout: ITEM-FIRST (one block of 9 member columns per item, in the order of the
+        # present Q36 numbers; 2019-2022) or MEMBER-FIRST (all items for member 1, then member 2,
+        # ...; 2023). Both are tested against the household-level obesity flag and the layout
+        # that agrees is used.
+        n_items = len(present)
 
-        def any_member(b):
-            cs = [cols.get(f'18 (Q9_A_{(b - 1) * 9 + k})') for k in range(1, 10)]
-            cs = [c for c in cs if c is not None]
-            return (df[cs].apply(pd.to_numeric, errors='coerce') == 1).any(axis=1).astype(int)
+        def grid_cols(layout, j):
+            if layout == 'item_first':
+                idx = [(rank.get(j, 0) - 1) * 9 + k for k in range(1, 10)]
+            else:
+                idx = [(k - 1) * n_items + rank.get(j, 0) for k in range(1, 10)]
+            return [cols.get(f'18 (Q9_A_{i})') for i in idx if cols.get(f'18 (Q9_A_{i})') is not None]
 
-        def resolve_block(j):
-            if j in block_of:
-                return block_of[j]
-            flag = to01(df[cols.get(hh_name(j).strip(), hh_name(j))]) if cols.get(hh_name(j).strip(), hh_name(j)) in df.columns else None
-            b0 = rank.get(j, 0)
-            if flag is None or b0 == 0:
-                block_of[j] = b0; return b0
-            if (any_member(b0) == flag).mean() >= 0.95:
-                block_of[j] = b0; return b0
-            best = max(range(1, n_blocks + 1), key=lambda b: (any_member(b) == flag).mean())
-            log(f'    item {j}: rank block {b0} disagrees with the household flag; using block {best} '
-                f'(agreement {(any_member(best) == flag).mean():.3f})')
-            block_of[j] = best; return best
+        def agreement(layout, j):
+            c = cols.get(hh_name(j).strip(), hh_name(j))
+            if c not in df.columns or not grid_cols(layout, j):
+                return 0.0
+            flag = to01(df[c])
+            anym = (df[grid_cols(layout, j)].apply(pd.to_numeric, errors='coerce') == 1).any(axis=1).astype(int)
+            return (anym == flag).mean()
 
-        grid = lambda k, j: f'18 (Q9_A_{(resolve_block(j) - 1) * 9 + k})'
+        j_ob = next((n for n, nm in q36_items(year).items() if re.search('obesity', nm, re.I)), None)
+        scores = {lay: agreement(lay, j_ob) for lay in ('item_first', 'member_first')} if j_ob else {'item_first': 1.0}
+        layout = max(scores, key=scores.get)
+        log(f'    grid layout: {layout} (agreement with the household obesity flag: '
+            + ', '.join(f'{k} {v:.3f}' for k, v in scores.items()) + ')')
+        grid = lambda k, j: (grid_cols(layout, j) + [None] * 9)[k - 1] or f'__missing_{j}_{k}'
     # household-level positions: 2016-2018 and 2022-23 use the format's Q36 numbering; 2019-21 match by label
     hh_lines = [l for l in format_lines(year) if re.match(r'^Q36_\d+ \|', l)]
     q36_names = {int(re.match(r'^Q36_(\d+)', l).group(1)): l.split('|')[-1].strip() for l in hh_lines}
