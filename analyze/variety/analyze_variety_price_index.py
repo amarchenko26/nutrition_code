@@ -16,6 +16,10 @@ Uses the price index computed on OSCAR (build_price_index.py) to plot:
          module_healthiness_usda.parquet, not the Claude score), spending-weighted
          (left) and equal-weighted across modules (right); CES dashed, VA solid
          (added 2026-11-02 for notes/obesity.tex)
+  Fig 2d: the same for modules split by their ULTRA-PROCESSED share: the share of a
+         module's USDA-matched UPCs whose ingredient list carries a NOVA group-4 marker
+         (clean/usda/build_usda_upf.py); modules with a share above the median are the
+         "mostly ultra-processed" half (added 2026-11-03 for notes/obesity.tex)
 
   Fig 3: Price level by healthiness quartile x county income quartile
          (variety-adjusted)
@@ -279,6 +283,46 @@ plt.tight_layout()
 plt.savefig(FIG_DIR / 'variety_price_level_by_usda_label.png', bbox_inches='tight', dpi=150)
 plt.close()
 print("  Saved variety_price_level_by_usda_label.png")
+
+# ============================================================
+# FIGURE 2d: REAL price levels by module ultra-processed share (NOVA markers)
+# ============================================================
+upf_path = BASE / 'interim' / 'usda_nielsen_merged' / 'usda_upf.parquet'
+if upf_path.exists():
+    print("Creating Figure 2d (real price levels, modules by ultra-processed share)...")
+    upf = pd.read_parquet(upf_path, columns=['upc13', 'upf'])
+    prods = pd.read_csv(BASE / 'raw' / 'products.tsv', sep='\t', usecols=['upc', 'product_module_code'], dtype={'upc': str})
+    prods['upc13'] = '0' + prods['upc'].str.zfill(12)
+    mod_upf = (prods.merge(upf, on='upc13', how='inner').dropna(subset=['upf'])
+               .groupby('product_module_code').agg(upf_share=('upf', 'mean'), n_matched=('upf', 'size')).reset_index())
+    pi = pi.merge(mod_upf, on='product_module_code', how='left')
+    um = pi.drop_duplicates('product_module_code').dropna(subset=['upf_share'])
+    ucut = um['upf_share'].median()
+    pi['upf_half'] = np.where(pi['upf_share'] >= ucut, 'mostly ultra-processed', 'mostly not ultra-processed')
+    pi.loc[pi['upf_share'].isna(), 'upf_half'] = np.nan
+    print(f"  module ultra-processed share: median {ucut:.2f}; "
+          f"{(um.upf_share >= ucut).sum()} mostly ultra-processed / {(um.upf_share < ucut).sum()} mostly not modules")
+    fig, axes = plt.subplots(1, 2, figsize=(16, 5.5), sharey=True)
+    for ax, weighted, title in [(axes[0], True, 'Spending-weighted across modules'), (axes[1], False, 'Equal-weighted across modules')]:
+        style_ax(ax)
+        for half, color, lab in [('mostly ultra-processed', '#d73027', 'Mostly ultra-processed modules'), ('mostly not ultra-processed', '#2c5f8a', 'Mostly not ultra-processed modules')]:
+            for col, ls, lw, suffix in [('level_ces', '--', 1.8, 'unadjusted CES'), ('level_va', '-', 2.4, 'variety-adjusted')]:
+                vals = []
+                for yr in years:
+                    g = pi[(pi['year'] == yr) & (pi['upf_half'] == half)]
+                    v = np.average(g[col], weights=g['total_spending']) if weighted else g[col].mean()
+                    vals.append(v / deflator[yr])
+                ax.plot(years, vals, color=color, linestyle=ls, linewidth=lw, marker='o', markersize=4, markeredgewidth=0,
+                        alpha=0.85 if ls == '--' else 1.0, label=f'{lab}, {suffix}')
+        ax.axhline(1, color='#aaaaaa', linewidth=0.8, linestyle=':')
+        ax.set_title(title, fontsize=12)
+        ax.set_xlabel('Year', fontsize=11, labelpad=8)
+    axes[0].set_ylabel(f'Real price level ({BASE_YEAR} = 1, CPI-U deflated)', fontsize=11, labelpad=8)
+    axes[0].legend(fontsize=8.5, framealpha=0.9, loc='upper left', title='Solid = variety-adjusted  |  Dashed = unadjusted CES', title_fontsize=8)
+    plt.tight_layout()
+    plt.savefig(FIG_DIR / 'variety_price_level_by_upf.png', bbox_inches='tight', dpi=150)
+    plt.close()
+    print("  Saved variety_price_level_by_upf.png")
 
 # ============================================================
 # FIGURE 3: Variety-adjusted price level by healthiness x income quartile

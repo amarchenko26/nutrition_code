@@ -3,9 +3,8 @@ figure_cdc_benchmarks.py -- national obesity and physical-activity series from C
 sources, for notes/obesity.tex. No Nielsen data.
 
   cdc_obesity_trend.png            NHANES measured obesity (adults 20+, age-adjusted, by survey
-                                   cycle, NCHS Data Briefs 360 and 508) and BRFSS self-reported
-                                   obesity and overweight (adults 18+, nationwide, data.cdc.gov
-                                   hn4x-zwk7, Q036 and Q037)
+                                   cycle, NCHS Data Briefs 360 and 508); the BRFSS series are kept
+                                   below for build_obesity_series.py but not drawn (Anya 2026-11-03)
   cdc_physical_activity_trend.png  BRFSS: share meeting the 150-minute aerobic guideline (Q043,
                                    asked in odd years) and share with no leisure-time physical
                                    activity (Q047)
@@ -45,12 +44,10 @@ def save(fig, name):
 
 fig, ax = plt.subplots(figsize=(10, 6))
 ax.plot(list(NHANES), list(NHANES.values()), color='black', lw=2.5, marker='D', ms=6, label='NHANES, measured BMI ≥ 30, adults 20+, age-adjusted (by survey cycle)')
-ax.plot(list(BRFSS_OBESE), list(BRFSS_OBESE.values()), color=BLUE, lw=2.5, marker='o', ms=5, label='BRFSS, self-reported BMI ≥ 30, adults 18+')
-ax.plot(list(BRFSS_OVERW), list(BRFSS_OVERW.values()), color=GREY, lw=2, ls='--', marker='s', ms=4, label='BRFSS, self-reported BMI 25 to <30 (overweight), adults 18+')
 ax.set_ylabel('Percent of adults')
 ax.set_xlabel('Year')
 ax.set_ylim(20, 50)
-ax.set_title('Adult obesity in the United States, CDC surveys')
+ax.set_title('Adult obesity in the United States, NHANES')
 ax.legend(loc='upper left', frameon=False)
 save(fig, 'cdc_obesity_trend.png')
 

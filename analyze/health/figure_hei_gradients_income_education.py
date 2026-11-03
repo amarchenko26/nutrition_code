@@ -8,8 +8,8 @@ Left: HEI and household income (2013 dollars) both residualized on 5-year age-bi
 year dummies (means added back), averaged within twenty income bins; the second series adds
 education-bin dummies to the controls, so it is the income gradient among households with
 the same education. Slopes from the household-level regressions, SE clustered on household.
-Right: the same binscatter within each education bin (ten bins each), controls as in the
-first series.
+Right: the same binscatter within each education bin (12 years or less, 13-15, 16+; ten bins
+each), controls as in the first series.
 Output: figs/health/hei_gradients_income_education.png
 """
 import numpy as np
@@ -24,8 +24,8 @@ BASE = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data') / '
 FIG = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs') / 'health'
 FIG.mkdir(parents=True, exist_ok=True)
 BLUE, RED, GREY = '#2c5f8a', '#a63d40', '#7a7a7a'
-EDU_COL = {1: '#d73027', 2: '#fc8d59', 3: '#3b6b9a', 4: '#1a5e33'}
-EDU = {1: 'Under 12 years', 2: '12 years', 3: '13-15 years', 4: '16+ years'}
+EDU_COL = {2: '#d73027', 3: '#3b6b9a', 4: '#1a5e33'}
+EDU = {2: '12 years or less', 3: '13-15 years', 4: '16+ years'}   # bins 1 and 2 merged (Anya 2026-11-03)
 plt.rcParams.update({'font.size': 13, 'axes.labelsize': 14, 'axes.titlesize': 13, 'legend.fontsize': 10.5,
                      'axes.spines.top': False, 'axes.spines.right': False})
 
@@ -75,8 +75,9 @@ def main():
     ax.set_title('The income gradient, with and without education held fixed')
     ax.legend(loc='upper left', frameon=False)
     ax = axes[1]
-    for e in [1, 2, 3, 4]:
-        s = sub[sub['educ_bin'] == e].reset_index(drop=True)
+    sub['educ3'] = sub['educ_bin'].clip(lower=2)
+    for e in [2, 3, 4]:
+        s = sub[sub['educ3'] == e].reset_index(drop=True)
         pts, b, se, a = binscatter(s, ['age5', 'kids', 'year'], 10)
         ax.plot(pts['x'], pts['y'], color=EDU_COL[e], lw=2, marker='o', ms=5, label=f'{EDU[e]} (n = {len(s):,}): {b:.2f} per \\$10k (SE {se:.2f})')
         print(f'education bin {e}: slope {b:.3f} (SE {se:.3f}), n = {len(s):,}')
