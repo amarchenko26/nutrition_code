@@ -1,28 +1,31 @@
 """
-build_upf_consumers.py -- do households that buy more ultra-processed food (NOVA 4) buy more
-calories, and who are they (people and places)? For notes/obesity.tex.
+build_upf_consumers.py -- do households that buy more ultra-processed food buy more calories,
+and who are they (people and places)? For notes/obesity.tex. "Ultra-processed" = NOVA group 4
+of clean/usda/build_usda_nova.py (ingredient-list markers); wording changed from "NOVA 4 share"
+to "ultra-processed share" throughout on 2026-11-04.
 
 Data and sample as in figure_nutrition_over_time.py: interim/health/nova_calorie_panel.parquet
 (build/health/build_nova_calorie_panel.py) merged to interim/panel_dataset/panel_hh_year.parquet,
 hei_usda_panel.parquet and interim/panelists/panelists_all_years.parquet; household-years
 2004-2020 with a complete roster, real income trimmed at the pooled 1st/99th percentiles,
-calories per adult equivalent trimmed at the 1st/99th percentiles. The NOVA 4 share is the
-household's share of labelled calories (calories of products with a USDA ingredient list) in
-group 4; household-years with fewer than 10% of their calories labelled are dropped.
+calories per adult equivalent trimmed at the 1st/99th percentiles. The ultra-processed share is
+the household's share of labelled calories (calories of products with a USDA ingredient list) in
+NOVA group 4; household-years with fewer than 10% of their calories labelled are dropped.
 
 Figure figs/health/diet/upf_consumers.png:
   left   binscatter (20 bins) of daily calories per adult equivalent (labelled + imputed) on the
-         NOVA 4 share, both residualized on year dummies (means added back), projection-weighted;
+         ultra-processed share, both residualized on year dummies (means added back), projection-weighted;
          slope from the household-level WLS, SE clustered on household
   middle the same for HEI (USDA labels)
-  right  the adjusted difference in the NOVA 4 share (percentage points, 95% CI) between each
+  right  the adjusted difference in the ultra-processed share (percentage points, 95% CI) between each
          group and its base group, from one WLS of the share on all group dummies and year
          dummies, clustered on household
-Table tabs/health/upf_consumers.tex: for each group, the projection-weighted mean NOVA 4 share,
-the adjusted difference and its SE, and the number of household-years. Area groups are quartiles
+Table tabs/health/upf_consumers.tex (two side-by-side panels so it fits a page): for each group,
+the projection-weighted mean ultra-processed share, the adjusted difference and its SE, and the
+number of household-years. Area groups are quartiles
 of the county's leave-own-household-out projection-weighted mean real income, share of
 households with 16+ years of schooling, and mean HEI, over all panel household-years 2004-2020.
-Also printed: the share of the variance of the NOVA 4 share (net of year) explained by county
+Also printed: the share of the variance of the ultra-processed share (net of year) explained by county
 dummies, by ZIP dummies, and by the household dummies.
 """
 import sys
@@ -200,7 +203,7 @@ def variance_shares(df):
 
 def main():
     df = load()
-    print('NOVA 4 share of labelled calories: weighted mean %.1f, sd %.1f; p10 %.1f p90 %.1f' % (
+    print('ultra-processed share of labelled calories: weighted mean %.1f, sd %.1f; p10 %.1f p90 %.1f' % (
         wmean(df.share_nova4, df.projection_factor), np.sqrt(np.average((df.share_nova4 - wmean(df.share_nova4, df.projection_factor)) ** 2, weights=df.projection_factor)),
         df.share_nova4.quantile(0.1), df.share_nova4.quantile(0.9)))
 
@@ -210,9 +213,9 @@ def main():
         pts, b, se, a, n = binscatter_fit(df, ycol)
         ax.scatter(pts['x'], pts['y'], s=55, color=RED, zorder=4, edgecolors='white', linewidth=0.5)
         xx = np.linspace(pts['x'].min(), pts['x'].max(), 10); ax.plot(xx, a + b * xx, color=GREY, lw=1.5)
-        ax.set_xlabel('NOVA 4 share of labelled calories (%), net of year'); ax.set_ylabel(ylab)
-        ax.set_title(f'{title}: {10 * b:+.2f} per 10 points of NOVA 4 share (SE {10 * se:.2f})')
-        print(f'{ycol} on NOVA 4 share: slope per 10 pts {10 * b:.3f} (SE {10 * se:.3f}), n = {n:,}; bins {pts.y.iloc[0]:.1f} -> {pts.y.iloc[-1]:.1f}')
+        ax.set_xlabel('Ultra-processed share of labelled calories (%), net of year'); ax.set_ylabel(ylab)
+        ax.set_title(f'{title}: {10 * b:+.2f} per 10 points of ultra-processed share (SE {10 * se:.2f})')
+        print(f'{ycol} on ultra-processed share: slope per 10 pts {10 * b:.3f} (SE {10 * se:.3f}), n = {n:,}; bins {pts.y.iloc[0]:.1f} -> {pts.y.iloc[-1]:.1f}')
     tab = who(df)
     ax = axes[2]
     show = tab[tab['group'].isin(['g_income', 'g_educ', 'g_age', 'g_cty_real_income', 'g_cty_college'])].reset_index(drop=True)
@@ -220,27 +223,36 @@ def main():
     ax.errorbar(show['adj'], ypos, xerr=1.96 * show['se'].fillna(0), fmt='o', color=BLUE, ecolor=BLUE, capsize=2, ms=5)
     ax.axvline(0, color=GREY, lw=1)
     ax.set_yticks(ypos); ax.set_yticklabels(show['level'], fontsize=9.5)
-    ax.set_xlabel('Adjusted difference in NOVA 4 share, percentage points (95% CI)')
+    ax.set_xlabel('Adjusted difference in the ultra-processed share, percentage points (95% CI)')
     ax.set_title('Who buys more ultra-processed calories (all groups and year dummies held fixed)')
     fig.tight_layout()
     fig.savefig(FIG / 'upf_consumers.png', bbox_inches='tight', dpi=150); plt.close(fig)
     print(f'saved {FIG / "upf_consumers.png"}')
 
     vs = variance_shares(df)
-    print('share of the variance of the NOVA 4 share (net of year) explained by dummies:', {k: round(v, 3) for k, v in vs.items()})
+    print('share of the variance of the ultra-processed share (net of year) explained by dummies:', {k: round(v, 3) for k, v in vs.items()})
     print('\n' + tab.round(2).to_string())
-    # table
-    lines = ['\\begin{tabular}{lrrrr}', '\\toprule', 'Group & Mean NOVA 4 share (\\%) & Adjusted difference & SE & Household-years \\\\', '\\midrule']
-    for g in GROUPS:
-        sub = tab[tab['group'] == g]
-        for _, r in sub.iterrows():
-            adj = '(base)' if np.isnan(r['se']) else f"{r['adj']:.2f}"
-            se_ = '' if np.isnan(r['se']) else f"({r['se']:.2f})"
-            lines.append(f"{r['level']} & {r['mean']:.1f} & {adj} & {se_} & {r['n']:,} \\\\")
-        lines.append('\\addlinespace')
-    lines += ['\\midrule', f"Variance share: county dummies & \\multicolumn{{4}}{{r}}{{{vs['county']:.3f}}} \\\\",
-              f"Variance share: ZIP dummies & \\multicolumn{{4}}{{r}}{{{vs['zip']:.3f}}} \\\\",
-              f"Variance share: household dummies & \\multicolumn{{4}}{{r}}{{{vs['household']:.3f}}} \\\\", '\\bottomrule', '\\end{tabular}']
+    # table: two side-by-side panels (left: household groups; right: employment, place and county groups)
+    def panel_rows(groups):
+        rows = []
+        for g in groups:
+            for _, r in tab[tab['group'] == g].iterrows():
+                adj = '(base)' if np.isnan(r['se']) else f"{r['adj']:.2f}"
+                se_ = '' if np.isnan(r['se']) else f"({r['se']:.2f})"
+                rows.append(f"{r['level']} & {r['mean']:.1f} & {adj} & {se_} & {r['n']:,}")
+            rows.append('ADDLINESPACE')
+        return rows[:-1]
+    left = panel_rows(['g_income', 'g_educ', 'g_age', 'g_kids', 'g_size', 'g_race', 'g_hisp'])
+    right = panel_rows(['g_emp', 'g_region', 'g_resid', 'g_cty_real_income', 'g_cty_college', 'g_cty_hei_usda'])
+    n = max(len(left), len(right)); left += [''] * (n - len(left)); right += [''] * (n - len(right))
+    head = 'Group & Mean & Adj. diff. & SE & HH-years'
+    lines = ['\\begin{tabular}{lrrrr@{\\hspace{2em}}lrrrr}', '\\toprule', f'{head} & {head} \\\\', '\\midrule']
+    for l, r in zip(left, right):
+        l_ = ' & & & & ' if l in ('', 'ADDLINESPACE') else l
+        r_ = ' & & & & ' if r in ('', 'ADDLINESPACE') else r
+        lines.append(f'{l_} & {r_} \\\\' + ('[0.4em]' if 'ADDLINESPACE' in (l, r) else ''))
+    lines += ['\\midrule', f"\\multicolumn{{10}}{{l}}{{Share of the variance of the ultra-processed share (net of year) explained by county dummies {vs['county']:.3f}, "
+              f"ZIP dummies {vs['zip']:.3f}, household dummies {vs['household']:.3f}}} \\\\", '\\bottomrule', '\\end{tabular}']
     (TAB / 'upf_consumers.tex').write_text('\n'.join(lines))
     print(f'saved {TAB / "upf_consumers.tex"}')
 

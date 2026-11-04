@@ -1,7 +1,8 @@
 """
-figure_nova_products.py -- ultra-processed (NOVA 4) against unprocessed (NOVA 1) products over
-time, for notes/obesity.tex. Replaces upc_counts_by_category.png and upf_counts.png
-(figure_variety_and_upf.py, deleted 2026-11-03 at Anya's request).
+figure_upf_products.py -- ultra-processed (NOVA group 4) against unprocessed (NOVA 1) products
+over time, for notes/obesity.tex. Replaces upc_counts_by_category.png and upf_counts.png
+(figure_variety_and_upf.py, deleted 2026-11-03 at Anya's request); renamed from
+figure_nova_products.py on 2026-11-04 (ultra-processed wording throughout).
 
 Base: the UPCs bought by Nielsen panelists in the year (interim/health/upc_year_spending.parquet,
 build/health/build_upc_year_spending.py) that match a USDA ingredient list classified by
@@ -11,7 +12,7 @@ match rate rises over time; shares among matched products are the comparable ser
 are not.
 Left: share of matched UPCs bought in each NOVA group. Right: share of matched spending in each
 group. Group 4 in red, group 1 in blue, groups 2 and 3 in grey.
-Output: figs/health/products/nova_products.png
+Output: figs/health/products/upf_products.png
 """
 import sys
 from pathlib import Path
@@ -32,8 +33,8 @@ FIG.mkdir(parents=True, exist_ok=True)
 plt.rcParams.update({'font.size': 13, 'axes.labelsize': 14, 'axes.titlesize': 13, 'legend.fontsize': 10.5,
                      'axes.spines.top': False, 'axes.spines.right': False})
 BLUE, RED, GREY, GREY2 = '#2c5f8a', '#a63d40', '#7a7a7a', '#bbbbbb'
-NOVA_LAB = {1: 'NOVA 1: unprocessed or minimally processed', 2: 'NOVA 2: culinary ingredients',
-            3: 'NOVA 3: processed', 4: 'NOVA 4: ultra-processed'}
+NOVA_LAB = {1: 'Unprocessed or minimally processed (NOVA 1)', 2: 'Culinary ingredients (NOVA 2)',
+            3: 'Processed (NOVA 3)', 4: 'Ultra-processed (NOVA 4)'}
 NOVA_COL = {1: BLUE, 2: GREY2, 3: GREY, 4: RED}
 NOVA_LW = {1: 2.5, 2: 1.5, 3: 1.5, 4: 2.5}
 
@@ -64,9 +65,9 @@ def main():
         ax.set_ylim(0, 100)
     axes[0].set_ylabel('Percent of matched products or spending')
     axes[0].legend(frameon=False, loc='center left')
-    fig.savefig(FIG / 'nova_products.png', bbox_inches='tight', dpi=150)
+    fig.savefig(FIG / 'upf_products.png', bbox_inches='tight', dpi=150)
     plt.close(fig)
-    print(f'saved {FIG / "nova_products.png"}')
+    print(f'saved {FIG / "upf_products.png"}')
 
 
 if __name__ == '__main__':
