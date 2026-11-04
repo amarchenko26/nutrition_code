@@ -4,29 +4,31 @@ figure_nutrition_over_time.py -- the one script for grocery nutrition over time 
 analyze/hi/figure_gradient_by_year.py, both deleted 2026-11-03 at Anya's request.
 
 Data: interim/health/nova_calorie_panel.parquet (build/health/build_nova_calorie_panel.py:
-household-year grams, calories of purchase rows matched to a USDA label (cals_matched), calories
-with module-level imputation for unlabelled rows (cals_all; printed, not plotted since
-2026-11-04), calories by NOVA group, produce calories, adult equivalents),
+household-year grams, calories of all purchase rows at the UPC's time-invariant calorie density
+from build_upc_dictionary.py (cals_all: own label, else nearest-sized labelled UPC of the same
+brand and module, else brand x module mean, else pooled module density) and of the rows with
+their own label (cals_matched), calories by NOVA group, produce calories, adult equivalents),
 interim/panel_dataset/hei_usda_panel.parquet (HEI from USDA labels),
 interim/panel_dataset/hi_usda_panel.parquet (sugar per 1,000 kcal),
 interim/panel_dataset/panel_hh_year.parquet (the paper's household-year sample: real income in
 2013$, projection factors, head age, household size).
 Sample: household-years in panel_hh_year.parquet, 2004-2020, with a complete roster (adult
-equivalents computed), real income trimmed at the pooled 1st and 99th percentiles, labelled
-calories per adult equivalent trimmed at the 1st and 99th percentiles. Income quartiles are
+equivalents computed), real income trimmed at the pooled 1st and 99th percentiles, calories per
+adult equivalent trimmed at the 1st and 99th percentiles. Income quartiles are
 within-year quartiles of real income among these households. All means are projection-weighted.
 "Ultra-processed" = NOVA group 4 of clean/usda/build_usda_nova.py (ingredient-list markers).
 
 Figures (figs/health/diet/):
-  calories_over_time.png          calories per person (per adult equivalent) per day from products
-                                  with a USDA label, with the labelled share of calories on the
-                                  right axis; right: the same by income quartile
-  calorie_sources_over_time.png   produce share of labelled calories; NOVA group shares of labelled
+  calories_over_time.png          calories per person (per adult equivalent) per day, all purchases
+                                  at the product-level density (solid) and products with their own
+                                  label only (dashed); right: all purchases by income quartile
+  calorie_sources_over_time.png   produce share of all calories; NOVA group shares of labelled
                                   calories (ultra-processed against minimally processed)
+  upf_share_over_time.png         ultra-processed share of labelled calories, all households
   upf_by_income_over_time.png     ultra-processed and minimally processed calorie shares by income
                                   quartile
   nutrition_by_income_over_time.png  1x3: HEI by income quartile; sugar per 1,000 kcal by quartile;
-                                  produce share of labelled calories by quartile
+                                  produce share of all calories by quartile
 """
 import sys
 from pathlib import Path
@@ -91,12 +93,12 @@ def load():
     df['inc_q'] = df.groupby('panel_year')['real_income'].transform(lambda s: pd.qcut(s.rank(method='first'), 4, labels=[1, 2, 3, 4])).astype(int)
     df['cals_ae_day'] = df['cals_all'] / 365 / df['ae_total']
     df['cals_matched_ae_day'] = df['cals_matched'] / 365 / df['ae_total']
-    c1, c99 = df['cals_matched_ae_day'].quantile([0.01, 0.99])
-    df = df[df['cals_matched_ae_day'].between(c1, c99)]
+    c1, c99 = df['cals_ae_day'].quantile([0.01, 0.99])
+    df = df[df['cals_ae_day'].between(c1, c99)]
     nova_cals = df[['cals_nova1', 'cals_nova2', 'cals_nova3', 'cals_nova4']].sum(axis=1)
     for g in (1, 2, 3, 4):
         df[f'share_nova{g}'] = df[f'cals_nova{g}'] / nova_cals.replace(0, np.nan)
-    df['produce_share_matched'] = df['produce_cals_matched'] / df['cals_matched'].replace(0, np.nan)
+    df['produce_share_all'] = df['produce_cals_all'] / df['cals_all'].replace(0, np.nan)
     df['label_share'] = df['cals_matched'] / df['cals_all'].replace(0, np.nan)
     print(f'{len(df):,} household-years, {df.household_code.nunique():,} households')
     return df
@@ -109,21 +111,18 @@ def main():
     print('label coverage of calories by year (matched / all), NOVA coverage:'); print(cov.round(3).to_string())
 
     # ---------------------------------------------------------- calories per person
-    cal = pd.DataFrame({'matched': by_year(df, 'cals_matched_ae_day'), 'all': by_year(df, 'cals_ae_day'), 'label_share': cov['matched_share']})
-    calq = by_year_q(df, 'cals_matched_ae_day')
-    print('\ncalories per adult equivalent per day (labelled; labelled + imputed printed for reference):'); print(cal.round(2).to_string())
+    cal = pd.DataFrame({'all': by_year(df, 'cals_ae_day'), 'matched': by_year(df, 'cals_matched_ae_day'), 'label_share': cov['matched_share']})
+    tiers = df.groupby('panel_year').apply(lambda g: pd.Series({f'tier{t}': g[f'cals_tier{t}'].sum() / g['cals_all'].sum() for t in (2, 3, 4)}))
+    print('\ncalories per adult equivalent per day (all purchases at the product-level density; own-label rows only):'); print(cal.join(tiers).round(3).to_string())
+    calq = by_year_q(df, 'cals_ae_day')
     print(calq.round(0).to_string())
-    fig, axes = plt.subplots(1, 2, figsize=(17, 6), gridspec_kw={'wspace': 0.32})
+    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
     ax = axes[0]
-    ax.plot(cal.index, cal['matched'], color=RED, lw=2.5, marker='o', label='Calories per person per day (products with a USDA label)')
+    ax.plot(cal.index, cal['all'], color=RED, lw=2.5, marker='o', label='All grocery purchases (product-level calorie density)')
+    ax.plot(cal.index, cal['matched'], color=GREY, lw=1.8, ls='--', marker='s', ms=3, label='Products with their own USDA label only')
     ax.set_ylabel('Calories per adult equivalent per day'); ax.set_xlabel('Year')
-    ax.set_ylim(0, cal['matched'].max() * 1.3)
-    ax2 = ax.twinx()
-    ax2.plot(cal.index, 100 * cal['label_share'], color=GREY, lw=1.5, ls='--', marker='s', ms=3, label='Percent of grocery calories with a label (right axis)')
-    ax2.set_ylim(0, 100); ax2.set_ylabel('Percent of calories with a USDA label', color=GREY); ax2.tick_params(axis='y', colors=GREY)
-    ax2.spines['right'].set_visible(True); ax2.spines['top'].set_visible(False)
-    h1, l1 = ax.get_legend_handles_labels(); h2, l2 = ax2.get_legend_handles_labels()
-    ax.legend(h1 + h2, l1 + l2, frameon=False, loc='lower left', fontsize=10)
+    ax.set_ylim(0, cal['all'].max() * 1.25)
+    ax.legend(frameon=False, loc='lower left', fontsize=10.5)
     ax.set_title('Calories per person, barcoded grocery purchases')
     ax = axes[1]
     plot_q(ax, calq)
@@ -136,14 +135,14 @@ def main():
     print(f'saved {FIG / "calories_over_time.png"}')
 
     # ---------------------------------------------------------- where the calories come from
-    src = by_year(df, 'produce_share_matched')
+    src = by_year(df, 'produce_share_all')
     nova = pd.DataFrame({g: by_year(df, f'share_nova{g}') for g in (1, 2, 3, 4)})
-    print('\nproduce share of labelled calories:'); print((100 * src).round(2).to_string())
+    print('\nproduce share of all calories:'); print((100 * src).round(2).to_string())
     print('\nNOVA shares of labelled calories:'); print((100 * nova).round(1).to_string())
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
     ax = axes[0]
     ax.plot(src.index, 100 * src, color=BLUE, lw=2.5, marker='o')
-    ax.set_ylabel('Percent of labelled calories'); ax.set_xlabel('Year'); ax.set_ylim(0, max(8, 100 * src.max() * 1.3))
+    ax.set_ylabel('Percent of calories'); ax.set_xlabel('Year'); ax.set_ylim(0, max(8, 100 * src.max() * 1.3))
     ax.set_title('Fruit and vegetables, share of grocery calories')
     ax = axes[1]
     for g in (4, 1, 3, 2):
@@ -154,6 +153,15 @@ def main():
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     fig.savefig(FIG / 'calorie_sources_over_time.png', bbox_inches='tight', dpi=150); plt.close(fig)
     print(f'saved {FIG / "calorie_sources_over_time.png"}')
+
+    # ---------------------------------------------------------- ultra-processed share, all households
+    fig, ax = plt.subplots(figsize=(9, 6))
+    ax.plot(nova.index, 100 * nova[4], color=RED, lw=2.5, marker='o')
+    ax.set_ylabel('Percent of labelled calories'); ax.set_xlabel('Year'); ax.set_ylim(50, 100)
+    ax.set_title('Ultra-processed share of grocery calories')
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+    fig.savefig(FIG / 'upf_share_over_time.png', bbox_inches='tight', dpi=150); plt.close(fig)
+    print(f'saved {FIG / "upf_share_over_time.png"}')
 
     # ---------------------------------------------------------- ultra-processed by income
     n4 = by_year_q(df, 'share_nova4'); n1 = by_year_q(df, 'share_nova1')
@@ -172,7 +180,7 @@ def main():
     print(f'saved {FIG / "upf_by_income_over_time.png"}')
 
     # ---------------------------------------------------------- HEI, sugar, produce by income
-    heiq = by_year_q(df, 'hei_usda'); sugq = by_year_q(df, 'sugar_per_1000cal_usda'); prodq = by_year_q(df, 'produce_share_matched')
+    heiq = by_year_q(df, 'hei_usda'); sugq = by_year_q(df, 'sugar_per_1000cal_usda'); prodq = by_year_q(df, 'produce_share_all')
     print('\nHEI by income quartile:'); print(heiq.round(2).to_string())
     print('\nsugar per 1,000 kcal by income quartile:'); print(sugq.round(2).to_string())
     fig, axes = plt.subplots(1, 3, figsize=(21, 6))
@@ -181,7 +189,7 @@ def main():
     ax = axes[1]; plot_q(ax, sugq)
     ax.set_ylabel('Grams of sugar per 1,000 kcal'); ax.set_title('Sugar density by income quartile'); ax.legend(frameon=False)
     ax = axes[2]; plot_q(ax, prodq, 100)
-    ax.set_ylabel('Percent of labelled calories'); ax.set_title('Fruit and vegetable share of calories by income quartile'); ax.legend(frameon=False)
+    ax.set_ylabel('Percent of calories'); ax.set_title('Fruit and vegetable share of calories by income quartile'); ax.legend(frameon=False)
     for ax in axes:
         ax.set_xlabel('Year'); ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     fig.savefig(FIG / 'nutrition_by_income_over_time.png', bbox_inches='tight', dpi=150); plt.close(fig)

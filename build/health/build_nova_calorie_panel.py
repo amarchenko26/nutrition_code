@@ -6,17 +6,19 @@ ultra-processed food). Reads interim/purchases_food/panel_year=<y>/ (one row per
 100 g from the USDA Branded label) and usda_nova.parquet (NOVA group 1-4 from the ingredient
 list, clean/usda/build_usda_nova.py), and interim/panelists/panelists_all_years.parquet.
 
-Per purchase row: grams = quantity x Nielsen size1 converted to grams (rows whose size unit is
-a count, not a weight or volume, have no grams); matched calories = grams x label calories
-per 100 g (as in build/hi/usda/build_hi_usda_panel.py); imputed calories, for rows with grams
-but no label, = grams x the spending-weighted mean calories per 100 g of the labelled UPCs in
-the same product module and year (module mean over all years as the fallback), so that the
-calorie total does not rise mechanically with the label match rate (the USDA file is a 2024
-snapshot and matches 15% of UPCs bought in 2004 and 53% in 2020). Produce = fruit and
-vegetable modules and groups as in build_hi_usda_panel.py.
+Per purchase row: grams = quantity x multi (units in a multipack; omitted until 2026-11-04)
+x Nielsen size1 converted to grams (rows whose size unit is a count, not a weight or volume,
+have no grams); calories = grams x the UPC's calorie density per 100 g from
+interim/health/upc_dictionary.parquet (build_upc_dictionary.py, 2026-11-04: tier 1 the UPC's own
+USDA label, tier 2 the nearest-sized labelled UPC of the same brand, module and size unit, tier 3
+the brand x module mean, tier 4 the module's pooled 2004-2020 density; fixed over time, so the
+calorie total does not move with the label match rate, which rises from 39% of calories in 2004
+to 81% in 2020 because the USDA file is a 2024 snapshot). Until 2026-11-04 unlabelled rows took
+the module x year mean density of labelled rows, which moved with the labelled set.
+Produce = fruit and vegetable modules and groups as in build_hi_usda_panel.py.
 
-Per household-year: grams_all; cals_matched; cals_all (matched + imputed); cals_nova1..4
-(matched rows with an ingredient list); cals_nova_none (matched rows without one);
+Per household-year: grams_all; cals_matched (tier-1 rows); cals_all (all tiers); cals_tier2,
+cals_tier3, cals_tier4; cals_nova1..4 (tier-1 rows with an ingredient list); cals_nova_none;
 produce_cals_matched, produce_cals_all; spend_all, spend_matched, spend_nova1..4;
 ae_total = USDA Dietary Guidelines calorie need of each member (moderately active, age x
 sex) / 2,000, summed over the roster (as in analyze/hi/usda/figure_calories_by_income.py),
@@ -36,8 +38,7 @@ import numpy as np
 import pandas as pd
 
 PURCH = idir / 'purchases_food'
-WIDE = idir / 'usda_nielsen_merged' / 'usda_wide.parquet'
-NOVA = idir / 'usda_nielsen_merged' / 'usda_nova.parquet'
+DICT = idir / 'health' / 'upc_dictionary.parquet'
 PAN = idir / 'panelists' / 'panelists_all_years.parquet'
 OUT = idir / 'health' / 'nova_calorie_panel.parquet'
 YEARS = range(2004, 2021)
@@ -84,33 +85,24 @@ def adult_equivalents():
 
 def main():
     t0 = time.time()
-    wide = pd.read_parquet(WIDE, columns=['upc13', 'cal_per_100g']).rename(columns={'upc13': 'upc_13'})
-    nova = pd.read_parquet(NOVA, columns=['upc13', 'nova']).rename(columns={'upc13': 'upc_13'})
-    nova['nova'] = nova['nova'].astype('float')
-    dic = wide.merge(nova, on='upc_13', how='left')
-    print(f'label dictionary: {len(dic):,} UPCs, {dic.nova.notna().sum():,} with a NOVA group')
-    # module-level calorie density pooled over years (fallback for the imputation)
+    dic = pd.read_parquet(DICT, columns=['upc_13', 'cal_per_100g', 'cal_tier', 'nova']).dropna(subset=['cal_per_100g'])
+    print(f'UPC dictionary: {len(dic):,} UPCs with a density, {dic.nova.notna().sum():,} with a NOVA group')
     out = []
-    dens_all = None
     for y in YEARS:
         p = PURCH / f'panel_year={y}'
         if not p.exists():
             continue
-        d = pd.read_parquet(p, columns=['upc', 'quantity', 'size1_amount', 'size1_units', 'product_module_code', 'product_group',
+        d = pd.read_parquet(p, columns=['upc', 'quantity', 'multi', 'size1_amount', 'size1_units', 'product_module_code', 'product_group',
                                         'product_module', 'department_descr', 'household_code', 'total_price_paid'])
         d = d[d['department_descr'] != 'MAGNET DATA']
         d['upc_13'] = '0' + d['upc'].astype(str).str.zfill(12)
         d = d.merge(dic, on='upc_13', how='left')
-        d['grams'] = d['quantity'] * d['size1_amount'] * d['size1_units'].map(UNIT_TO_GRAMS)
+        d['grams'] = d['quantity'] * d['multi'].fillna(1).clip(lower=1) * d['size1_amount'] * d['size1_units'].map(UNIT_TO_GRAMS)
         d.loc[d['grams'] <= 0, 'grams'] = np.nan
-        d['cals_matched'] = d['grams'] * d['cal_per_100g'] / 100
-        # module x year density of labelled rows, spending-weighted; fallback: module over all years so far
-        lab = d[d['cals_matched'].notna() & (d['total_price_paid'] > 0)]
-        dens = (lab.groupby('product_module_code').apply(lambda g: np.average(g['cal_per_100g'], weights=g['total_price_paid']))
-                .rename('dens_my'))
-        d = d.merge(dens, left_on='product_module_code', right_index=True, how='left')
-        d['cals_imp'] = np.where(d['cals_matched'].notna(), d['cals_matched'], d['grams'] * d['dens_my'] / 100)
-        d['cals_all'] = d['cals_imp']
+        d['cals_all'] = d['grams'] * d['cal_per_100g'] / 100
+        d['cals_matched'] = d['cals_all'].where(d['cal_tier'] == 1)
+        for t in (2, 3, 4):
+            d[f'cals_tier{t}'] = d['cals_all'].where(d['cal_tier'] == t, 0.0)
         d['is_fruit'] = (d['product_group'].isin(FRUIT_GROUPS) | d['product_module_code'].isin(FRUIT_MODULES_FRESH)
                          | d['product_module'].str.contains('FROZEN FRUITS|FRUIT JUICE|FRUIT DRINK', case=False, na=False))
         d['is_veg'] = (d['product_group'].isin(VEG_GROUPS) | d['product_module_code'].isin(VEG_MODULES_FRESH)
@@ -126,6 +118,7 @@ def main():
         d['spend_nova_any'] = d['total_price_paid'].where(d['nova'].notna(), 0.0)
         agg = d.groupby('household_code').agg(
             grams_all=('grams', 'sum'), cals_matched=('cals_matched', 'sum'), cals_all=('cals_all', 'sum'),
+            cals_tier2=('cals_tier2', 'sum'), cals_tier3=('cals_tier3', 'sum'), cals_tier4=('cals_tier4', 'sum'),
             cals_nova1=('cals_nova1', 'sum'), cals_nova2=('cals_nova2', 'sum'), cals_nova3=('cals_nova3', 'sum'), cals_nova4=('cals_nova4', 'sum'),
             cals_nova_none=('cals_nova_none', 'sum'), produce_cals_matched=('produce_cals_matched', 'sum'), produce_cals_all=('produce_cals_all', 'sum'),
             spend_all=('total_price_paid', 'sum'), spend_matched=('spend_matched', 'sum'), spend_nova_any=('spend_nova_any', 'sum'),
@@ -133,10 +126,11 @@ def main():
             n_rows=('upc', 'size')).reset_index()
         agg['panel_year'] = y
         out.append(agg)
-        print(f'{y}: {len(d):,} rows; grams on {d.grams.notna().mean():.3f}; label match {d.cal_per_100g.notna().mean():.3f} of rows, '
-              f'{d.cals_matched.sum() / d.cals_all.sum():.3f} of calories; NOVA on {d.nova.notna().mean():.3f} of rows; '
-              f'{len(agg):,} households ({time.time() - t0:.0f}s)', flush=True)
-        del d, lab; gc.collect()
+        tot = d['cals_all'].sum()
+        print(f'{y}: {len(d):,} rows; grams on {d.grams.notna().mean():.3f}; calories by tier: own label {d.cals_matched.sum() / tot:.3f}, '
+              f'brand-size {d.cals_tier2.sum() / tot:.3f}, brand-module {d.cals_tier3.sum() / tot:.3f}, module {d.cals_tier4.sum() / tot:.3f}; '
+              f'NOVA on {d.nova.notna().mean():.3f} of rows; {len(agg):,} households ({time.time() - t0:.0f}s)', flush=True)
+        del d; gc.collect()
     hh = pd.concat(out, ignore_index=True)
     hh = hh.merge(adult_equivalents(), on=['household_code', 'panel_year'], how='left')
     OUT.parent.mkdir(parents=True, exist_ok=True)

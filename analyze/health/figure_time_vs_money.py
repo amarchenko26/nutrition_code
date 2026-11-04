@@ -5,18 +5,14 @@ For the Time section of notes/obesity.tex.
 Module level (interim/health/module_year_price_calories.parquet, build/health/
 build_module_price_calories.py; preparation scores interim/rms_variety/prep_time_scores.parquet,
 1 = open and eat to 9 = long cooking): price per 1,000 kcal = real spending (2013$) on purchase
-rows with a weight or volume size / the calories of those rows at the module's label calorie
-density POOLED OVER ALL YEARS (sum of labelled calories / sum of labelled grams, 2004-2020; since
-2026-11-04 -- the year-specific density made the 2004 point of the little-preparation group an
-artifact of powdered soft drinks, 171 vs 316 kcal/100 g in 2004 vs 2005), pooled over 2016-2020
-for the scatter. Modules with a label calorie density, a preparation score and at least half of
-their spending on rows with a size are kept.
-  time_vs_money_modules.png   left: one point per module, preparation score (jittered) against
-                              price per 1,000 kcal (log scale), point area proportional to
-                              spending; black diamonds: spending-weighted mean price at each score;
-                              the spending-weighted correlation between the score and log price is
-                              printed on the panel. Right: spending-weighted real price per 1,000
-                              kcal by preparation group (1 / 2-3 / 4-9) by year, 2004-2020.
+rows with a weight or volume size / the calories of those rows at each UPC's time-invariant
+density (build_upc_dictionary.py; until 2026-11-04 the module x year label density, which made
+the 2004 point of the little-preparation group an artifact of powdered soft drinks). Modules with
+calories, a preparation score and at least half of their spending on rows with a size are kept.
+  time_vs_money_modules.png   spending-weighted real price per 1,000 kcal by preparation group
+                              (1 / 2-3 / 4-9) by year, 2004-2020 (the module scatter that was the
+                              left panel was deleted 2026-11-04 at Anya's request; the pooled
+                              2016-2020 module statistics are still printed).
 Household level (interim/health/nova_calorie_panel.parquet, interim/panel_dataset/
 panel_prep_time.parquet, panel_hh_year.parquet; sample as in figure_nutrition_over_time.py):
   time_vs_money_households.png  left: binscatter (20 bins) of the household's real price per 1,000
@@ -71,8 +67,6 @@ def modules():
     m = pd.read_parquet(idir / 'health' / 'module_year_price_calories.parquet')
     pt = pd.read_parquet(idir / 'rms_variety' / 'prep_time_scores.parquet', columns=['product_module_code', 'prep_time'])
     m = m.merge(pt, on='product_module_code', how='left')
-    dens = m.groupby('product_module_code').apply(lambda g: 100 * g['cals_matched'].sum() / g['grams_matched'].sum() if g['grams_matched'].sum() > 0 else np.nan)
-    m['cals_est'] = m['grams'] * m['product_module_code'].map(dens) / 100      # pooled density replaces the year-specific one
     m = m[(m['cals_est'] > 0) & m['prep_time'].notna() & (m['spend_grams'] >= 0.5 * m['spend_real'])].copy()
     m['price_kcal'] = 1000 * m['spend_grams'] / m['cals_est']          # 2013$ per 1,000 kcal
     pooled = m[m['panel_year'].between(2016, 2020)].groupby('product_module_code').agg(
@@ -127,26 +121,12 @@ def resid_year(df, col, w):
 
 def main():
     pooled, over_time = modules()
-    fig, axes = plt.subplots(1, 2, figsize=(17, 6.5))
-    ax = axes[0]
-    rng = np.random.default_rng(0)
-    for lab, lo, hi, color in PREP_GROUPS:
-        g = pooled[(pooled['prep_time'] > lo) & (pooled['prep_time'] <= hi)]
-        ax.scatter(g['prep_time'] + rng.uniform(-0.25, 0.25, len(g)), g['price_kcal'], s=4 + 400 * g['spend'] / pooled['spend'].max(),
-                   color=color, alpha=0.55, edgecolors='white', linewidth=0.4, label=lab)
-    bys = pooled.groupby('prep_time').apply(lambda g: np.exp(wmean(g['log_price'], g['spend'])))
-    ax.plot(bys.index, bys.values, color='black', marker='D', ms=7, lw=1.5, label='Spending-weighted mean at each score')
-    ax.set_yscale('log')
-    ax.set_xlabel('Preparation score of the module (1 = open and eat, 9 = long cooking)')
-    ax.set_ylabel('Real price per 1,000 kcal (2013\\$, log scale)')
-    r = wcorr(pooled['prep_time'].values, pooled['log_price'].values, pooled['spend'].values)
-    ax.set_title(f'Product modules, 2016-2020: spending-weighted correlation = {r:.2f}')
-    ax.legend(frameon=False, loc='upper left', markerscale=1)
-    ax = axes[1]
+    fig, ax = plt.subplots(figsize=(9, 6))
     for lab, lo, hi, color in PREP_GROUPS:
         ax.plot(over_time.index, over_time[lab], color=color, lw=2.5, marker='o', ms=4, label=lab)
     ax.plot(over_time.index, over_time['all modules'], color='black', lw=1.5, ls='--', label='all scored modules')
     ax.set_xlabel('Year'); ax.set_ylabel('Real price per 1,000 kcal (2013\\$)')
+    ax.set_ylim(0, over_time.max().max() * 1.25)
     ax.set_title('Price per calorie by preparation group, spending-weighted'); ax.legend(frameon=False)
     fig.savefig(FIG / 'time_vs_money_modules.png', bbox_inches='tight', dpi=150); plt.close(fig)
     print(f'saved {FIG / "time_vs_money_modules.png"}')

@@ -6,7 +6,7 @@ Module level (interim/health/module_year_price_calories.parquet, build/health/bu
 a module's ultra-processed share = spending on its UPCs in NOVA group 4 / spending on its UPCs with
 an ingredient list (clean/usda/build_usda_nova.py), pooled over 2016-2020; its real price per 1,000 kcal
 = real spending (2013$) on purchase rows with a weight or volume size / the calories of those rows at
-the module's label calorie density pooled over 2004-2020 (as in figure_time_vs_money.py). Modules with
+each UPC's time-invariant density (build_upc_dictionary.py, as in figure_time_vs_money.py). Modules with
 a calorie density, at least 20 labelled UPCs with an ingredient list and at least half of their spending
 on sized rows are kept.
   upf_vs_money_modules.png  left: one point per module, ultra-processed share (percent) against price
@@ -43,8 +43,6 @@ plt.rcParams.update({'font.size': 12, 'axes.labelsize': 13, 'axes.titlesize': 12
 
 def main():
     m = pd.read_parquet(idir / 'health' / 'module_year_price_calories.parquet')
-    dens = m.groupby('product_module_code').apply(lambda g: 100 * g['cals_matched'].sum() / g['grams_matched'].sum() if g['grams_matched'].sum() > 0 else np.nan)
-    m['cals_est'] = m['grams'] * m['product_module_code'].map(dens) / 100
     m = m[(m['cals_est'] > 0) & (m['spend_grams'] >= 0.5 * m['spend_real'])].copy()
     m['price_kcal'] = 1000 * m['spend_grams'] / m['cals_est']
     # ultra-processed share of the module, pooled 2016-2020
