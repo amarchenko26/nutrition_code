@@ -6,8 +6,11 @@ Module level (interim/health/module_year_price_calories.parquet, build/health/
 build_module_price_calories.py; preparation scores interim/rms_variety/prep_time_scores.parquet,
 1 = open and eat to 9 = long cooking): price per 1,000 kcal = real spending (2013$) on purchase
 rows with a weight or volume size / the calories of those rows at the module's label calorie
-density, pooled over 2016-2020. Modules with a label calorie density, a preparation score and at
-least half of their spending on rows with a size are kept.
+density POOLED OVER ALL YEARS (sum of labelled calories / sum of labelled grams, 2004-2020; since
+2026-11-04 -- the year-specific density made the 2004 point of the little-preparation group an
+artifact of powdered soft drinks, 171 vs 316 kcal/100 g in 2004 vs 2005), pooled over 2016-2020
+for the scatter. Modules with a label calorie density, a preparation score and at least half of
+their spending on rows with a size are kept.
   time_vs_money_modules.png   left: one point per module, preparation score (jittered) against
                               price per 1,000 kcal (log scale), point area proportional to
                               spending; black diamonds: spending-weighted mean price at each score;
@@ -68,6 +71,8 @@ def modules():
     m = pd.read_parquet(idir / 'health' / 'module_year_price_calories.parquet')
     pt = pd.read_parquet(idir / 'rms_variety' / 'prep_time_scores.parquet', columns=['product_module_code', 'prep_time'])
     m = m.merge(pt, on='product_module_code', how='left')
+    dens = m.groupby('product_module_code').apply(lambda g: 100 * g['cals_matched'].sum() / g['grams_matched'].sum() if g['grams_matched'].sum() > 0 else np.nan)
+    m['cals_est'] = m['grams'] * m['product_module_code'].map(dens) / 100      # pooled density replaces the year-specific one
     m = m[(m['cals_est'] > 0) & m['prep_time'].notna() & (m['spend_grams'] >= 0.5 * m['spend_real'])].copy()
     m['price_kcal'] = 1000 * m['spend_grams'] / m['cals_est']          # 2013$ per 1,000 kcal
     pooled = m[m['panel_year'].between(2016, 2020)].groupby('product_module_code').agg(
