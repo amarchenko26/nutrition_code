@@ -157,7 +157,8 @@ def main():
     # ---------------------------------------------------------- ultra-processed share, all households
     fig, ax = plt.subplots(figsize=(9, 6))
     ax.plot(nova.index, 100 * nova[4], color=RED, lw=2.5, marker='o')
-    ax.set_ylabel('Percent of labelled calories'); ax.set_xlabel('Year'); ax.set_ylim(50, 100)
+    ax.set_ylabel('Percent of labelled calories'); ax.set_xlabel('Year')
+    ax.set_ylim(100 * nova[4].min() - 0.5, 100 * nova[4].max() + 0.5)    # tight range, as the by-income figure autoscales
     ax.set_title('Ultra-processed share of grocery calories')
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     fig.savefig(FIG / 'upf_share_over_time.png', bbox_inches='tight', dpi=150); plt.close(fig)
