@@ -17,6 +17,9 @@ Outputs (figs/movers/):
   (event_study_income.png, the two-panel predecessor, deleted 2026-11-05)
   tabs/movers/movers_results.tex  post-move means for the three objects by sample, with / without controls
                                   (+ income-quintile movers rows when 4_ has been run with `income`)
+  tabs/movers/income_movers_results.tex  the income-quintile rows alone, narrower (for labor_supply.tex)
+  event_study_income_levels.png   HEI (points) and own income around a SINGLE quintile move, up vs down, never-movers as
+                                  controls, household FE (7_build_income_movers_levels.do)
   event_study_income_movers.png   income-quintile movers (1_ --places income, 4_ income): HEI on the quintile HEI gap,
                                   income on the quintile income gap, HEI per $10k of it vs the IV-implied path
   event_study_samples.png    theta_r for HEI: all moves, moves not later reversed, first moves, single-change households
@@ -163,6 +166,52 @@ def fig_reduced_form(coefs, summ, hei_sd):
     save(fig, 'event_study_reduced_form.png')
 
 
+def table_income_results(isum, hei_sd):
+    """tabs/movers/income_movers_results.tex: the income-quintile movers only (labor_supply.tex "Income movers")."""
+    beta_pts = IV_BETA_SD * hei_sd
+    g = lambda spec, outcome: (lambda r: None if r.empty else r.iloc[0])(isum[(isum['spec'] == spec) & (isum['outcome'] == outcome)])
+    out = ['\\begin{tabular}{lrcccccc}', '\\toprule',
+           ' & & \\multicolumn{2}{c}{HEI on the quintile HEI gap} & \\multicolumn{2}{c}{Income on the quintile income gap} & \\multicolumn{2}{c}{HEI per \\$10k} \\\\',
+           '\\cmidrule(lr){3-4} \\cmidrule(lr){5-6} \\cmidrule(lr){7-8}',
+           'Controls & Moves & share of gap & pre $p$ & share of gap & pre $p$ & of the quintile gap & of own income \\\\', '\\midrule']
+    for ctl, suf in [('age, kids, composition', ''), ('none', '_nox')]:
+        h, i, pr = g('all' + suf, 'hei_usda'), g('income_all' + suf, 'real_income'), g('hei_per_inc_all' + suf, 'hei_usda')
+        if h is None or i is None or pr is None:
+            continue
+        wald = pr['jump'] / i['jump']
+        wald_se = np.sqrt((pr['jump_se'] / i['jump']) ** 2 + (pr['jump'] * i['jump_se'] / i['jump'] ** 2) ** 2)
+        out.append(f'{ctl} & {int(h["n_events"]):,} & {h["jump"]:.3f} ({h["jump_se"]:.3f}) & {h["p_pretrend"]:.2f} & '
+                   f'{i["jump"]:.3f} ({i["jump_se"]:.3f}) & {i["p_pretrend"]:.2f} & {pr["jump"]:.3f} ({pr["jump_se"]:.3f}) & {wald:.3f} ({wald_se:.3f}) \\\\')
+    out += ['\\midrule', f'\\multicolumn{{7}}{{l}}{{Income IV, Table~\\ref{{tab:hi_clean}}, full HEI (0.035 SD per \\$10k of own income)}} & {beta_pts:.2f} ({0.016 * hei_sd:.2f}) \\\\',
+            '\\bottomrule', '\\end{tabular}']
+    (TAB / 'income_movers_results.tex').write_text('\n'.join(out) + '\n')
+    print(f'saved {TAB / "income_movers_results.tex"}')
+
+
+def fig_income_levels(lc, ls_):
+    """event_study_income_levels.png: HEI (points) and own income ($10k) around a single quintile move, up-movers and
+    down-movers against never-movers (7_build_income_movers_levels.do, household FE)."""
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5.8))
+    fig.subplots_adjust(wspace=0.25)
+    for ax, (outcome, title, ylab) in zip(axes, [('hei_usda', 'HEI', 'Change in HEI (points)'),
+                                                  ('real_income', 'Household income', 'Change in income (\\$10k, 2013 dollars)')]):
+        lines = []
+        for direction, color, lab in [('up', BLUE, 'up a quintile'), ('down', RED, 'down a quintile')]:
+            d = lc[(lc['outcome'] == outcome) & (lc['direction'] == direction)].sort_values('r')
+            s = ls_[(ls_['outcome'] == outcome) & (ls_['direction'] == direction)].iloc[0]
+            ax.plot(d['r'], d['b'], color=color, lw=2.5, marker='o', ms=6,
+                    label=f'{lab}: {int(s["n_movers"]):,} households · post {s["jump"]:+.2f} (SE {s["jump_se"]:.2f}) · pre-trend p = {s["p_pretrend"]:.2f}')
+            ax.fill_between(d['r'], d['b'] - 1.96 * d['se'], d['b'] + 1.96 * d['se'], color=color, alpha=0.15, lw=0)
+            n_ctl = int(s['n_controls'])
+        ax.axhline(0, color=GREY, lw=1, ls='--'); ax.axvline(-0.5, color=GREY, lw=1, ls=':')
+        ax.set_xticks(range(-5, 6))
+        ax.set_title(f'{title} around a single move of income quintile\n{n_ctl:,} never-moving households as controls', fontsize=11)
+        ax.set_xlabel('Year relative to the move')
+        ax.set_ylabel(ylab)
+        ax.legend(loc='upper left', frameon=False, fontsize=9.5)
+    save(fig, 'event_study_income_levels.png')
+
+
 def table_results(summ, hei_sd, isum=None):
     """tabs/movers/movers_results.tex: post-move means of theta_1..theta_3 for the three outcome-gap pairs, by sample,
     with and without the age / kids / composition controls (labor_supply.tex Movers section, Anya 2026-11-05)."""
@@ -290,6 +339,9 @@ def main():
     if (BASE / 'income_event_study_summary.csv').exists():
         ic, isum = pd.read_csv(BASE / 'income_event_study_coefs.csv'), pd.read_csv(BASE / 'income_event_study_summary.csv')
         fig_income_movers(ic, isum, hei_sd)
+        table_income_results(isum, hei_sd)
+    if (BASE / 'income_levels_summary.csv').exists():
+        fig_income_levels(pd.read_csv(BASE / 'income_levels_coefs.csv'), pd.read_csv(BASE / 'income_levels_summary.csv'))
     table_results(summ, hei_sd, isum)
     if (BASE / 'other_switches_summary.csv').exists():
         fig_other_switches(pd.read_csv(BASE / 'other_switches_coefs.csv'), pd.read_csv(BASE / 'other_switches_summary.csv'))
