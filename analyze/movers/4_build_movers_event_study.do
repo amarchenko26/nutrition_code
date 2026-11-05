@@ -30,6 +30,8 @@
 clear all
 set more off
 
+// `do 4_build_movers_event_study.do county` runs the COUNTY-MOVERS version (1_ --places county,
+// place effects: outputs county_event_study_coefs.csv / _summary.csv).
 // `do 4_build_movers_event_study.do income` runs the INCOME-MOVERS version (1_ --places income,
 // within-year income quintiles as the places, Anya 2026-11-05): same programs, the income
 // events panel, outputs income_event_study_coefs.csv / income_event_study_summary.csv.
@@ -38,7 +40,7 @@ if "`places'" == "" local places occupation
 
 global data     "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data"
 global out      "$data/interim/movers"
-global prefix = cond("`places'" == "income", "income_", "")
+global prefix = cond("`places'" == "income", "income_", cond("`places'" == "county", "county_", ""))
 global coefs "$out/${prefix}event_study_coefs.csv"
 global summ  "$out/${prefix}event_study_summary.csv"
 
@@ -115,6 +117,18 @@ program define es_run
 	file close fh
 	di "`spec'/`outcome': jump (1..3) = `jump' (`jump_se'); late (4..6) = `jl' (`jl_se'); pre (-4..-2) = `pre' (`pre_se'), p = `pp'; events `nev', households `nhh'"
 end
+
+// ---------------------------------------------------------------- county movers (place effects, 2026-11-05)
+// `do 4_... county`: every county change (1_ --places county), theta_r = share of the
+// origin-destination COUNTY gap in the outcome that the mover's own outcome closes.
+if "`places'" == "county" {
+	foreach o in hei_usda hi_usda upf_share produce_share sugar_1000 soda_spend_share {
+		es_run "all" "`o'" "1"
+	}
+	es_run "income_all" "real_income" "1"
+	di "4_build_movers_event_study.do (county movers) complete"
+	exit
+}
 
 // ---------------------------------------------------------------- income movers
 if "`places'" == "income" {

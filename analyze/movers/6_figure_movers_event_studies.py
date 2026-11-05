@@ -22,6 +22,9 @@ Outputs (figs/movers/):
                                   produce shares of calories and spending, sugar, sodium, whole grains, soda spending)
   event_study_income_levels.png   HEI (points) and own income around a SINGLE quintile move, up vs down, never-movers as
                                   controls, household FE (7_build_income_movers_levels.do)
+  figs/what_moves/place/county_movers.png  COUNTY movers (1_ --places county, 4_ county): theta_r = share of the
+                                  origin-destination county gap closed, HEI / simple index / UPF share / produce share /
+                                  sugar / soda spending / income (place effects, 2026-11-05)
   event_study_income_movers.png   income-quintile movers (1_ --places income, 4_ income): HEI on the quintile HEI gap,
                                   income on the quintile income gap, HEI per $10k of it vs the IV-implied path
   event_study_samples.png    theta_r for HEI: all moves, moves not later reversed, first moves, single-change households
@@ -249,6 +252,38 @@ def fig_income_levels_outcomes(lc, ls_):
     save(fig, 'event_study_income_levels_outcomes.png')
 
 
+FIG_PLACE = Path('/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf') / 'figs' / 'what_moves' / 'place'
+COUNTY_OUTCOMES = [('hei_usda', 'HEI'), ('hi_usda', 'Simple index (USDA)'),
+                   ('upf_share', 'Ultra-processed share of calories'), ('produce_share', 'Produce share of calories'),
+                   ('sugar_1000', 'Sugar per 1,000 kcal'), ('soda_spend_share', 'Soda share of grocery spending'),
+                   ('real_income', 'Household income')]
+
+
+def fig_county_movers(cc, cs):
+    """figs/what_moves/place/county_movers.png: theta_r = share of the origin-destination COUNTY gap closed by
+    households that move county (1_ --places county, 4_ county), one panel per outcome."""
+    fig, axes = plt.subplots(2, 4, figsize=(22, 10), sharex=True, sharey=True)
+    fig.subplots_adjust(wspace=0.12, hspace=0.45)
+    for ax, (outcome, title) in zip(axes.flat, COUNTY_OUTCOMES):
+        spec = 'income_all' if outcome == 'real_income' else 'all'
+        d = cc[(cc['spec'] == spec) & (cc['outcome'] == outcome)]
+        s = cs[(cs['spec'] == spec) & (cs['outcome'] == outcome)]
+        if d.empty or s.empty:
+            ax.set_visible(False)
+            continue
+        es_panel(ax, d)
+        ax.set_title(f'{title}\n{header(s.iloc[0], lines=True)}', fontsize=10.5)
+    axes.flat[-1].set_visible(False)
+    for ax in axes[-1]:
+        ax.set_xlabel('Year relative to the move')
+    for ax in axes[:, 0]:
+        ax.set_ylabel('$\\theta_r$: share of the county gap')
+    FIG_PLACE.mkdir(parents=True, exist_ok=True)
+    fig.savefig(FIG_PLACE / 'county_movers.png', bbox_inches='tight', dpi=150)
+    plt.close(fig)
+    print(f'saved {FIG_PLACE / "county_movers.png"}')
+
+
 def table_results(summ, hei_sd, isum=None):
     """tabs/movers/movers_results.tex: post-move means of theta_1..theta_3 for the three outcome-gap pairs, by sample,
     with and without the age / kids / composition controls (labor_supply.tex Movers section, Anya 2026-11-05)."""
@@ -382,6 +417,8 @@ def main():
         fig_income_levels(lc, ls_)
         fig_income_levels_outcomes(lc, ls_)
     table_results(summ, hei_sd, isum)
+    if (BASE / 'county_event_study_summary.csv').exists():
+        fig_county_movers(pd.read_csv(BASE / 'county_event_study_coefs.csv'), pd.read_csv(BASE / 'county_event_study_summary.csv'))
     if (BASE / 'other_switches_summary.csv').exists():
         fig_other_switches(pd.read_csv(BASE / 'other_switches_coefs.csv'), pd.read_csv(BASE / 'other_switches_summary.csv'))
     print(summ.round(3).to_string())

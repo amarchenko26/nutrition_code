@@ -57,6 +57,14 @@ delta = destination minus origin quintile mean (HEI, or income). No employed /
 not-employed distinction (emp2emp = 1, notemp = 0 for every event). Outputs
 income_movers_events_panel.parquet/.dta, income_quintile_means.csv and
 income_movers_panel.parquet/.dta in interim/movers/.
+
+COUNTY MOVERS (`--places county`, 2026-11-05, place effects for the 'what moves nutrition'
+review): the places are COUNTIES (fips), geographic movers are KEPT (they are the events),
+every dated county change between consecutive panel years is an event (one-year reversals
+smoothed as above), delta = destination minus origin county mean of each outcome on
+household-years outside move years; counties with fewer than MIN_COUNTY_HH_YEARS such
+household-years get missing means, so events touching them drop out of the Stata run.
+Outputs county_movers_events_panel.parquet/.dta, county_means.csv, county_movers_panel.
 """
 
 import argparse
@@ -84,6 +92,7 @@ OCC_LABELS = {1: 'Professional', 2: 'Manager/owner', 3: 'Clerical', 4: 'Sales',
               12: 'Not employed'}
 EMPLOYED = {1, 2, 3, 4, 5, 6, 8, 9, 11}
 DROP_FROM_ANALYSIS = {7, 10}
+MIN_COUNTY_HH_YEARS = 100   # county means (places = county) need this many household-years outside move years
 
 # cell bins as in build/iv/build_iv.py
 EDUC_BINS = [0, 11.9, 12.9, 15.9, np.inf]
@@ -160,10 +169,14 @@ def smooth_reversals(df):
 def main(places='occupation'):
     global OCC_LABELS, EMPLOYED, DROP_FROM_ANALYSIS
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    prefix = '' if places == 'occupation' else 'income_'
+    prefix = {'occupation': '', 'income': 'income_', 'county': 'county_'}[places]
     if places == 'income':
         OCC_LABELS = {k: f'Q{k}' for k in range(1, 6)}
         EMPLOYED = set(range(1, 6))
+        DROP_FROM_ANALYSIS = set()
+    if places == 'county':
+        OCC_LABELS = {}
+        EMPLOYED = set()
         DROP_FROM_ANALYSIS = set()
     df, _ = pyreadstat.read_dta(str(IN), usecols=COLS)
     df['hhid'] = df['hhid'].astype('int64')
@@ -188,12 +201,17 @@ def main(places='occupation'):
     print('sub-outcome means:', df[OUTCOMES_DTA[3:] + OUTCOMES_NOVA].mean().round(2).to_dict())
 
     # --------------------------------------------------- assigned occupation
-    df = df[df['movers_f'] == 0].copy()
+    if places != 'county':
+        df = df[df['movers_f'] == 0].copy()          # county movers ARE the events for places = county
     if places == 'occupation':
         m = df['male_head_occupation'].astype(float)
         f = df['female_head_occupation'].astype(float)
         df['occ'] = m.where(~(m.isna() | m.isin([0, 7])), f)
         df = df[df['occ'].notna() & (df['occ'] > 0)].copy()
+    elif places == 'county':
+        df['occ'] = pd.to_numeric(df['fips'], errors='coerce')
+        df = df[df['occ'].notna()].copy()
+        print(f"households that ever change county: {df[df['movers_f'] == 1]['hhid'].nunique():,} of {df['hhid'].nunique():,}")
     else:
         df = df[df['real_income'].notna() & df['projection_factor'].notna()].copy()
         df['occ'] = income_quintiles(df)
@@ -250,7 +268,7 @@ def main(places='occupation'):
         columns={'year': 'm_file', 'occ_prev': 'origin', 'occ': 'dest'}).reset_index(drop=True)
     ev['origin'] = ev['origin'].astype(int)
     ev['event_id'] = np.arange(1, len(ev) + 1)
-    ev['emp2emp'] = (ev['origin'].isin(EMPLOYED) & ev['dest'].isin(EMPLOYED)).astype(int)
+    ev['emp2emp'] = (ev['origin'].isin(EMPLOYED) & ev['dest'].isin(EMPLOYED)).astype(int) if places != 'county' else 1
     ev['notemp'] = (((ev['origin'] == 12) | (ev['dest'] == 12)) & (places == 'occupation')).astype(int)
     n_sw = g['switch'].first().rename('n_sw')  # placeholder, replaced below
     n_sw = df.groupby('hhid')['n_switch'].first()
@@ -288,7 +306,7 @@ def main(places='occupation'):
     def occ_means(d, with_se):
         rows = []
         for j, x in d.groupby('occ'):
-            rec = {'occ': j, 'label': OCC_LABELS[j], 'n_hh_years': len(x), 'n_households': x['hhid'].nunique(),
+            rec = {'occ': j, 'label': OCC_LABELS.get(j, str(j)), 'n_hh_years': len(x), 'n_households': x['hhid'].nunique(),
                    'income_w': wmean(x['real_income'], x['projection_factor']),
                    'age_w': wmean(x['avg_age_hh_head'], x['projection_factor'])}
             for v in OUTCOMES:
@@ -301,14 +319,21 @@ def main(places='occupation'):
 
     base = df[(df['analysis'] == 1) & (df['is_r0'] == 0)]
     means = occ_means(base, with_se=False)
+    if places == 'county':
+        small = means['n_hh_years'] < MIN_COUNTY_HH_YEARS
+        means.loc[small, [c for c in means.columns if c.startswith('ybar_')]] = np.nan
+        print(f'counties with fewer than {MIN_COUNTY_HH_YEARS} household-years outside move years: {int(small.sum()):,} of {len(means):,}; their means set missing')
     means12 = occ_means(df[df['is_r0'] == 0], with_se=True)
-    means12['income_rank'] = means12['income_w'].rank().astype(int)
-    means12['hei_rank'] = means12['ybar_hei_usda'].rank().astype(int)
-    means12.to_csv(OUT_DIR / (prefix + ('quintile_means.csv' if places == 'income' else 'occupation_means.csv')))
-    print(means12.round(3).to_string())
+    means12['income_rank'] = means12['income_w'].rank(na_option='bottom').astype(int)     # na_option: counties with no income (places = county)
+    means12['hei_rank'] = means12['ybar_hei_usda'].rank(na_option='bottom').astype(int)
+    means12.to_csv(OUT_DIR / {'occupation': 'occupation_means.csv', 'income': 'income_quintile_means.csv', 'county': 'county_means.csv'}[places])
+    print(means12.round(3).to_string() if places != 'county' else means12.round(3).head(10).to_string())
 
     for v in OUTCOMES:
         ev[f'delta_{v}'] = ev['dest'].map(means[f'ybar_{v}']) - ev['origin'].map(means[f'ybar_{v}'])
+    if places == 'county':
+        print(f"county moves: {len(ev):,}; with both county means defined: {int(ev['delta_hei_usda'].notna().sum()):,}; "
+              f"mean |county HEI gap| {ev['delta_hei_usda'].abs().mean():.2f} points, SD of the gap {ev['delta_hei_usda'].std():.2f}")
     # education gap for the educ_up events: mean HEI by education bin on never-changers (by year, averaged)
     nc = df[(df['educ_grp'] == 0) & (df['analysis'] == 1)]
     eb = nc.groupby(['educ_bin', 'year']).apply(lambda x: wmean(x['hei_usda'], x['projection_factor'])).groupby(level=0).mean()
@@ -349,7 +374,7 @@ def main(places='occupation'):
     out = df[keep].copy()
     for c in ['switch', 'switch_consec']:
         out[c] = out[c].astype(int)
-    name = 'occupation_movers_panel' if places == 'occupation' else 'income_movers_panel'
+    name = {'occupation': 'occupation_movers_panel', 'income': 'income_movers_panel', 'county': 'county_movers_panel'}[places]
     out.to_parquet(OUT_DIR / f'{name}.parquet', index=False)
     out.to_stata(OUT_DIR / f'{name}.dta', write_index=False, version=118)
 
@@ -369,5 +394,5 @@ def main(places='occupation'):
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
-    ap.add_argument('--places', choices=['occupation', 'income'], default='occupation')
+    ap.add_argument('--places', choices=['occupation', 'income', 'county'], default='occupation')
     main(ap.parse_args().places)
