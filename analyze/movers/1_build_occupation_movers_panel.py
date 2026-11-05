@@ -48,8 +48,18 @@ clean pre-move year (file m-2) and r = 1 the first clean post-move year (file m)
 delta_<outcome> = y_dest - y_orig (also for real_income, $10k), where y_j is the
 projection-weighted mean of the outcome by occupation and year, averaged across
 years, on household-years outside any event's r = 0 (as in FGW).
+
+INCOME MOVERS (`--places income`, Anya 2026-11-05): the same build with within-year
+income QUINTILES of household income (real_income, projection-weighted cut points
+by year) as the places, so a move is a change of quintile between consecutive
+panel years (one-year reversals smoothed as above), every dated move an event,
+delta = destination minus origin quintile mean (HEI, or income). No employed /
+not-employed distinction (emp2emp = 1, notemp = 0 for every event). Outputs
+income_movers_events_panel.parquet/.dta, income_quintile_means.csv and
+income_movers_panel.parquet/.dta in interim/movers/.
 """
 
+import argparse
 import numpy as np
 import pandas as pd
 import pyreadstat
@@ -108,6 +118,19 @@ def first_switch_events(df, state, name, is_event):
     return df.drop(columns=['_prev', '_size_prev', '_nheads_prev', '_chg', '_chgno'])
 
 
+def income_quintiles(df):
+    """Within-year quintile (1-5) of real_income, projection-weighted cut points; households in the
+    same income bracket always share a quintile (the cut point is the smallest income whose
+    weighted CDF reaches k/5)."""
+    out = pd.Series(np.nan, index=df.index)
+    for y, x in df.groupby('year'):
+        byinc = x.groupby('real_income')['projection_factor'].sum().sort_index()
+        cdf = byinc.cumsum() / byinc.sum()
+        cuts = [byinc.index[np.searchsorted(cdf.values, k / 5)] for k in range(1, 5)]
+        out.loc[x.index] = 1 + np.searchsorted(np.array(cuts), x['real_income'].values, side='right')
+    return out
+
+
 def smooth_reversals(df):
     """occ_t -> occ_{t-1} when occ_t != occ_{t-1} and occ_{t+1} == occ_{t-1}, with
     t-1, t, t+1 consecutive observed years of the same household. Sequential, so
@@ -125,20 +148,31 @@ def smooth_reversals(df):
     return occ, n_blip
 
 
-def main():
+def main(places='occupation'):
+    global OCC_LABELS, EMPLOYED, DROP_FROM_ANALYSIS
     OUT_DIR.mkdir(parents=True, exist_ok=True)
+    prefix = '' if places == 'occupation' else 'income_'
+    if places == 'income':
+        OCC_LABELS = {k: f'Q{k}' for k in range(1, 6)}
+        EMPLOYED = set(range(1, 6))
+        DROP_FROM_ANALYSIS = set()
     df, _ = pyreadstat.read_dta(str(IN), usecols=COLS)
     df['hhid'] = df['hhid'].astype('int64')
     df['year'] = df['year'].astype(int)
     print(f'loaded {len(df):,} household-years')
 
     # --------------------------------------------------- assigned occupation
-    m = df['male_head_occupation'].astype(float)
-    f = df['female_head_occupation'].astype(float)
-    df['occ'] = m.where(~(m.isna() | m.isin([0, 7])), f)
-    df = df[df['occ'].notna() & (df['occ'] > 0)].copy()
-    df['occ'] = df['occ'].astype(int)
     df = df[df['movers_f'] == 0].copy()
+    if places == 'occupation':
+        m = df['male_head_occupation'].astype(float)
+        f = df['female_head_occupation'].astype(float)
+        df['occ'] = m.where(~(m.isna() | m.isin([0, 7])), f)
+        df = df[df['occ'].notna() & (df['occ'] > 0)].copy()
+    else:
+        df = df[df['real_income'].notna() & df['projection_factor'].notna()].copy()
+        df['occ'] = income_quintiles(df)
+        print('household-years by income quintile:', df['occ'].value_counts().sort_index().to_dict())
+    df['occ'] = df['occ'].astype(int)
     print(f'geographic non-movers with an occupation code: {len(df):,} '
           f'household-years, {df.hhid.nunique():,} households')
 
@@ -191,7 +225,7 @@ def main():
     ev['origin'] = ev['origin'].astype(int)
     ev['event_id'] = np.arange(1, len(ev) + 1)
     ev['emp2emp'] = (ev['origin'].isin(EMPLOYED) & ev['dest'].isin(EMPLOYED)).astype(int)
-    ev['notemp'] = ((ev['origin'] == 12) | (ev['dest'] == 12)).astype(int)
+    ev['notemp'] = (((ev['origin'] == 12) | (ev['dest'] == 12)) & (places == 'occupation')).astype(int)
     n_sw = g['switch'].first().rename('n_sw')  # placeholder, replaced below
     n_sw = df.groupby('hhid')['n_switch'].first()
     ev['single'] = (ev['hhid'].map(n_sw) == 1).astype(int)            # the household's only change
@@ -244,7 +278,7 @@ def main():
     means12 = occ_means(df[df['is_r0'] == 0], with_se=True)
     means12['income_rank'] = means12['income_w'].rank().astype(int)
     means12['hei_rank'] = means12['ybar_hei_usda'].rank().astype(int)
-    means12.to_csv(OUT_DIR / 'occupation_means.csv')
+    means12.to_csv(OUT_DIR / (prefix + ('quintile_means.csv' if places == 'income' else 'occupation_means.csv')))
     print(means12.round(3).to_string())
 
     for v in OUTCOMES:
@@ -276,8 +310,8 @@ def main():
     st['n_pre'] = st['n_pre'].fillna(0).astype(int)
     st['n_post'] = st['n_post'].fillna(0).astype(int)
     st = st.drop(columns='seg').sort_values(['event_id', 'year']).reset_index(drop=True)
-    st.to_parquet(OUT_DIR / 'movers_events_panel.parquet', index=False)
-    st.to_stata(OUT_DIR / 'movers_events_panel.dta', write_index=False, version=118)
+    st.to_parquet(OUT_DIR / f'{prefix}movers_events_panel.parquet', index=False)
+    st.to_stata(OUT_DIR / f'{prefix}movers_events_panel.dta', write_index=False, version=118)
 
     # -------------------------------------------- household-year panel
     keep = ['hhid', 'year', 'occ', 'occ_raw', 'mover_type', 'n_events', 'n_events_ee', 'n_obs', 'n_switch',
@@ -289,8 +323,9 @@ def main():
     out = df[keep].copy()
     for c in ['switch', 'switch_consec']:
         out[c] = out[c].astype(int)
-    out.to_parquet(OUT_DIR / 'occupation_movers_panel.parquet', index=False)
-    out.to_stata(OUT_DIR / 'occupation_movers_panel.dta', write_index=False, version=118)
+    name = 'occupation_movers_panel' if places == 'occupation' else 'income_movers_panel'
+    out.to_parquet(OUT_DIR / f'{name}.parquet', index=False)
+    out.to_stata(OUT_DIR / f'{name}.dta', write_index=False, version=118)
 
     # ------------------------------------------------------------ summary
     print('\nhouseholds by mover type (0 never changes, 1 one employed-to-employed move only, '
@@ -303,8 +338,10 @@ def main():
     see = st[st['emp2emp'] == 1]
     print(f'stacked rows, employed-to-employed: {len(see):,}; relative-year distribution: '
           f'{see["r"].clip(-8, 8).value_counts().sort_index().to_dict()}')
-    print(f'\nsaved {OUT_DIR / "occupation_movers_panel.parquet"}, {OUT_DIR / "movers_events_panel.dta"}')
+    print(f'\nsaved {OUT_DIR / (name + ".parquet")}, {OUT_DIR / (prefix + "movers_events_panel.dta")}')
 
 
 if __name__ == '__main__':
-    main()
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--places', choices=['occupation', 'income'], default='occupation')
+    main(ap.parse_args().places)

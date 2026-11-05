@@ -15,6 +15,10 @@ Outputs (figs/movers/):
   event_study_reduced_form.png  theta_r for HEI per $10k of the occupation income gap (the reduced form), same two
                                 samples, each against the path the income IV implies (0.035 SD per $10k x income theta_r)
   (event_study_income.png, the two-panel predecessor, deleted 2026-11-05)
+  tabs/movers/movers_results.tex  post-move means for the three objects by sample, with / without controls
+                                  (+ income-quintile movers rows when 4_ has been run with `income`)
+  event_study_income_movers.png   income-quintile movers (1_ --places income, 4_ income): HEI on the quintile HEI gap,
+                                  income on the quintile income gap, HEI per $10k of it vs the IV-implied path
   event_study_samples.png    theta_r for HEI: all moves, moves not later reversed, first moves, single-change households
 """
 
@@ -27,6 +31,7 @@ from pathlib import Path
 
 BASE = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data') / 'interim' / 'movers'
 FIG = Path('/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf') / 'figs' / 'movers'
+TAB = Path('/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf') / 'tabs' / 'movers'
 BLUE, RED, GREY = '#3b6b9a', '#a63d40', '#7a7a7a'
 IV_BETA_SD = 0.035      # income IV, full HEI, clean sample: SD per $10k (tabs/labor_supply/hi_clean.tex)
 
@@ -158,6 +163,71 @@ def fig_reduced_form(coefs, summ, hei_sd):
     save(fig, 'event_study_reduced_form.png')
 
 
+def table_results(summ, hei_sd, isum=None):
+    """tabs/movers/movers_results.tex: post-move means of theta_1..theta_3 for the three outcome-gap pairs, by sample,
+    with and without the age / kids / composition controls (labor_supply.tex Movers section, Anya 2026-11-05)."""
+    beta_pts = IV_BETA_SD * hei_sd
+    def g(spec, outcome):
+        r = summ[(summ['spec'] == spec) & (summ['outcome'] == outcome)]
+        return None if r.empty else r.iloc[0]
+    out = ['\\begin{tabular}{llrcccccc}', '\\toprule',
+           ' & & & \\multicolumn{2}{c}{HEI on the HEI gap} & \\multicolumn{2}{c}{Income on the income gap} & \\multicolumn{2}{c}{HEI on the income gap} \\\\',
+           '\\cmidrule(lr){4-5} \\cmidrule(lr){6-7} \\cmidrule(lr){8-9}',
+           'Sample & Controls & Moves & share of gap & pre $p$ & share of gap & pre $p$ & HEI pts per \\$10k & IV-implied \\\\', '\\midrule']
+    blocks = [(summ, 'All moves', 'all'), (summ, 'From an employed occupation', 'emporig')]
+    if isum is not None:
+        blocks.append((isum, 'Income-quintile movers', 'all'))
+    for frame, label, base in blocks:
+        if label == 'Income-quintile movers':
+            out.append('\\midrule')
+        for ctl, suf in [('age, kids, comp.', ''), ('none', '_nox')]:
+            gg = lambda spec, outcome: (lambda r: None if r.empty else r.iloc[0])(frame[(frame['spec'] == spec) & (frame['outcome'] == outcome)])
+            h, i, pr = gg(base + suf, 'hei_usda'), gg('income_' + base + suf, 'real_income'), gg('hei_per_inc_' + base + suf, 'hei_usda')
+            if h is None or i is None or pr is None:
+                continue
+            out.append(f'{label if suf == "" else ""} & {ctl} & {int(h["n_events"]):,} & {h["jump"]:.3f} ({h["jump_se"]:.3f}) & {h["p_pretrend"]:.2f} & '
+                       f'{i["jump"]:.3f} ({i["jump_se"]:.3f}) & {i["p_pretrend"]:.2f} & {pr["jump"]:.3f} ({pr["jump_se"]:.3f}) & {beta_pts * i["jump"]:.3f} \\\\')
+    out += ['\\bottomrule', '\\end{tabular}']
+    TAB.mkdir(parents=True, exist_ok=True)
+    (TAB / 'movers_results.tex').write_text('\n'.join(out) + '\n')
+    print(f'saved {TAB / "movers_results.tex"}')
+
+
+def fig_income_movers(ic, isum, hei_sd):
+    """Income-quintile movers (1_ --places income, 4_ income): theta_r for HEI on the quintile HEI gap, income on the
+    quintile income gap, HEI per $10k of the quintile income gap against the IV-implied path."""
+    beta_pts = IV_BETA_SD * hei_sd
+    fig, axes = plt.subplots(1, 3, figsize=(19, 5.8))
+    fig.subplots_adjust(wspace=0.3)
+    specs = [('all', 'hei_usda', 'HEI on the quintile HEI gap', '$\\theta_r$: share of the HEI gap', (-0.6, 1.2)),
+             ('income_all', 'real_income', 'Income on the quintile income gap', '$\\theta_r$: share of the income gap', (-0.4, 1.1)),
+             ('hei_per_inc_all', 'hei_usda', 'HEI per \\$10k of the quintile income gap', 'HEI points per \\$10k of income gap', None)]
+    inc = ic[(ic['spec'] == 'income_all') & (ic['outcome'] == 'real_income')].sort_values('r')
+    for ax, (spec, outcome, title, ylab, ylim) in zip(axes, specs):
+        d = ic[(ic['spec'] == spec) & (ic['outcome'] == outcome)].sort_values('r')
+        s = isum[(isum['spec'] == spec) & (isum['outcome'] == outcome)].iloc[0]
+        d = d[(d['r'] >= -6) & (d['r'] <= 6)]
+        ax.plot(d['r'], d['b'], color=BLUE, lw=2.5, marker='o', ms=6, label='movers, estimated')
+        ax.fill_between(d['r'], d['b'] - 1.96 * d['se'], d['b'] + 1.96 * d['se'], color=BLUE, alpha=0.15, lw=0)
+        ax.axhline(0, color=GREY, lw=1, ls='--'); ax.axvline(-0.5, color=GREY, lw=1, ls=':')
+        extra = ''
+        if ylim is not None:
+            ax.axhline(1, color=GREY, lw=1, ls='--'); ax.set_ylim(*ylim)
+        else:
+            si = isum[(isum['spec'] == 'income_all') & (isum['outcome'] == 'real_income')].iloc[0]
+            implied = inc.set_index('r')['b'] * beta_pts
+            implied = implied[(implied.index >= -6) & (implied.index <= 6)]
+            ax.plot(implied.index, implied.values, color=RED, lw=2.5, ls='--', marker='s', ms=5,
+                    label=f'implied by the income IV: {beta_pts:.2f} HEI points per \\$10k times the income path')
+            ax.legend(loc='upper left', frameon=False, fontsize=9.5)
+            extra = f' · IV-implied {beta_pts * si["jump"]:.3f}'
+        ax.set_xticks(range(-6, 7))
+        ax.set_title(f'{title}\n{int(s["n_events"]):,} moves · post {s["jump"]:.3f} (SE {s["jump_se"]:.3f}){extra} · pre-trend p = {s["p_pretrend"]:.2f}', fontsize=11)
+        ax.set_xlabel('Year relative to the move')
+        ax.set_ylabel(ylab)
+    save(fig, 'event_study_income_movers.png')
+
+
 def fig_other_switches(oc, os_):
     designs = [('birth', 'Birth: child under 6 arrives'), ('death', 'Death of a head (widowed)'),
                ('educ', 'Education increase (a head\'s schooling +2 years)'),
@@ -214,6 +284,11 @@ def main():
     hei_sd = panel.loc[panel['analysis'] == 1, 'hei_usda'].std()
     fig_first_stage(coefs, summ)
     fig_reduced_form(coefs, summ, hei_sd)
+    isum = None
+    if (BASE / 'income_event_study_summary.csv').exists():
+        ic, isum = pd.read_csv(BASE / 'income_event_study_coefs.csv'), pd.read_csv(BASE / 'income_event_study_summary.csv')
+        fig_income_movers(ic, isum, hei_sd)
+    table_results(summ, hei_sd, isum)
     if (BASE / 'other_switches_summary.csv').exists():
         fig_other_switches(pd.read_csv(BASE / 'other_switches_coefs.csv'), pd.read_csv(BASE / 'other_switches_summary.csv'))
     print(summ.round(3).to_string())

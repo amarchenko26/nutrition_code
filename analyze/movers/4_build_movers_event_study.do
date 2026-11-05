@@ -30,10 +30,19 @@
 clear all
 set more off
 
+// `do 4_build_movers_event_study.do income` runs the INCOME-MOVERS version (1_ --places income,
+// within-year income quintiles as the places, Anya 2026-11-05): same programs, the income
+// events panel, outputs income_event_study_coefs.csv / income_event_study_summary.csv.
+local places "`1'"
+if "`places'" == "" local places occupation
+
 global data     "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data"
 global out      "$data/interim/movers"
+global prefix = cond("`places'" == "income", "income_", "")
+global coefs "$out/${prefix}event_study_coefs.csv"
+global summ  "$out/${prefix}event_study_summary.csv"
 
-use "$out/movers_events_panel.dta", clear
+use "$out/${prefix}movers_events_panel.dta", clear
 
 gen rb = max(-7, min(7, r))
 global rlist
@@ -45,19 +54,22 @@ forvalues k = -7/7 {
 }
 
 cap file close fh
-file open fh using "$out/event_study_coefs.csv", write replace
+file open fh using "$coefs", write replace
 file write fh "spec,outcome,r,b,se,N,n_events,n_households" _n
 file close fh
-file open fh using "$out/event_study_summary.csv", write replace
+file open fh using "$summ", write replace
 file write fh "spec,outcome,jump,jump_se,jump_late,jump_late_se,pre,pre_se,p_pretrend,N,n_events,n_households" _n
 file close fh
 
-// es_run "spec" "outcome" "sample condition" ["delta variable"]
-// (delta defaults to delta_<outcome>; pass delta_real_income to scale by the occupation INCOME gap)
+// es_run "spec" "outcome" "sample condition" ["delta variable"] ["controls"]
+// (delta defaults to delta_<outcome>; pass delta_real_income to scale by the occupation INCOME gap;
+//  controls default to age5 kids hh_comp, pass "none" for event and year FE only -- Anya 2026-11-05)
 cap program drop es_run
 program define es_run
-	args spec outcome cond dvar
+	args spec outcome cond dvar fe
 	if "`dvar'" == "" local dvar delta_`outcome'
+	if "`fe'" == "" local fe age5 kids hh_comp
+	if "`fe'" == "none" local fe
 	local ddlist
 	local dlist
 	foreach s of global rlist {
@@ -68,7 +80,7 @@ program define es_run
 	}
 	di _n "==== `spec' / `outcome' : `cond'"
 	reghdfe `outcome' `ddlist' `dlist' [pw = projection_factor] if `cond', ///
-		absorb(event_id year age5 kids hh_comp) cluster(hhid)
+		absorb(event_id year `fe') cluster(hhid)
 	local N = e(N)
 	quietly egen byte _te = tag(event_id) if e(sample)
 	quietly count if _te == 1
@@ -77,7 +89,7 @@ program define es_run
 	quietly count if _th == 1
 	local nhh = r(N)
 	drop _te _th
-	file open fh using "$out/event_study_coefs.csv", write append
+	file open fh using "$coefs", write append
 	forvalues k = -7/7 {
 		if `k' == -1 {
 			file write fh "`spec',`outcome',-1,0,0,`N',`nev',`nhh'" _n
@@ -98,12 +110,25 @@ program define es_run
 	local pre_se = r(se)
 	quietly test dd_m4 dd_m3 dd_m2
 	local pp = r(p)
-	file open fh using "$out/event_study_summary.csv", write append
+	file open fh using "$summ", write append
 	file write fh "`spec',`outcome',`jump',`jump_se',`jl',`jl_se',`pre',`pre_se',`pp',`N',`nev',`nhh'" _n
 	file close fh
 	di "`spec'/`outcome': jump (1..3) = `jump' (`jump_se'); late (4..6) = `jl' (`jl_se'); pre (-4..-2) = `pre' (`pre_se'), p = `pp'; events `nev', households `nhh'"
 end
 
+// ---------------------------------------------------------------- income movers
+if "`places'" == "income" {
+	es_run "all"                 "hei_usda"    "1"
+	es_run "income_all"          "real_income" "1"
+	es_run "hei_per_inc_all"     "hei_usda"    "1" "delta_real_income"
+	es_run "all_nox"             "hei_usda"    "1" "delta_hei_usda"    "none"
+	es_run "income_all_nox"      "real_income" "1" "delta_real_income" "none"
+	es_run "hei_per_inc_all_nox" "hei_usda"    "1" "delta_real_income" "none"
+	di "4_build_movers_event_study.do (income movers) complete"
+	exit
+}
+
+// ---------------------------------------------------------------- occupation movers
 es_run "main"      "hei_usda" "emp2emp == 1"
 es_run "main"      "hi_usda"  "emp2emp == 1"
 es_run "main"      "hi"       "emp2emp == 1"
@@ -131,6 +156,13 @@ es_run "income_all"          "real_income" "1"
 es_run "income_emporig"      "real_income" "origin != 12"
 es_run "hei_per_inc_all"     "hei_usda"    "1"            "delta_real_income"
 es_run "hei_per_inc_emporig" "hei_usda"    "origin != 12" "delta_real_income"
+// the same six WITHOUT the age / kids / composition controls (event and year FE only)
+es_run "all_nox"                 "hei_usda"    "1"            "delta_hei_usda"   "none"
+es_run "emporig_nox"             "hei_usda"    "origin != 12" "delta_hei_usda"   "none"
+es_run "income_all_nox"          "real_income" "1"            "delta_real_income" "none"
+es_run "income_emporig_nox"      "real_income" "origin != 12" "delta_real_income" "none"
+es_run "hei_per_inc_all_nox"     "hei_usda"    "1"            "delta_real_income" "none"
+es_run "hei_per_inc_emporig_nox" "hei_usda"    "origin != 12" "delta_real_income" "none"
 // NO plain event study (rho_r alone, by direction of the move) on this panel: every
 // household is a mover, so a linear trend in r is collinear with the year effects and
 // the event FE and is pinned only by the binned tails -- tried 2026-11-05 for up-moves
