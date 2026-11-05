@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 BASE = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data') / 'interim' / 'movers'
-FIG = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition') / 'figs' / 'movers'
+FIG = Path('/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf') / 'figs' / 'movers'
 BLUE, RED, GREY = '#3b6b9a', '#a63d40', '#7a7a7a'
 IV_BETA_SD = 0.035      # income IV, full HEI, clean sample: SD per $10k (tabs/labor_supply/hi_clean.tex)
 

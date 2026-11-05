@@ -257,7 +257,7 @@ esttab m7 m7_usda m8 m8_usda, ///
 	stats(N, fmt(%9.0fc) labels("N"))
 
 // Export to LaTeX
-esttab m1 m2 m6 m7 m8 using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/tabs/results.tex", ///
+esttab m1 m2 m6 m7 m8 using "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/tabs/results.tex", ///
 	replace booktabs label ///
 	b(3) se(3) ///
 	star(* 0.10 ** 0.05 *** 0.01) ///
@@ -268,7 +268,7 @@ esttab m1 m2 m6 m7 m8 using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Ap
 	nonotes
 	
 	
-esttab m4 m5 using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/tabs/results_robust.tex", ///
+esttab m4 m5 using "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/tabs/results_robust.tex", ///
 	replace booktabs label ///
 	b(3) se(3) ///
 	star(* 0.10 ** 0.05 *** 0.01) ///
@@ -310,7 +310,7 @@ coefplot iv_q*, keep(real_income) ///
     xlabel(.7 "Q1 (Lowest)" .9 "Q2" 1.1 "Q3" 1.3 "Q4 (Highest)", labsize(medlarge)) ///
     ylabel(, labsize(medlarge))
 
-graph export "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/baseline_inc.png", replace 
+graph export "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/baseline_inc.png", replace 
 
 // Export one blank one 
 coefplot iv_q*, keep(real_income) ///
@@ -324,7 +324,7 @@ coefplot iv_q*, keep(real_income) ///
     ylabel(, labsize(medlarge)) ///
     mcolor(white) mlcolor(white) ciopts(recast(rcap) lwidth(medthick) lcolor(white))
 	
-graph export "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/baseline_inc_blank.png", replace 
+graph export "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/baseline_inc_blank.png", replace 
 
 	
 // 2SLS by quintile
@@ -419,7 +419,7 @@ graph combine g1 g2, ///
     cols(2) ///
     ycommon xsize(7) ysize(3.5)
 
-graph export "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/iv_binscatter.png", replace width(2400)
+graph export "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/iv_binscatter.png", replace width(2400)
 
 
 
@@ -457,7 +457,7 @@ foreach var in `spend_vars' {
 
 
 esttab f_spend_total f_spend_high_sugar f_spend_share_produce f_total_cals f_sugar_per_1000cal  ///
-    using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/tabs/expenditure.tex", replace ///
+    using "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/tabs/expenditure.tex", replace ///
     keep(D.real_income) varlabels(D1.real_income "$m_t$") ///
     b(3) se(3) ///
     star(* 0.10 ** 0.05 *** 0.01) ///
@@ -483,7 +483,7 @@ foreach var in `health_vars' {
 }
 
 esttab any_metabolic_disease hypertension obesity cholesterol  ///
-    using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/tabs/health.tex", replace ///
+    using "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/tabs/health.tex", replace ///
     keep(D.real_income) varlabels(D.real_income "$m_t$") ///
     b(3) se(3) ///
     star(* 0.10 ** 0.05 *** 0.01) ///
@@ -612,7 +612,7 @@ binscatter diabetes_type2 hi,
     linetype(lfit)
     xtitle("Nutrition")
     ytitle("Type 2 Diabetes (any HH member)")
-    savegraph("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/corr_diab_hi.png")
+    savegraph("/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/corr_diab_hi.png")
     replace
 ;
 
@@ -622,7 +622,7 @@ binscatter obesity hi,
     linetype(lfit)
     xtitle("Nutrition")
     ytitle("Obesity (any HH member)")
-    savegraph("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/corr_ob_hi.png")
+    savegraph("/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/corr_ob_hi.png")
     replace;
 	
 binscatter cholesterol hi, 
@@ -631,7 +631,7 @@ binscatter cholesterol hi,
     linetype(lfit)
     xtitle("Nutrition")
     ytitle("Cholesterol (any HH member)")
-    savegraph("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/corr_chol_hi.png")
+    savegraph("/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/corr_chol_hi.png")
     replace;
 
 binscatter any_metabolic_disease hi, 
@@ -640,7 +640,7 @@ binscatter any_metabolic_disease hi,
     linetype(lfit)
     xtitle("Nutrition")
     ytitle("Any Metabolic Disease (any HH member)")
-    savegraph("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/corr_any_hi.png")
+    savegraph("/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/corr_any_hi.png")
     replace;
 	
 	
@@ -650,7 +650,7 @@ binscatter obesity real_income,
     linetype(qfit)
     xtitle("HH income $1000s")
     ytitle("Obesity (any HH member)")
-    savegraph("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/corr_ob_inc.png")
+    savegraph("/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/corr_ob_inc.png")
     replace;
 	
 	
@@ -661,7 +661,7 @@ binscatter diabetes_type2 real_income,
     linetype(qfit)
     xtitle("HH income $1000s")
     ytitle("Type 2 Diabetes (any HH member)")
-    savegraph("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/corr_diab_inc.png")
+    savegraph("/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/corr_diab_inc.png")
     replace;
 	
 	
@@ -672,7 +672,7 @@ binscatter diabetes_type2 real_income,
     linetype(qfit)
     xtitle("HH income $1000s (CONTROLLING FOR HI)")
     ytitle("Type 2 Diabetes (any HH member)")
-    savegraph("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/corr_diab_inc2.png")
+    savegraph("/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/corr_diab_inc2.png")
     replace;
 	
 binscatter diabetes_type2 hi, 
@@ -682,7 +682,7 @@ binscatter diabetes_type2 hi,
     linetype(qfit)
     xtitle("HH Nutrition (controlling for income)")
     ytitle("Type 2 Diabetes (any HH member)")
-    savegraph("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/corr_diab_hi2.png")
+    savegraph("/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/corr_diab_hi2.png")
     replace;
 
 	
@@ -692,7 +692,7 @@ binscatter hi real_income,
     linetype(qfit)
     xtitle("HH income $1000s")
     ytitle("HH Nutrition")
-    savegraph("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/corr_inc_hi.png")
+    savegraph("/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/corr_inc_hi.png")
     replace;
 
 #delimit cr

@@ -17,8 +17,8 @@
 clear all
 set graphics off
 
-global TABS "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/tabs"
-global FIGS "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs"
+global TABS "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/tabs"
+global FIGS "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs"
 
 use "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/final/final_reg_data.dta", replace
 xtset hhid year

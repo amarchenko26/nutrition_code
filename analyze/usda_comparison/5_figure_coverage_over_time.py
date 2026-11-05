@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 BASE    = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data')
-FIG_DIR = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/usda_diagnostics')
+FIG_DIR = Path('/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/usda_diagnostics')
 plt.rcParams.update({
     'axes.labelsize': 17, 'axes.titlesize': 18, 'xtick.labelsize': 14,
     'ytick.labelsize': 14, 'legend.fontsize': 14, 'lines.linewidth': 3,

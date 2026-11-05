@@ -22,7 +22,7 @@ idir = data / "interim"   # cleaned / built panels, one subfolder per dataset or
 gdir = data / "final"     # regression-ready .dta only
 
 # Overleaf (figures, tables, notes write straight here)
-overleaf = Path("/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition")
+overleaf = Path("/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf")  # git clone of the Overleaf project (2026-11-05): pull before writing, push after; the Dropbox copy is no longer written to
 fdir = overleaf / "figs"
 tdir = overleaf / "tabs"
 ndir = overleaf / "notes"

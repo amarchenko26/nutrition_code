@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 BASE = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data') / 'interim' / 'movers'
-OVERLEAF = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition')
+OVERLEAF = Path('/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf')
 FIG = OVERLEAF / 'figs' / 'movers'
 TAB = OVERLEAF / 'tabs' / 'movers'
 

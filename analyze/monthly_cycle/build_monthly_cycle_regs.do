@@ -21,8 +21,8 @@ clear all
 set graphics on
 
 local base "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data"
-local fig  "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs"
-local tab  "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/tabs"
+local fig  "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs"
+local tab  "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/tabs"
 
 // ============================================================================
 // Load daily panel

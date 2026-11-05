@@ -8,19 +8,20 @@
 // C. Same, split by baseline income (below/above median).
 // D. Opposing-sign spouse shocks: is the labor supply / nutrition response
 //    different when the two heads' shocks disagree in sign?
+// E. Single mothers (one female head, kids under 18): own shock only.
 //
 // Spec mirrors the main HI regressions: [pw = projection_factor], non-movers,
 // absorb(year hhid kids avg_age_hh_head hh_comp), SE clustered on county.
 //
-// Outputs (Overleaf tabs/labor_supply/, figs/labor_supply/):
-//   hh_labor_supply_iv.tex · own_cross_shocks.tex · own_cross_by_income.tex
-//   opposing_shocks.tex · own_cross_shock_coefs.png
+// Outputs (Overleaf tabs/labor_supply/):
+//   hh_labor_supply_iv.tex · own_cross_shocks.tex · own_cross_shocks_stable.tex
+//   own_cross_by_income.tex · opposing_shocks.tex · single_mother_shocks.tex
 // ============================================================================
 
 clear all
 
 global data     "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data"
-global overleaf "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition"
+global overleaf "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf"
 
 use "$data/final/labor_supply_reg_data.dta", clear
 xtset hhid year
@@ -103,19 +104,6 @@ esttab b_male_head_hours b_male_head_employed b_female_head_hours b_female_head_
 
 esttab b_*, keep(d_iv_male d_iv_female) b(3) se(3) star(* 0.10 ** 0.05 *** 0.01) ///
 	mtitles("M hours" "M emp" "F hours" "F emp")
-
-// Coefplot: own vs cross responses (hours outcomes)
-coefplot (b_male_head_hours,   label("Male head's hours"))   ///
-         (b_female_head_hours, label("Female head's hours")), ///
-	keep(d_iv_male d_iv_female) ///
-	coeflabels(d_iv_male = "Male head shock" d_iv_female = "Female head shock") ///
-	vertical yline(0, lcolor(gray)) ///
-	xlabel(, labsize(medlarge)) ///
-	ciopts(recast(rcap) lwidth(medthick)) ///
-	ytitle("Change in weekly hours per $10k shock", size(medlarge)) ///
-	ylabel(, labsize(medlarge)) legend(rows(1) position(6) size(medlarge))
-
-graph export "$overleaf/figs/labor_supply/own_cross_shock_coefs.png", replace width(2400)
 
 // Robustness: both heads' occupations unchanged from t-1, so the shock is
 // movement in the cell's income, not the head switching cells (job loss moves
@@ -211,3 +199,42 @@ esttab d_male_head_hours d_female_head_hours d_hh_total_workhours d_hi ///
 
 esttab d_*, keep(d_iv_male d_iv_female 1.opp_sign 1.opp_sign#c.d_iv_male 1.opp_sign#c.d_iv_female) ///
 	b(3) se(3) star(* 0.10 ** 0.05 *** 0.01) mtitles("M hrs" "F hrs" "HH hrs" "HI")
+
+// ============================================================================
+// E. Single mothers: one female head, children under 18 present
+//    (kids code 9 = no children under 18). Own shock only — no spouse.
+//    Second pair of columns: occupation unchanged from t-1.
+// ============================================================================
+
+eststo clear
+foreach y in female_head_hours female_head_employed {
+	eststo sm_`y': reghdfe f_`y' d_iv_female ///
+		[pw = projection_factor] if movers_f == 0 & n_heads == 1 ///
+		& !missing(female_head_employed) & kids != 9, ///
+		absorb(year hhid kids avg_age_hh_head hh_comp) cluster(fips)
+	quietly summarize `y' if e(sample)
+	estadd scalar mean_y = r(mean)
+	eststo sms_`y': reghdfe f_`y' d_iv_female ///
+		[pw = projection_factor] if movers_f == 0 & n_heads == 1 ///
+		& !missing(female_head_employed) & kids != 9 & female_occ_stable == 1, ///
+		absorb(year hhid kids avg_age_hh_head hh_comp) cluster(fips)
+	quietly summarize `y' if e(sample)
+	estadd scalar mean_y = r(mean)
+}
+
+esttab sm_female_head_hours sm_female_head_employed sms_female_head_hours sms_female_head_employed ///
+	using "$overleaf/tabs/labor_supply/single_mother_shocks.tex", ///
+	replace booktabs ///
+	b(3) se(3) star(* 0.10 ** 0.05 *** 0.01) ///
+	keep(d_iv_female) ///
+	varlabels(d_iv_female "Own shock (\$10k)") ///
+	mtitles("Hours" "Employed" "Hours" "Employed") ///
+	mgroups("All single mothers" "Occupation-stable", pattern(1 0 1 0) ///
+	        prefix(\multicolumn{@span}{c}{) suffix(}) span erepeat(\cmidrule(lr){@span})) ///
+	collabels(none) ///
+	stats(mean_y N, fmt(%9.2fc %9.0fc) labels("Mean outcome" "N")) ///
+	nonotes
+
+esttab sm_female_head_hours sm_female_head_employed sms_female_head_hours sms_female_head_employed, ///
+	keep(d_iv_female) b(3) se(3) star(* 0.10 ** 0.05 *** 0.01) ///
+	mtitles("Hours" "Emp" "Hours-st" "Emp-st")

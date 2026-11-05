@@ -24,7 +24,7 @@ BASE    = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data')
 PANEL   = BASE / 'interim' / 'panel_dataset' / 'panel_hh_year.parquet'
 USDAP   = BASE / 'interim' / 'panel_dataset' / 'hi_usda_panel.parquet'
 BOTHM   = BASE / 'interim' / 'usda_comparison' / 'hh_year_bothmatched.parquet'
-FIG_DIR = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs/usda_diagnostics')
+FIG_DIR = Path('/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/usda_diagnostics')
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 
 # presentation-ready styling: big labels, fat lines

@@ -52,11 +52,17 @@ after the dataset or the task (`interim/syndigo`, `interim/panel_dataset`, `inte
 
 ### Figures and tables
 
-Figures and tables write straight into the Overleaf project (Dropbox-synced):
+Figures and tables write straight into the Overleaf project, which since 2026-11-05 is a **git clone**
+(Overleaf's Git integration; project id 69962dafd2f5208a04c159d4; token in the macOS keychain):
 
-* fdir = `/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs`
-* tdir = `/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/tabs`
-* ndir = `/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/notes` (write-ups)
+* odir = `/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf` (the clone; remote `origin` = git.overleaf.com)
+* fdir = `/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs`
+* tdir = `/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/tabs`
+* ndir = `/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/notes` (write-ups)
+
+The old Dropbox copy (`/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition`) is still
+linked in Overleaf (Anya kept the Dropbox link on 2026-11-05 because it is account-wide, 19 projects) and
+receives Overleaf's updates, but NOTHING on this side writes to it any more.
 
 Put new output into the existing subfolder for its topic (`figs/labor_supply`, `figs/movers`,
 `figs/variety/price`, `figs/variety/entry`, `tabs/labor_supply`, `tabs/movers`, …). A new line of work gets its
@@ -89,8 +95,9 @@ from paths import *
 ```
 
 New `.do` files start with `do "/Users/anyamarchenko/Documents/GitHub/nutrition_code/paths.do"` — the one
-permitted full path in a `.do` file. Existing scripts (93 of them) still hardcode the Dropbox paths; migrate
-a script to `paths.py`/`paths.do` whenever you edit it, and do not add new hardcoded paths.
+permitted full path in a `.do` file. Existing scripts still hardcode the Dropbox DATA paths (the Overleaf path in 46 of them was repointed to the
+git clone by a sweep on 2026-11-05); migrate a script to `paths.py`/`paths.do` whenever you edit it, and do
+not add new hardcoded paths.
 
 ## Figure style
 
@@ -150,10 +157,22 @@ exhibit without reading the paper.
 Paths inside these blocks are relative to the Overleaf root (`tabs/…`, `figs/…`). The notes in `ndir`
 instead use `\input{../tabs/…}` and `\graphicspath{{../figs/<topic>/}}`.
 
-**WARNING: the Dropbox sync is fragile.** If Anya has been working in Overleaf recently, the Dropbox copy
-may be stale, and anything Claude writes there overwrites her Overleaf edits. So only write inside `figs/`
-and `tabs/`, and when writing tex stay inside `claude_fig.tex` and `claude_tab.tex`, unless explicitly
-directed otherwise (e.g. a named note in `notes/`). Never compile tex locally; Anya compiles.
+**Git routine for the Overleaf clone (replaces the Dropbox sync, 2026-11-05).** Anya edits in the Overleaf
+editor; her edits reach the clone as commits named "Update on Overleaf." Claude's edits reach Overleaf within
+seconds of a push. So, every time:
+
+1. BEFORE writing anything into the clone (a figure job, a table, a note edit):
+   `git -C "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf" pull --rebase`
+2. Write the outputs (scripts write straight into the clone's `figs/`, `tabs/`, `notes/`).
+3. AFTER writing: `git -C <clone> add -A && git -C <clone> commit -m "<what changed>" && git -C <clone> push`.
+   Commit messages in the clone: plain description of the exhibits changed, no job numbers.
+4. A rejected push means Anya edited in between: `pull --rebase`, resolve any conflict in favour of her text,
+   push again. Never `--force`, never push a branch other than the one the clone is on, never commit
+   build outputs (`.aux`, `.log`, `.synctex.gz`) or `.DS_Store`.
+
+The write scope is unchanged: only inside `figs/` and `tabs/`, and when writing tex stay inside `claude_fig.tex`
+and `claude_tab.tex`, unless explicitly directed otherwise (e.g. a named note in `notes/`). Never compile tex
+locally; Anya compiles in Overleaf.
 
 Overleaf notes (when directed to write one): no summary text and no interpretation. The note is the figures
 and tables Anya asked for, in order, plus a short Definitions section for sample rules and citations that

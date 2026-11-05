@@ -32,7 +32,7 @@ from pathlib import Path
 
 BASE    = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data')
 RMS_VAR = BASE / 'interim' / 'rms_variety'
-FIG_DIR = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs') / 'variety' / 'price'
+FIG_DIR = Path('/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs') / 'variety' / 'price'
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 
 # Price levels are cumulative products of year-on-year indices whose first pair is

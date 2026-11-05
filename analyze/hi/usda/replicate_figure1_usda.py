@@ -30,7 +30,7 @@ def log(msg):
 BASE    = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data')
 DATASET = BASE / 'interim' / 'panel_dataset' / 'panel_hh_year.parquet'
 USDAP   = BASE / 'interim' / 'panel_dataset' / 'hi_usda_panel.parquet'
-FIG_DIR = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs')
+FIG_DIR = Path('/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs')
 
 YEARS       = range(2004, 2021)  # stop at 2020 to avoid 2021 definition change
 N_QUANTILES = 15

@@ -21,7 +21,7 @@ def log(msg):
 
 BASE    = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data')
 DATASET = BASE / 'interim' / 'panel_dataset' / 'panel_hh_year.parquet'
-FIG_DIR = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs')
+FIG_DIR = Path('/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs')
 
 BASELINE_YEAR = 2004
 YEARS         = range(2004, 2021)

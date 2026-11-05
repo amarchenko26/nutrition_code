@@ -11,8 +11,10 @@ global rdir     "$data/raw"        // input-only, never written
 global idir     "$data/interim"    // cleaned / built panels, one subfolder per dataset or task
 global gdir     "$data/final"      // regression-ready .dta only
 
-* Overleaf (figures, tables, notes write straight here)
-global overleaf "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition"
+* Overleaf = a git clone of the Overleaf project (since 2026-11-05; see CLAUDE.md):
+*   git pull before writing into it, git add/commit/push after. The old Dropbox copy
+*   (CEGA Dropbox/.../Apps/Overleaf/nutrition) is no longer written to.
+global overleaf "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf"
 global fdir     "$overleaf/figs"
 global tdir     "$overleaf/tabs"
 global ndir     "$overleaf/notes"

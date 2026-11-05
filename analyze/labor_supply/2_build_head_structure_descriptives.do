@@ -17,7 +17,7 @@
 clear all
 
 global data     "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data"
-global overleaf "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition"
+global overleaf "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf"
 
 use "$data/interim/panelists/panelists_all_years.dta", clear
 

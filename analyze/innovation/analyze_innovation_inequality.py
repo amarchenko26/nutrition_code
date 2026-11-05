@@ -19,7 +19,7 @@ from pathlib import Path
 
 BASE    = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data')
 RMS_VAR = BASE / 'interim' / 'rms_variety'
-FIG_DIR = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition/figs')
+FIG_DIR = Path('/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs')
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 
 N_INCOME_BINS = 4

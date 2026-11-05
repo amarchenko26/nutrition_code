@@ -30,7 +30,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 BASE = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data') / 'interim' / 'movers'
-OVERLEAF = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/Apps/Overleaf/nutrition')
+OVERLEAF = Path('/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf')
 FIG = OVERLEAF / 'figs' / 'movers'
 BLUE, RED, GREY = '#3b6b9a', '#a63d40', '#7a7a7a'
 PRE, POST = (-3, -1), (1, 3)
