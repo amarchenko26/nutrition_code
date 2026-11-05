@@ -4,7 +4,7 @@ For the time-cost versus money-cost figures in notes/obesity.tex (analyze/health
 Reads interim/purchases_food/panel_year=<y>/ (2004-2020, MAGNET rows dropped) and
 interim/usda_nielsen_merged/usda_wide.parquet (calories per 100 g) and usda_nova.parquet (NOVA group).
 Per module and year: spend_real (total_price_paid_real_2013), spend_nominal, grams (rows with a
-weight or volume size; quantity x multi x size since 2026-11-04), spend_grams (spending on those
+quantity x utils.food_measures.package_grams since 2026-11-05), spend_grams (spending on those
 rows), cals_matched and grams_matched (rows with their own USDA label), cal_per_100g =
 cals_matched / grams_matched x 100 (the module's own-label density that year), cals_est = the sum
 over rows of grams x the UPC's density from interim/health/upc_dictionary.parquet
@@ -26,11 +26,11 @@ import gc, time
 import numpy as np
 import pandas as pd
 
+from utils.food_measures import package_grams
+
 PURCH = idir / 'purchases_food'
 OUT = idir / 'health' / 'module_year_price_calories.parquet'
 YEARS = range(2004, 2021)
-UNIT_TO_GRAMS = {'OZ': 28.3495, 'LB': 453.592, 'FL OZ': 29.5735, 'QT': 946.353, 'GAL': 3785.41,
-                 'ML': 1.0, 'LT': 1000.0, 'KG': 1000.0, 'GM': 1.0, 'GR': 1.0}
 
 
 def main():
@@ -41,13 +41,12 @@ def main():
         p = PURCH / f'panel_year={y}'
         if not p.exists():
             continue
-        d = pd.read_parquet(p, columns=['upc', 'quantity', 'multi', 'size1_amount', 'size1_units', 'product_module_code', 'product_module', 'product_group',
+        d = pd.read_parquet(p, columns=['upc', 'quantity', 'multi', 'size1_amount', 'size1_units', 'product_module_code', 'product_group_code', 'product_module', 'product_group',
                                         'department_descr', 'total_price_paid', 'total_price_paid_real_2013', 'household_code'])
         d = d[d['department_descr'] != 'MAGNET DATA']
         d['upc_13'] = '0' + d['upc'].astype(str).str.zfill(12)
         d = d.merge(dic, on='upc_13', how='left')
-        d['grams'] = d['quantity'] * d['multi'].fillna(1).clip(lower=1) * d['size1_amount'] * d['size1_units'].map(UNIT_TO_GRAMS)
-        d.loc[d['grams'] <= 0, 'grams'] = np.nan
+        d['grams'] = d['quantity'] * package_grams(d)
         d['cals_est_row'] = d['grams'] * d['cal_per_100g'] / 100
         d['cals_matched'] = d['cals_est_row'].where(d['cal_tier'] == 1)
         d['grams_matched'] = d['grams'].where(d['cal_tier'] == 1)

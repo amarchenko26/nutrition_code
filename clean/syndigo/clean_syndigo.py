@@ -32,6 +32,9 @@ NUTRIENTS_TO_KEEP = {
     12: ('Dietary Fiber',       'g'),
     15: ('Sugars',              'g'),
 }
+# Labels in the post-2016 format report total sugars under another ID (2019: 31,236 rows, 2023: all of them, with
+# none under 15). Until 2026-11-05 these UPCs had no sugar value, and the Health Index read that as zero sugar.
+NUTRIENT_ALIASES = {32705: 15}
 
 
 # ============================================================================
@@ -276,7 +279,12 @@ def load_syndigo_year(year):
 
     # Filter to nutrientmasterid between 1 and 30 inclusive
     nutrient_df = nutrient_df[
-        (nutrient_df['nutrientmasterid'].isin(NUTRIENTS_TO_KEEP))].copy()
+        (nutrient_df['nutrientmasterid'].isin(list(NUTRIENTS_TO_KEEP) + list(NUTRIENT_ALIASES)))].copy()
+    # the old-format row wins when a label has both
+    nutrient_df['_alias'] = nutrient_df['nutrientmasterid'].isin(NUTRIENT_ALIASES).astype(int)
+    nutrient_df['nutrientmasterid'] = nutrient_df['nutrientmasterid'].replace(NUTRIENT_ALIASES)
+    _dedupe = [c for c in ('upc', 'nutrientmasterid', 'valuepreparedtype') if c in nutrient_df.columns]
+    nutrient_df = nutrient_df.sort_values('_alias').drop_duplicates(_dedupe, keep='first').drop(columns='_alias')
 
 
 

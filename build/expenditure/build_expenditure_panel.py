@@ -26,6 +26,11 @@ import numpy as np
 from pathlib import Path
 import gc
 import warnings
+_r = Path(__file__).resolve().parent
+while not (_r / 'paths.py').exists():
+    _r = _r.parent
+sys.path.insert(0, str(_r))
+from utils.food_measures import is_fruit, is_veg
 warnings.filterwarnings('ignore')
 
 BASE      = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data')
@@ -53,10 +58,6 @@ CPI = {
 CPI_BASE = CPI[CPI_BASE_YEAR]
 
 # Module sets (same as build_hi_panel.py)
-FRUIT_GROUPS        = {'FRUIT - CANNED', 'FRUIT - DRIED', 'FRUIT'}
-FRUIT_MODULES_FRESH = {4010, 4085, 4180, 4225, 4355, 4470}
-VEG_GROUPS          = {'VEGETABLES - CANNED', 'VEGETABLES-FROZEN', 'VEGETABLES AND GRAINS - DRIED'}
-VEG_MODULES_FRESH   = {4015, 4020, 4023, 4050, 4055, 4060, 4140, 4230, 4275, 4280, 4350, 4400, 4415, 4460, 4475}
 BREAD_MODULES       = {4000, 4001, 4002}
 
 # High-sugar threshold: >100g sugar per 1000 cal
@@ -137,7 +138,7 @@ for year in YEARS:
         continue
 
     load_cols = ['household_code', 'total_price_paid', 'upc',
-                 'product_module', 'product_module_code', 'product_group',
+                 'product_module', 'product_module_code', 'product_group', 'product_group_code',
                  'upc_descr']
     p = pd.read_parquet(part, columns=load_cols)
     p = p.dropna(subset=['total_price_paid', 'household_code'])
@@ -147,10 +148,7 @@ for year in YEARS:
     p['spend'] = p['total_price_paid'] * cpi_factor
 
     # Produce flag
-    p['is_produce'] = (
-        p['product_group'].isin(FRUIT_GROUPS | VEG_GROUPS) |
-        p['product_module_code'].isin(FRUIT_MODULES_FRESH | VEG_MODULES_FRESH)
-    ).astype(int)
+    p['is_produce'] = (is_fruit(p['product_module_code'], p['product_group_code']) | is_veg(p['product_module_code'], p['product_group_code'])).astype(int)
 
     # Bread flag and whole wheat flag
     p['is_bread'] = p['product_module_code'].isin(BREAD_MODULES).astype(int)

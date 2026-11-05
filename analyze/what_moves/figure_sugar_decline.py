@@ -1,9 +1,10 @@
 """The fall in sugar per 1,000 kcal, 2004-2020: is it real, which products, who cut (what-moves review, 2026-11-05).
 
 Reads interim/what_moves/sugar_module_year.parquet and sugar_hh_year.parquet (build_sugar_decomposition.py:
-fixed per-UPC densities, so these series move only through the mix of products bought), panel_hh_year
-(Syndigo sugar per 1,000 kcal, income, age, weights), hei_usda_panel (HEI added-sugar component) and
-final/labor_supply_reg_data.dta (USDA-label series, soda spending share, education, kids).
+fixed per-UPC values, so these series move only through the mix of products bought), panel_hh_year
+(Syndigo sugar per 1,000 kcal, income, age, weights), hei_usda_panel (HEI added-sugar component),
+final/labor_supply_reg_data.dta (USDA-label series, soda spending share, education, kids) and
+interim/what_moves/nhanes_sugar.parquet (store-bought sugar per 1,000 kcal from NHANES recalls, no package labels).
 
 Figures (figs/what_moves/sugar/): sugar_series_check.png, sugar_decomposition.png, sugar_by_group.png
 Table (tabs/what_moves/): sugar_decomposition.tex
@@ -63,10 +64,10 @@ def load():
 
 def fig_series(mod, d):
     yrs = sorted(d['panel_year'].unique())
-    s = pd.DataFrame({'Syndigo label, as in the panel': by_year(d, 'sugar_per_1000cal'),
-                      'USDA label, as in the panel': by_year(d, 'sugar_per_1000cal_usda'),
-                      'USDA label, fixed per-UPC density, all purchases': by_year(d, 'sugar_fixed'),
-                      'USDA label, fixed density, labelled products only': by_year(d, 'sugar_fixed_lab')})
+    s = pd.DataFrame({'Syndigo labels, all purchases': by_year(d, 'sugar_per_1000cal'),
+                      'USDA labels, all purchases': by_year(d, 'sugar_per_1000cal_usda'),
+                      'USDA labels, products with their own label only': by_year(d, 'sugar_fixed_lab')})
+    nh = pd.read_parquet(idir / 'what_moves' / 'nhanes_sugar.parquet')
     nat = mod.groupby('panel_year').agg(sugar=('sugar_g', 'sum'), kcal=('kcal', 'sum'))
     nat['S'] = 1000 * nat['sugar'] / nat['kcal']
     soda = mod[mod['product_module_code'].isin([1484, 1553])].pivot_table(index='panel_year', columns='product_module_code', values='kcal', aggfunc='sum')
@@ -78,10 +79,10 @@ def fig_series(mod, d):
     fig, axes = plt.subplots(1, 3, figsize=(21, 6.5))
     fig.subplots_adjust(wspace=0.28)
     ax = axes[0]
-    for (lab_, ser), c, ls in zip(s.items(), [BLUE, RED, DGREY, ORANGE], ['-', '-', '-', '--']):
+    for (lab_, ser), c, ls in zip(s.items(), [BLUE, RED, ORANGE], ['-', '-', '--']):
         ax.plot(ser.index, ser.values, color=c, lw=2.5, ls=ls, marker='o', ms=4, label=f'{lab_}: {ser.iloc[0]:.0f} to {ser.iloc[-1]:.0f} g')
-    ax.plot(nat.index, nat['S'], color=DGREY, lw=1.5, ls=':', label=f'all purchases pooled, not a household mean: {nat.S.iloc[0]:.0f} to {nat.S.iloc[-1]:.0f} g')
-    ax.set_title('Sugar per 1,000 kcal, four ways of measuring it')
+    ax.plot(nh['year_mid'], nh['store_sugar_1000'], color=DGREY, lw=2.5, ls='-', marker='D', ms=6, label=f"NHANES recalls, store-bought food: {nh.store_sugar_1000.iloc[0]:.0f} to {nh.store_sugar_1000.iloc[-1]:.0f} g")
+    ax.set_title('Sugar per 1,000 kcal')
     ax.set_ylabel('grams per 1,000 kcal (household mean, projection-weighted)')
     ax.legend(frameon=False, fontsize=10, loc='lower left')
     ax = axes[1]
@@ -95,7 +96,7 @@ def fig_series(mod, d):
     ax.plot(lab.index, 100 * lab.values, color=DGREY, lw=2.5, marker='o', ms=4, label='share of calories from products with their own USDA label')
     addsug = by_year(d, 'addsugar_per_1000cal_usda'); hc = by_year(d, 'hei_c_addsugar')
     ax2 = ax.twinx()
-    ax2.plot(addsug.index, addsug.values, color=ORANGE, lw=2.5, marker='o', ms=4, label=f'USDA added sugar per 1,000 kcal, as in the panel: {addsug.iloc[0]:.0f} to {addsug.iloc[-1]:.0f} g')
+    ax2.plot(addsug.index, addsug.values, color=ORANGE, lw=2.5, marker='o', ms=4, label=f'USDA added sugar per 1,000 kcal: {addsug.iloc[0]:.0f} to {addsug.iloc[-1]:.0f} g')
     ax2.plot(hc.index, 10 * hc.values, color=BLUE, lw=2.5, ls='--', marker='s', ms=4, label=f'HEI added-sugar component x 10: {10*hc.iloc[0]:.0f} to {10*hc.iloc[-1]:.0f}')
     ax2.set_ylabel('grams; HEI component x 10')
     ax2.spines['right'].set_visible(True)
@@ -119,7 +120,10 @@ def decompose(mod, y0, y1):
     m['s0'] = 1000 * m['sugar_g0'] / m['kcal0'].replace(0, np.nan); m['s1'] = 1000 * m['sugar_g1'] / m['kcal1'].replace(0, np.nan)
     for c in ['s0', 's1']:
         m[c] = m[c].fillna(m[['s0', 's1']].mean(axis=1)).fillna(0)
-    m['between'] = (m['k1'] - m['k0']) * (m['s0'] + m['s1']) / 2      # calorie share moved, density held at its average
+    S_avg = ((m['k0'] * m['s0']).sum() + (m['k1'] * m['s1']).sum()) / 2
+    # calorie share moved, density held at its average, relative to the average basket: a module with average sugar
+    # contributes nothing however much its share moves; the sum over modules is unchanged because shares sum to one
+    m['between'] = (m['k1'] - m['k0']) * ((m['s0'] + m['s1']) / 2 - S_avg)
     m['within'] = (m['s1'] - m['s0']) * (m['k0'] + m['k1']) / 2       # density moved, calorie share held at its average
     S0 = (m['k0'] * m['s0']).sum(); S1 = (m['k1'] * m['s1']).sum()
     return m, S0, S1
@@ -183,7 +187,7 @@ def fig_groups(d):
             table.append((title, name, ser.get(2004, np.nan), ser.get(2012, np.nan), ser.get(2020, np.nan)))
         ax.set_title(title); ax.set_xticks(range(2004, 2021, 2)); ax.legend(frameon=False, fontsize=10)
         ax.set_ylabel('sugar, g per 1,000 kcal')
-    fig.suptitle('Sugar per 1,000 kcal by group, all purchases at fixed per-UPC densities, projection-weighted household means', fontsize=14)
+    fig.suptitle('Sugar per 1,000 kcal by group, all purchases at fixed per-UPC values, projection-weighted household means', fontsize=14)
     fig.savefig(FIG / 'sugar_by_group.png', bbox_inches='tight', dpi=150); plt.close(fig)
     print('saved sugar_by_group.png')
     print(pd.DataFrame(table, columns=['group', 'level', '2004', '2012', '2020']).round(1).to_string(index=False))

@@ -259,9 +259,9 @@ COUNTY_OUTCOMES = [('hei_usda', 'HEI'), ('hi_usda', 'Simple index (USDA)'),
                    ('real_income', 'Household income')]
 
 
-def fig_county_movers(cc, cs):
-    """figs/what_moves/place/county_movers.png: theta_r = share of the origin-destination COUNTY gap closed by
-    households that move county (1_ --places county, 4_ county), one panel per outcome."""
+def fig_county_movers(cc, cs, place='county', noun='county'):
+    """figs/what_moves/place/<place>_movers.png: theta_r = share of the origin-destination gap closed by households
+    that move county or switch main retailer (1_ --places county|retailer, 4_ county|retailer), one panel per outcome."""
     fig, axes = plt.subplots(2, 4, figsize=(22, 10), sharex=True, sharey=True)
     fig.subplots_adjust(wspace=0.12, hspace=0.45)
     for ax, (outcome, title) in zip(axes.flat, COUNTY_OUTCOMES):
@@ -277,11 +277,11 @@ def fig_county_movers(cc, cs):
     for ax in axes[-1]:
         ax.set_xlabel('Year relative to the move')
     for ax in axes[:, 0]:
-        ax.set_ylabel('$\\theta_r$: share of the county gap')
+        ax.set_ylabel(f'$\\theta_r$: share of the {noun} gap')
     FIG_PLACE.mkdir(parents=True, exist_ok=True)
-    fig.savefig(FIG_PLACE / 'county_movers.png', bbox_inches='tight', dpi=150)
+    fig.savefig(FIG_PLACE / f'{place}_movers.png', bbox_inches='tight', dpi=150)
     plt.close(fig)
-    print(f'saved {FIG_PLACE / "county_movers.png"}')
+    print(f'saved {FIG_PLACE / (place + "_movers.png")}')
 
 
 def table_results(summ, hei_sd, isum=None):
@@ -419,6 +419,8 @@ def main():
     table_results(summ, hei_sd, isum)
     if (BASE / 'county_event_study_summary.csv').exists():
         fig_county_movers(pd.read_csv(BASE / 'county_event_study_coefs.csv'), pd.read_csv(BASE / 'county_event_study_summary.csv'))
+    if (BASE / 'retailer_event_study_summary.csv').exists():
+        fig_county_movers(pd.read_csv(BASE / 'retailer_event_study_coefs.csv'), pd.read_csv(BASE / 'retailer_event_study_summary.csv'), 'retailer', 'retailer')
     if (BASE / 'other_switches_summary.csv').exists():
         fig_other_switches(pd.read_csv(BASE / 'other_switches_coefs.csv'), pd.read_csv(BASE / 'other_switches_summary.csv'))
     print(summ.round(3).to_string())

@@ -10,7 +10,14 @@ Components & standards (epi.grants.cancer.gov/hei, HEI-2020 = HEI-2015):
     Refined Grains <=1.8 oz-eq (10), 0 at >=4.3 | Sodium <=1.1 g (10), 0 at >=2.0
     Added Sugars <=6.5 %energy (10), 0 at >=26 | Sat Fat <=8 %energy (10), 0 at >=16
 
-Conventions (v1, stated):
+CHANGED 2026-11-05: sizes follow utils/food_measures.py (the rules of the Allcott et al. replication: multipacks,
+pounds, count-sized items, powdered mixes), and nutrition facts come from interim/health/upc_dictionary.parquet (one
+value per UPC and nutrient, own label else the nearest labelled relatives). So every component now uses the full
+basket and one energy denominator, and the sample rule is purchases above 5% of the household's calorie need. Until
+then multipacks counted as one unit, pound- and count-sized rows were dropped, label components used the matched
+basket and added sugars only the rows with that field, whose number rose after 2016.
+
+Conventions before 2026-11-05 (superseded where they conflict with the paragraph above):
   * Food-pattern equivalents come from the module crosswalk (build_hei_crosswalk.py)
     x purchase grams -- computed on the FULL basket; the energy denominator for
     these components imputes calories for USDA-unmatched rows with the module's
@@ -51,48 +58,28 @@ import pandas as pd
 import numpy as np
 import warnings
 warnings.filterwarnings('ignore')
+from utils.food_measures import package_grams, adult_equivalents, in_sample, MIN_PACKAGE_KCAL
 
 PURCHASES = idir / 'purchases_food'
-USDA      = idir / 'usda_nielsen_merged' / 'usda_wide.parquet'
+USDA      = idir / 'health' / 'upc_dictionary.parquet'
 CROSSWALK = idir / 'hei' / 'module_hei_crosswalk.parquet'
 PANELISTS = idir / 'panelists' / 'panelists_all_years.parquet'
 PRODUCTS  = rdir / 'products.tsv'
 OUT_DIR   = idir / 'panel_dataset'
 
 YEARS           = range(2004, 2021)
-MIN_ANNUAL_CALS = 50_000
-UNIT_TO_GRAMS = {'OZ':28.3495,'LB':453.592,'FL OZ':29.5735,'QT':946.353,'GAL':3785.41,
-                 'ML':1.0,'LT':1000.0,'KG':1000.0,'GM':1.0,'GR':1.0}
-PURCH_COLS = ['upc','household_code','quantity','size1_amount','size1_units',
-              'department_descr','product_module_code']
+PURCH_COLS = ['upc','household_code','quantity','multi','size1_amount','size1_units',
+              'department_descr','product_module_code','product_group_code']
 
 def log(m): print(m, flush=True)
 
 log("Loading USDA dictionary + crosswalk...")
-wide = pd.read_parquet(USDA, columns=['upc13','cal_per_100g','satfat_per_100g',
-                                      'sodium_per_100g','addsugar_per_100g',
-                                      'mufat_per_100g','pufat_per_100g','totfat_per_100g']
-                       ).rename(columns={'upc13':'upc_13'})
-cw = pd.read_parquet(CROSSWALK, columns=['product_module_code','hei_group',
-                                         'grams_per_equiv','whole_share'])
+wide = pd.read_parquet(USDA, columns=['upc_13','cal_per_100g','satfat_per_100g','sodium_per_100g','addsugar_per_100g',
+                                      'mufat_per_100g','pufat_per_100g'])
+cw = pd.read_parquet(CROSSWALK, columns=['product_module_code','hei_group','grams_per_equiv','whole_share'])
 log(f"  dict {len(wide):,} UPCs; crosswalk {len(cw):,} modules")
 
-# ---- fatty-acid labels: drop implausible ones; pooled module medians over the UPC universe ----
-fat3 = wide[['mufat_per_100g','pufat_per_100g','satfat_per_100g']].sum(axis=1, min_count=1)
-implausible = ((9 * fat3 > 1.1 * wide['cal_per_100g']) | (fat3 > wide['totfat_per_100g'] + 1)).fillna(False)
-log(f"  fat labels dropped as implausible: {implausible.sum():,} of {wide['mufat_per_100g'].notna().sum():,} with MUFA/PUFA")
-wide.loc[implausible, ['mufat_per_100g','pufat_per_100g']] = np.nan
-wide = wide.drop(columns='totfat_per_100g')
-prod = pd.read_csv(PRODUCTS, sep='\t', encoding='latin-1', usecols=['upc','product_module_code'], dtype={'upc': str})
-prod['upc_13'] = '0' + prod['upc'].str.zfill(12)
-prod = prod.drop_duplicates('upc_13')[['upc_13','product_module_code']]
-fa_lab = prod.merge(wide[['upc_13','mufat_per_100g','pufat_per_100g']].dropna(subset=['mufat_per_100g','pufat_per_100g']), on='upc_13')
-FA_MED = {nut: fa_lab.groupby('product_module_code')[f'{nut}_per_100g'].median() for nut in ('mufat','pufat')}
-log(f"  pooled MUFA/PUFA medians for {FA_MED['mufat'].notna().sum():,} modules from {len(fa_lab):,} labelled UPCs")
-del prod, fa_lab
-
 hh_parts = []
-mod_cal_med = None   # module-median calories, accumulated year 1 then reused
 for year in YEARS:
     p = PURCHASES / f'panel_year={year}'
     if not p.exists():
@@ -102,16 +89,12 @@ for year in YEARS:
     purch['upc_13'] = '0' + purch['upc'].astype(str).str.zfill(12)
     purch = purch.merge(wide, on='upc_13', how='left').merge(cw, on='product_module_code', how='left')
 
-    purch['grams'] = purch['quantity'] * purch['size1_units'].map(UNIT_TO_GRAMS) * purch['size1_amount']
+    purch['pkg_g'] = package_grams(purch)
+    purch['grams'] = purch['quantity'] * purch['pkg_g']
     purch = purch[purch['grams'].notna() & (purch['grams'] > 0)]
-
-    # ---- energy: matched + module-median-imputed for the full basket ----
-    med = purch.groupby('product_module_code')['cal_per_100g'].median()
-    purch['cal_imp'] = purch['cal_per_100g'].fillna(purch['product_module_code'].map(med))
-    purch['cal_imp'] = purch['cal_imp'].fillna(purch['cal_per_100g'].median())
-    purch['cals_full'] = purch['grams'] * purch['cal_imp'] / 100
-    purch['cals_matched'] = np.where(purch['cal_per_100g'].notna(),
-                                     purch['grams'] * purch['cal_per_100g'] / 100, 0.0)
+    # rows at or below 1 kcal per package leave the per-calorie measures (UPCDataPrep.do)
+    purch = purch[(purch['pkg_g'] * purch['cal_per_100g'] / 100) > MIN_PACKAGE_KCAL]
+    purch['cals_full'] = purch['grams'] * purch['cal_per_100g'] / 100
 
     # ---- food-pattern equivalents (full basket) ----
     eq = purch['grams'] / purch['grams_per_equiv']
@@ -130,26 +113,18 @@ for year in YEARS:
     for c in ['eq_fw','eq_fj','eq_v','eq_gb','eq_lg','eq_wg','eq_rg','eq_dy','eq_pr','eq_sp']:
         purch[c] = purch[c].fillna(0)
 
-    # ---- label components (matched basket) ----
-    m = purch['cal_per_100g'].notna()
-    purch['sodium_g']  = np.where(m, purch['grams'] * purch['sodium_per_100g'].fillna(0) / 100, 0.0)
-    purch['satfat_g']  = np.where(m, purch['grams'] * purch['satfat_per_100g'].fillna(0) / 100, 0.0)
-    has_as = m & purch['addsugar_per_100g'].notna()
-    purch['addsug_g']    = np.where(has_as, purch['grams'] * purch['addsugar_per_100g'] / 100, 0.0)
-    purch['cals_as_den'] = np.where(has_as, purch['cals_matched'], 0.0)
-    # fatty acids: pooled, plausibility-filtered module medians for the ~88% without MUFA/PUFA labels
-    for nut in ['mufat','pufat']:
-        v = purch[f'{nut}_per_100g'].fillna(purch['product_module_code'].map(FA_MED[nut]))
-        purch[f'{nut}_g'] = np.where(m, purch['grams'] * v.fillna(0) / 100, 0.0)
+    # ---- label components (full basket, dictionary values) ----
+    for nut, col in (('sodium','sodium_g'), ('satfat','satfat_g'), ('addsugar','addsug_g'), ('mufat','mufat_g'), ('pufat','pufat_g')):
+        purch[col] = purch['grams'] * purch[f'{nut}_per_100g'].fillna(0) / 100
 
     agg = purch.groupby('household_code').agg(
-        cals_full=('cals_full','sum'), cals_matched=('cals_matched','sum'),
+        cals_full=('cals_full','sum'),
         eq_fw=('eq_fw','sum'), eq_fj=('eq_fj','sum'), eq_v=('eq_v','sum'),
         eq_gb=('eq_gb','sum'), eq_lg=('eq_lg','sum'), eq_wg=('eq_wg','sum'),
         eq_rg=('eq_rg','sum'), eq_dy=('eq_dy','sum'), eq_pr=('eq_pr','sum'),
         eq_sp=('eq_sp','sum'),
         sodium_g=('sodium_g','sum'), satfat_g=('satfat_g','sum'),
-        addsug_g=('addsug_g','sum'), cals_as_den=('cals_as_den','sum'),
+        addsug_g=('addsug_g','sum'),
         mufat_g=('mufat_g','sum'), pufat_g=('pufat_g','sum')).reset_index()
     agg['panel_year'] = year
     hh_parts.append(agg)
@@ -158,14 +133,18 @@ for year in YEARS:
     gc.collect()
 
 hh = pd.concat(hh_parts, ignore_index=True)
-hh = hh[hh['cals_matched'] >= MIN_ANNUAL_CALS]
-log(f"Pooled: {len(hh):,} HH-years after calorie floor")
+_ae = adult_equivalents(YEARS)
+_ps = pd.read_parquet(PANELISTS, columns=['household_code','panel_year','household_size'])
+hh = hh.merge(_ae[['household_code','panel_year','ae_total']], on=['household_code','panel_year'], how='left') \
+       .merge(_ps, on=['household_code','panel_year'], how='left')
+_keep = in_sample(hh['cals_full'], hh['ae_total'].fillna(hh['household_size']))
+log(f"Below 5% of calorie need: {(~_keep).sum():,} of {len(hh):,} HH-years dropped")
+hh = hh[_keep].drop(columns=['ae_total','household_size'])
 
 # ============================================================
 # DENSITIES + HEI SCORING
 # ============================================================
 kf = hh['cals_full'] / 1000.0        # thousand kcal, full basket
-km = hh['cals_matched'] / 1000.0     # thousand kcal, matched basket
 d = pd.DataFrame({'household_code': hh['household_code'], 'panel_year': hh['panel_year']})
 tf = (hh['eq_fw'] + hh['eq_fj']) / kf
 wf = hh['eq_fw'] / kf
@@ -176,10 +155,10 @@ rg = hh['eq_rg'] / kf
 dy = hh['eq_dy'] / kf
 pr = (hh['eq_pr'] + hh['eq_sp'] + hh['eq_lg']) / kf
 sp = (hh['eq_sp'] + hh['eq_lg']) / kf
-sod = hh['sodium_g'] / km
+sod = hh['sodium_g'] / kf
 fa  = (hh['mufat_g'] + hh['pufat_g']) / hh['satfat_g'].replace(0, np.nan)
-satE = 100 * 9 * hh['satfat_g'] / hh['cals_matched']
-asE  = 100 * 4 * hh['addsug_g'] / hh['cals_as_den'].replace(0, np.nan)
+satE = 100 * 9 * hh['satfat_g'] / hh['cals_full']
+asE  = 100 * 4 * hh['addsug_g'] / hh['cals_full']
 
 def adequacy(x, std, pts):
     return pts * np.clip(x / std, 0, 1)

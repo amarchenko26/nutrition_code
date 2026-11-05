@@ -58,12 +58,22 @@ not-employed distinction (emp2emp = 1, notemp = 0 for every event). Outputs
 income_movers_events_panel.parquet/.dta, income_quintile_means.csv and
 income_movers_panel.parquet/.dta in interim/movers/.
 
+RETAILER MOVERS (`--places retailer`, 2026-11-05): the place is the household's main retailer of the year
+(analyze/what_moves/build_retailer_year.py), geographic non-movers, retailers with 100+ household-years, r = 0 is
+file year m. Outputs retailer_movers_events_panel.parquet/.dta, retailer_means.csv, retailer_movers_panel.
+
 COUNTY MOVERS (`--places county`, 2026-11-05, place effects for the 'what moves nutrition'
 review): the places are COUNTIES (fips), geographic movers are KEPT (they are the events),
 every dated county change between consecutive panel years is an event (one-year reversals
 smoothed as above), delta = destination minus origin county mean of each outcome on
 household-years outside move years; counties with fewer than MIN_COUNTY_HH_YEARS such
 household-years get missing means, so events touching them drop out of the Stata run.
+County timing differs from the occupation timing above: the county code in file m is the
+address at the end of year m, not at the fall m-1 survey. Among county moves whose main
+shopping ZIP3 changes (store_zip3 of the household's trips), 5.5% of trips are at the new
+ZIP3 in file m-1, 45% in file m and 89% in file m+1. So r = 0 is file year m (the year the
+move happens, half its trips on each side), r = -1 the last full year before, r = 1 the
+first full year after. Income (fall survey) therefore first shows the move at r = 1.
 Outputs county_movers_events_panel.parquet/.dta, county_means.csv, county_movers_panel.
 """
 
@@ -169,12 +179,12 @@ def smooth_reversals(df):
 def main(places='occupation'):
     global OCC_LABELS, EMPLOYED, DROP_FROM_ANALYSIS
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    prefix = {'occupation': '', 'income': 'income_', 'county': 'county_'}[places]
+    prefix = {'occupation': '', 'income': 'income_', 'county': 'county_', 'retailer': 'retailer_'}[places]
     if places == 'income':
         OCC_LABELS = {k: f'Q{k}' for k in range(1, 6)}
         EMPLOYED = set(range(1, 6))
         DROP_FROM_ANALYSIS = set()
-    if places == 'county':
+    if places in ('county', 'retailer'):
         OCC_LABELS = {}
         EMPLOYED = set()
         DROP_FROM_ANALYSIS = set()
@@ -208,6 +218,12 @@ def main(places='occupation'):
         f = df['female_head_occupation'].astype(float)
         df['occ'] = m.where(~(m.isna() | m.isin([0, 7])), f)
         df = df[df['occ'].notna() & (df['occ'] > 0)].copy()
+    elif places == 'retailer':
+        # main retailer of the year (largest share of food spending); geographic non-movers, so a switch is not a house move
+        rt = pd.read_parquet(BASE / 'interim' / 'what_moves' / 'hh_year_main_retailer.parquet').rename(columns={'household_code': 'hhid', 'panel_year': 'year'})
+        df = df.merge(rt[['hhid', 'year', 'retailer_code']], on=['hhid', 'year'], how='inner')
+        df['occ'] = pd.to_numeric(df['retailer_code'], errors='coerce')
+        df = df[df['occ'].notna()].copy()
     elif places == 'county':
         df['occ'] = pd.to_numeric(df['fips'], errors='coerce')
         df = df[df['occ'].notna()].copy()
@@ -268,7 +284,7 @@ def main(places='occupation'):
         columns={'year': 'm_file', 'occ_prev': 'origin', 'occ': 'dest'}).reset_index(drop=True)
     ev['origin'] = ev['origin'].astype(int)
     ev['event_id'] = np.arange(1, len(ev) + 1)
-    ev['emp2emp'] = (ev['origin'].isin(EMPLOYED) & ev['dest'].isin(EMPLOYED)).astype(int) if places != 'county' else 1
+    ev['emp2emp'] = (ev['origin'].isin(EMPLOYED) & ev['dest'].isin(EMPLOYED)).astype(int) if places not in ('county', 'retailer') else 1
     ev['notemp'] = (((ev['origin'] == 12) | (ev['dest'] == 12)) & (places == 'occupation')).astype(int)
     n_sw = g['switch'].first().rename('n_sw')  # placeholder, replaced below
     n_sw = df.groupby('hhid')['n_switch'].first()
@@ -279,7 +295,11 @@ def main(places='occupation'):
     ev = ev.merge(nxt, on=['hhid', 'seg'], how='left')
     ev['reversed'] = (ev['next_code'] == ev['origin']).astype(int)     # a later change returns to the origin
     ev = ev.drop(columns='next_code')
-    ev['event_year'] = ev['m_file'] - 1                                 # FGW r = 0
+    # FGW r = 0 is the partially treated year of the move. Occupation and income are reported in the fall of
+    # m-1, so it is file year m-1 for them. The COUNTY code in file m is the address at the END of year m
+    # (see the docstring), so for places = county r = 0 is file year m.
+    # The main RETAILER is measured from the same year's purchases, so r = 0 is also file year m.
+    ev['event_year'] = ev['m_file'] - (0 if places in ('county', 'retailer') else 1)
 
     # household-level mover type (smoothed codes)
     n_ev = ev.groupby('hhid').size()
@@ -319,20 +339,20 @@ def main(places='occupation'):
 
     base = df[(df['analysis'] == 1) & (df['is_r0'] == 0)]
     means = occ_means(base, with_se=False)
-    if places == 'county':
+    if places in ('county', 'retailer'):
         small = means['n_hh_years'] < MIN_COUNTY_HH_YEARS
         means.loc[small, [c for c in means.columns if c.startswith('ybar_')]] = np.nan
         print(f'counties with fewer than {MIN_COUNTY_HH_YEARS} household-years outside move years: {int(small.sum()):,} of {len(means):,}; their means set missing')
     means12 = occ_means(df[df['is_r0'] == 0], with_se=True)
     means12['income_rank'] = means12['income_w'].rank(na_option='bottom').astype(int)     # na_option: counties with no income (places = county)
     means12['hei_rank'] = means12['ybar_hei_usda'].rank(na_option='bottom').astype(int)
-    means12.to_csv(OUT_DIR / {'occupation': 'occupation_means.csv', 'income': 'income_quintile_means.csv', 'county': 'county_means.csv'}[places])
-    print(means12.round(3).to_string() if places != 'county' else means12.round(3).head(10).to_string())
+    means12.to_csv(OUT_DIR / {'occupation': 'occupation_means.csv', 'income': 'income_quintile_means.csv', 'county': 'county_means.csv', 'retailer': 'retailer_means.csv'}[places])
+    print(means12.round(3).to_string() if places not in ('county', 'retailer') else means12.round(3).head(10).to_string())
 
     for v in OUTCOMES:
         ev[f'delta_{v}'] = ev['dest'].map(means[f'ybar_{v}']) - ev['origin'].map(means[f'ybar_{v}'])
-    if places == 'county':
-        print(f"county moves: {len(ev):,}; with both county means defined: {int(ev['delta_hei_usda'].notna().sum()):,}; "
+    if places in ('county', 'retailer'):
+        print(f"{places} moves: {len(ev):,}; with both county means defined: {int(ev['delta_hei_usda'].notna().sum()):,}; "
               f"mean |county HEI gap| {ev['delta_hei_usda'].abs().mean():.2f} points, SD of the gap {ev['delta_hei_usda'].std():.2f}")
     # education gap for the educ_up events: mean HEI by education bin on never-changers (by year, averaged)
     nc = df[(df['educ_grp'] == 0) & (df['analysis'] == 1)]
@@ -374,7 +394,7 @@ def main(places='occupation'):
     out = df[keep].copy()
     for c in ['switch', 'switch_consec']:
         out[c] = out[c].astype(int)
-    name = {'occupation': 'occupation_movers_panel', 'income': 'income_movers_panel', 'county': 'county_movers_panel'}[places]
+    name = {'occupation': 'occupation_movers_panel', 'income': 'income_movers_panel', 'county': 'county_movers_panel', 'retailer': 'retailer_movers_panel'}[places]
     out.to_parquet(OUT_DIR / f'{name}.parquet', index=False)
     out.to_stata(OUT_DIR / f'{name}.dta', write_index=False, version=118)
 
@@ -394,5 +414,5 @@ def main(places='occupation'):
 
 if __name__ == '__main__':
     ap = argparse.ArgumentParser()
-    ap.add_argument('--places', choices=['occupation', 'income', 'county'], default='occupation')
+    ap.add_argument('--places', choices=['occupation', 'income', 'county', 'retailer'], default='occupation')
     main(ap.parse_args().places)

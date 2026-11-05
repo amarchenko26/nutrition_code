@@ -66,6 +66,9 @@ file close fh
 file open fh using "$idir/movers/income_levels_summary.csv", write replace
 file write fh "outcome,direction,n_movers,n_controls,jump,jump_se,jump_late,jump_late_se,pre,pre_se,p_pretrend,N" _n
 file close fh
+file open fh using "$idir/movers/income_levels_contrast.csv", write replace
+file write fh "outcome,up_minus_down,se,up_minus_down_late,se_late,pre,pre_se,p_pretrend" _n
+file close fh
 
 foreach y in hei_usda real_income cals_ae_day upf_share produce_share produce_spend_share sugar_1000 sodium_1000 whole_share soda_spend_share {
 	di _n "==== `y'"
@@ -100,5 +103,21 @@ foreach y in hei_usda real_income cals_ae_day upf_share produce_share produce_sp
 		file close fh
 		di "`y' / `dname': jump (1..3) = `jump' (`jump_se'); pre (-4..-2) = `pre' (`pre_se'), p = `pp'; movers `nm'"
 	}
+	// households moving up minus households moving down: anything common to moving cancels (2026-11-05)
+	quietly lincom (u_p1 + u_p2 + u_p3) / 3 - (d_p1 + d_p2 + d_p3) / 3
+	local c = r(estimate)
+	local cs = r(se)
+	quietly lincom (u_p4 + u_p5) / 2 - (d_p4 + d_p5) / 2
+	local cl = r(estimate)
+	local cls = r(se)
+	quietly lincom (u_m4 + u_m3 + u_m2) / 3 - (d_m4 + d_m3 + d_m2) / 3
+	local cp = r(estimate)
+	local cps = r(se)
+	quietly test (u_m4 = d_m4) (u_m3 = d_m3) (u_m2 = d_m2)
+	local cpp = r(p)
+	file open fh using "$idir/movers/income_levels_contrast.csv", write append
+	file write fh "`y',`c',`cs',`cl',`cls',`cp',`cps',`cpp'" _n
+	file close fh
+	di "`y': up minus down = " %8.3f `c' " (" %6.3f `cs' "); before the move " %8.3f `cp' " (" %6.3f `cps' "), p = " %5.3f `cpp'
 }
 di "7_build_income_movers_levels.do complete"

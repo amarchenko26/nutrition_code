@@ -84,4 +84,38 @@ forvalues t = 1/5 {
 	local lab : label stype `t'
 	di "E  `lab': beta = " %7.4f _b[`t'.stype#c.d_inc] " (" %6.4f _se[`t'.stype#c.d_inc] ")"
 }
+di _n "==== F. the same households in every row: observed t-1, t and t+1"
+gen byte samp3 = clean == 1 & !missing(L.z, z, F.z, d_inc, d_iv)
+foreach k in fz c_0 c_p1 {
+	quietly ivreghdfe `k' (d_inc = d_iv) [pw = projection_factor] if samp3 == 1, absorb(year_state hhid kids avg_age_hh_head hh_comp) cluster(fips)
+	di "F  `k': beta = " %7.4f _b[d_inc] " (" %6.4f _se[d_inc] ")  N = " e(N) "  F = " %5.0f e(widstat)
+}
+gen byte samp5 = clean == 1 & !missing(L.z, z, F.z, F2.z, F3.z, d_inc, d_iv)
+foreach k in c_0 c_p1 c_p2 c_p3 {
+	quietly ivreghdfe `k' (d_inc = d_iv) [pw = projection_factor] if samp5 == 1, absorb(year_state hhid kids avg_age_hh_head hh_comp) cluster(fips)
+	di "F5 `k': beta = " %7.4f _b[d_inc] " (" %6.4f _se[d_inc] ")  N = " e(N) "  F = " %5.0f e(widstat)
+}
+
+di _n "==== G. long differences: households observed 8+ years apart, first two years against last two"
+preserve
+bys hhid (year): gen int _n1 = _n
+bys hhid (year): gen int _nN = _N - _n
+gen byte _early = _n1 <= 2
+gen byte _late = _nN <= 1
+keep if _early | _late
+collapse (mean) z real_income iv_income_fips hh_size avg_age_hh_head (min) y0 = year (max) y1 = year (firstnm) fips projection_factor year_state [aw = projection_factor], by(hhid _late)
+reshape wide z real_income iv_income_fips hh_size avg_age_hh_head y0 y1 fips projection_factor year_state, i(hhid) j(_late)
+keep if y01 - y00 >= 8
+gen dz = (z1 - z0)
+gen dinc = real_income1 - real_income0
+gen div = (iv_income_fips1 - iv_income_fips0) / 10
+gen dsize = hh_size1 - hh_size0
+gen byte age0 = floor(avg_age_hh_head0 / 5)
+quietly reghdfe dz dinc [pw = projection_factor0], absorb(y00 y01 age0) cluster(hhid)
+di "G  OLS: long change in z-HEI on long change in income ($10k): " %7.4f _b[dinc] " (" %6.4f _se[dinc] ")  N = " e(N)
+quietly reghdfe dz dinc dsize [pw = projection_factor0], absorb(y00 y01 age0) cluster(hhid)
+di "G  OLS + change in household size: " %7.4f _b[dinc] " (" %6.4f _se[dinc] ");  per person " %7.4f _b[dsize] " (" %6.4f _se[dsize] ")"
+quietly ivreghdfe dz (dinc = div) [pw = projection_factor0], absorb(y00 y01 age0) cluster(fips0)
+di "G  IV (long change in cell income): " %7.4f _b[dinc] " (" %6.4f _se[dinc] ")  F = " %6.1f e(widstat) "  N = " e(N)
+restore
 di "iv_diagnostics complete"

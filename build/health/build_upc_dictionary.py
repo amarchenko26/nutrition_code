@@ -1,25 +1,29 @@
-"""Product-level calorie density and NOVA group for every Nielsen UPC, fixed over time.
+"""Nutrition facts and NOVA group for every food UPC, fixed over time, from either label source.
 
-Why: the USDA Branded file is a 2024 snapshot, so the share of grocery calories with a label rises
-from 39% (2004) to 81% (2020) and any labelled-only calorie series rises with it. A density assigned
-once per UPC, independent of the year, removes that artifact; the earlier module x year imputation
-moved with whichever products happened to be labelled that year (Anya 2026-11-03).
+Why: the USDA Branded file is a 2024 snapshot and the Syndigo labels start in 2005 with thin early coverage, so
+the share of grocery calories with an own label rises from 39% (2004) to 81% (2020) and any labelled-only series
+moves with that share. One set of values per UPC, independent of the year, removes the artifact. Allcott et al.
+(2019) do the same step by regression (impute_nut_facts_for_missing_products.do); this uses the nearest labelled
+relatives of the product (Anya 2026-11-03; extended from calories to every nutrient 2026-11-05).
 
-Reads raw/products.tsv (every UPC version; the latest version is kept), interim/usda_nielsen_merged/
-usda_wide.parquet (label calories per 100 g), usda_nova.parquet (NOVA group from the ingredient list)
-and interim/health/module_year_price_calories.parquet (labelled calories and grams by module and
-year, own labels only).
-Calorie density per 100 g, in tiers:
-  1  the UPC's own USDA label (labels above 900 kcal/100 g, the energy of pure fat, are treated as
-     wrong matches and dropped);
-  2  the labelled UPC of the same brand, product module and size unit with the closest package
-     size (same product line, another flavour or variety);
-  3  the mean density of the labelled UPCs of the same brand and module;
-  4  the module's density pooled over 2004-2020 purchases (sum of labelled calories / sum of
-     labelled grams);
-  missing when the module has no labelled purchases.
-Output: interim/health/upc_dictionary.parquet (upc_13, product_module_code, brand_descr, multi,
-cal_per_100g, cal_tier, nova). Read by build_nova_calorie_panel.py and build_module_price_calories.py.
+Usage: python build_upc_dictionary.py usda     -> interim/health/upc_dictionary.parquet
+       python build_upc_dictionary.py syndigo  -> interim/health/upc_dictionary_syndigo.parquet
+
+For each nutrient separately, the value per 100 g is, in order:
+  1  the UPC's own label;
+  2  the labelled UPC of the same brand, module and size unit with the closest package size;
+  3  the mean over labelled UPCs of the same brand and module;
+  4  the module mean over labelled UPCs, weighted by the UPC's 2004-2020 spending;
+  5  the mean over the product group's labelled UPCs.
+Labels are dropped first when impossible: above 900 kcal/100 g, sugar, fiber or fat above 100 g, sodium above 40 g
+or cholesterol above 3 g per 100 g, or fats above the calories they imply. A typed commodity value (USDA Standard
+Reference, kcal per 100 g) replaces tiers 2-5 for calories in fresh commodity modules, whose labelled UPCs are
+atypical (apple chips in FRESH APPLES); Allcott et al. also hand-enter these modules (nut_facts_for_missing_modules).
+NOVA (usda_nova.parquet; both sources use it): own ingredient list, else the nearest-sized labelled relative, else
+the brand x module mode, else the module's spending-weighted mode.
+Columns: upc_13, product_module_code, product_group_code, brand_descr, multi, cal_per_100g, cal_tier, the nutrients
+per 100 g, nova, nova_tier. Read by build_module_price_calories.py, build_nova_calorie_panel.py and the three
+nutrition panels (hi, hi_usda, hei_usda).
 """
 import sys
 from pathlib import Path
@@ -33,66 +37,130 @@ import time
 import numpy as np
 import pandas as pd
 
-OUT = idir / 'health' / 'upc_dictionary.parquet'
+SOURCES = {
+    'usda': (idir / 'usda_nielsen_merged' / 'usda_wide.parquet', 'upc13', idir / 'health' / 'upc_dictionary.parquet',
+             ['cal', 'sugar', 'satfat', 'chol', 'sodium', 'fiber', 'addsugar', 'totfat', 'mufat', 'pufat']),
+    'syndigo': (idir / 'syndigo_nielsen_merged' / 'syndigo_wide.parquet', 'upc', idir / 'health' / 'upc_dictionary_syndigo.parquet',
+                ['cal', 'sugar', 'satfat', 'chol', 'sodium', 'fiber', 'totfat', 'mofat', 'pofat']),
+}
+CAPS = {'cal': 900, 'sugar': 100, 'addsugar': 100, 'satfat': 100, 'totfat': 100, 'mufat': 100, 'pufat': 100, 'mofat': 100, 'pofat': 100,
+        'fiber': 100, 'sodium': 40, 'chol': 3}
+# USDA Standard Reference, raw, kcal per 100 g
+COMMODITY_KCAL = {'FRESH APPLES': 52, 'FRESH ORANGES': 47, 'FRESH GRAPEFRUIT': 42, 'FRESH KIWI': 61, 'FRESH STRAWBERRIES': 32, 'FRESH CRANBERRIES': 46,
+                  'FRESH FRUIT-REMAINING': 60, 'FRESH POTATOES': 77, 'FRESH TOMATOES': 18, 'FRESH LETTUCE': 15, 'FRESH CARROTS': 41, 'FRESH MUSHROOMS': 22,
+                  'FRESH ONIONS': 40, 'FRESH CELERY': 16, 'FRESH SPINACH': 23, 'FRESH CAULIFLOWER': 25, 'FRESH RADISHES': 16, 'FRESH GARLIC': 149,
+                  'FRESH HERBS': 30, 'FRESH VEGETABLES-REMAINING': 35, 'EGGS-FRESH': 143}
 
 
-def main():
+def fill_tiers(d, col, keys, spend):
+    """Apply tiers 2-5 to one nutrient column; returns value and tier."""
+    val = d[col].copy()
+    tier = pd.Series(np.where(val.notna(), 1, np.nan), index=d.index)
+    lab = d[val.notna()]
+    # tier 2
+    unl = d[val.isna() & d['log_size'].notna() & d[keys].notna().all(axis=1)]
+    l2 = lab[lab['log_size'].notna()].dropna(subset=keys)[keys + ['log_size', col]].rename(columns={col: '_t2'})
+    if len(unl) and len(l2):
+        near = pd.merge_asof(unl[keys + ['log_size']].reset_index().sort_values('log_size'), l2.sort_values('log_size'), on='log_size', by=keys, direction='nearest').set_index('index')['_t2']
+        use = near.dropna().index
+        val.loc[use] = near.loc[use]
+        tier.loc[use] = 2
+    # tier 3
+    t3 = lab.groupby(['brand_descr', 'product_module_code'])[col].mean().rename('_t3')
+    m3 = d[['brand_descr', 'product_module_code']].merge(t3, left_on=['brand_descr', 'product_module_code'], right_index=True, how='left')['_t3']
+    use = val.isna() & m3.notna()
+    val[use] = m3[use]
+    tier[use] = 3
+    # tier 4: spending-weighted module mean
+    w = spend.reindex(lab['upc_13']).fillna(0).values + 1e-6
+    t4 = (lab[col].values * w)
+    t4 = pd.Series(t4).groupby(lab['product_module_code'].values).sum() / pd.Series(w).groupby(lab['product_module_code'].values).sum()
+    m4 = d['product_module_code'].map(t4)
+    use = val.isna() & m4.notna()
+    val[use] = m4[use]
+    tier[use] = 4
+    # tier 5
+    t5 = lab.groupby('product_group_code')[col].mean()
+    m5 = d['product_group_code'].map(t5)
+    use = val.isna() & m5.notna()
+    val[use] = m5[use]
+    tier[use] = 5
+    return val, tier
+
+
+def main(source):
     t0 = time.time()
+    path, key, out_path, nuts = SOURCES[source]
     prod = pd.read_csv(rdir / 'products.tsv', sep='\t', encoding='latin-1', dtype={'upc': str},
-                       usecols=['upc', 'upc_ver_uc', 'product_module_code', 'brand_descr', 'multi', 'size1_amount', 'size1_units'])
+                       usecols=['upc', 'upc_ver_uc', 'product_module_code', 'product_module_descr', 'product_group_code', 'brand_descr', 'multi', 'size1_amount', 'size1_units'])
     prod = prod.sort_values(['upc', 'upc_ver_uc']).drop_duplicates('upc', keep='last')
     prod['upc_13'] = '0' + prod['upc'].str.zfill(12)
-    print(f'{len(prod):,} UPCs in products.tsv ({time.time() - t0:.0f}s)')
-    wide = pd.read_parquet(idir / 'usda_nielsen_merged' / 'usda_wide.parquet', columns=['upc13', 'cal_per_100g']).rename(columns={'upc13': 'upc_13', 'cal_per_100g': 'cal_own'})
-    wide.loc[(wide['cal_own'] > 900) | (wide['cal_own'] < 0), 'cal_own'] = np.nan
-    nova = pd.read_parquet(idir / 'usda_nielsen_merged' / 'usda_nova.parquet', columns=['upc13', 'nova']).rename(columns={'upc13': 'upc_13'})
-    d = prod.merge(wide, on='upc_13', how='left').merge(nova, on='upc_13', how='left')
+    us = pd.read_parquet(idir / 'health' / 'upc_year_spending.parquet', columns=['upc', 'product_module_code', 'spending'])
+    us['upc_13'] = '0' + us['upc'].astype(str).str.zfill(12)
+    spend = us.groupby('upc_13')['spending'].sum()
+    food_modules = set(us['product_module_code'].dropna().astype(int))
+    prod = prod[prod['product_module_code'].isin(food_modules)].copy()
+    print(f'{len(prod):,} food UPCs ({time.time() - t0:.0f}s)')
+    cols = [f'{n}_per_100g' for n in nuts]
+    wide = pd.read_parquet(path, columns=[key] + cols).rename(columns={key: 'upc_13'}).drop_duplicates('upc_13')
+    # impossible labels
+    for n in nuts:
+        c = f'{n}_per_100g'
+        wide.loc[(wide[c] > CAPS[n]) | (wide[c] < 0), c] = np.nan
+    fats = [c for c in ('mufat_per_100g', 'pufat_per_100g', 'mofat_per_100g', 'pofat_per_100g', 'satfat_per_100g') if c in wide.columns]
+    fat3 = wide[fats].sum(axis=1, min_count=1)
+    bad = ((9 * fat3 > 1.1 * wide['cal_per_100g']) | (fat3 > wide['totfat_per_100g'] + 1)).fillna(False)
+    wide.loc[bad, [c for c in fats if c != 'satfat_per_100g']] = np.nan
+    print(f'{len(wide):,} labels; fat fields dropped as impossible on {int(bad.sum()):,}')
+    d = prod.merge(wide, on='upc_13', how='left')
+    nova = pd.read_parquet(idir / 'usda_nielsen_merged' / 'usda_nova.parquet', columns=['upc13', 'nova']).rename(columns={'upc13': 'upc_13'}).drop_duplicates('upc_13')
+    d = d.merge(nova, on='upc_13', how='left')
     d['nova'] = d['nova'].astype('float')
-    d['log_size'] = np.log(d['size1_amount'].where(d['size1_amount'] > 0))
-    lab = d[d['cal_own'].notna()]
-    print(f'own label (tier 1): {len(lab):,} UPCs')
-    # tier 2: nearest package size within brand x module x size unit
+    d['log_size'] = np.log(pd.to_numeric(d['size1_amount'], errors='coerce').where(lambda x: x > 0))
     keys = ['brand_descr', 'product_module_code', 'size1_units']
-    unl = d[d['cal_own'].isna() & d['log_size'].notna() & d[keys].notna().all(axis=1)].copy()
-    lab2 = lab[lab['log_size'].notna()].dropna(subset=keys)[keys + ['log_size', 'cal_own']].rename(columns={'cal_own': 'cal_t2'})
-    near = pd.merge_asof(unl[['upc_13', 'log_size'] + keys].sort_values('log_size'), lab2.sort_values('log_size'),
-                         on='log_size', by=keys, direction='nearest')
-    d = d.merge(near[['upc_13', 'cal_t2']], on='upc_13', how='left')
-    # tier 3: brand x module mean over labelled UPCs
-    t3 = lab.groupby(['brand_descr', 'product_module_code'])['cal_own'].mean().rename('cal_t3').reset_index()
-    d = d.merge(t3, on=['brand_descr', 'product_module_code'], how='left')
-    # tier 4: module density pooled over 2004-2020 purchases, own labels only
-    my = pd.read_parquet(idir / 'health' / 'module_year_price_calories.parquet', columns=['product_module_code', 'cals_matched', 'grams_matched'])
-    t4 = my.groupby('product_module_code').sum()
-    t4 = (100 * t4['cals_matched'] / t4['grams_matched'].replace(0, np.nan)).rename('cal_t4')
-    d = d.merge(t4, left_on='product_module_code', right_index=True, how='left')
-    d['cal_per_100g'] = d['cal_own']
-    d['cal_tier'] = np.where(d['cal_own'].notna(), 1, 0)
-    for tier, col in ((2, 'cal_t2'), (3, 'cal_t3'), (4, 'cal_t4')):
-        use = d['cal_per_100g'].isna() & d[col].notna()
-        d.loc[use, 'cal_per_100g'] = d.loc[use, col]
-        d.loc[use, 'cal_tier'] = tier
-    d.loc[d['cal_per_100g'].isna(), 'cal_tier'] = np.nan
-    out = d[['upc_13', 'product_module_code', 'brand_descr', 'multi', 'cal_per_100g', 'cal_tier', 'nova']]
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    out.to_parquet(OUT, index=False)
-    print('UPCs by density tier:'); print(out['cal_tier'].value_counts(dropna=False).sort_index().to_string())
-    # how close are the tiers to the truth? leave-one-out check on labelled UPCs: tier-2 and tier-3 predictions vs own label
-    chk = lab[lab['log_size'].notna()].dropna(subset=keys).copy()
-    g = chk.groupby(keys)
-    chk['n_grp'] = g['cal_own'].transform('size')
-    chk = chk[chk['n_grp'] >= 2]
-    # tier-3 leave-one-out
-    s3 = chk.groupby(['brand_descr', 'product_module_code'])['cal_own'].agg(['sum', 'size'])
-    chk = chk.merge(s3, left_on=['brand_descr', 'product_module_code'], right_index=True)
-    chk['loo_t3'] = (chk['sum'] - chk['cal_own']) / (chk['size'] - 1)
-    chk = chk[chk['size'] >= 2]
-    err3 = (chk['loo_t3'] - chk['cal_own']).abs() / chk['cal_own'].replace(0, np.nan)
-    err4 = (chk['product_module_code'].map(t4) - chk['cal_own']).abs() / chk['cal_own'].replace(0, np.nan)
-    print(f'\nleave-one-out check on {len(chk):,} labelled UPCs with a labelled sibling: median |error| of the brand x module mean (tier 3) '
-          f'{err3.median():.3f}, of the module pooled density (tier 4) {err4.median():.3f} (share of the true density)')
-    print(f'saved {OUT} ({time.time() - t0:.0f}s)')
+    d = d.reset_index(drop=True)
+    tiers = {}
+    for c in cols:
+        d[c], tiers[c] = fill_tiers(d, c, keys, spend)
+        print(f'  {c}: own {int((tiers[c] == 1).sum()):,}; tiers {tiers[c].value_counts().sort_index().to_dict()}; missing {int(d[c].isna().sum()):,} ({time.time() - t0:.0f}s)', flush=True)
+    d['cal_tier'] = tiers['cal_per_100g']
+    # commodity calories replace imputed values only
+    ref = d['product_module_descr'].map(COMMODITY_KCAL)
+    use = ref.notna() & (d['cal_tier'] != 1)
+    d.loc[use, 'cal_per_100g'] = ref[use]
+    d.loc[use, 'cal_tier'] = 6
+    # NOVA
+    w = d['upc_13'].map(spend).fillna(0)
+    nv = d['nova'].copy()
+    ntier = pd.Series(np.where(nv.notna(), 1, np.nan), index=d.index)
+    lab = d[nv.notna()]
+    unl = d[nv.isna() & d['log_size'].notna() & d[keys].notna().all(axis=1)]
+    near = pd.merge_asof(unl[keys + ['log_size']].reset_index().sort_values('log_size'),
+                         lab[lab['log_size'].notna()].dropna(subset=keys)[keys + ['log_size', 'nova']].rename(columns={'nova': '_n'}).sort_values('log_size'),
+                         on='log_size', by=keys, direction='nearest').set_index('index')['_n'].dropna()
+    nv.loc[near.index] = near
+    ntier.loc[near.index] = 2
+    b = lab.groupby(['brand_descr', 'product_module_code', 'nova']).size().rename('n').reset_index().sort_values('n').drop_duplicates(['brand_descr', 'product_module_code'], keep='last')
+    mb = d[['brand_descr', 'product_module_code']].merge(b, on=['brand_descr', 'product_module_code'], how='left')['nova']
+    use = nv.isna() & mb.notna()
+    nv[use] = mb[use]
+    ntier[use] = 3
+    lw = lab.assign(w=lab['upc_13'].map(spend).fillna(0) + 1e-6)
+    mm = lw.groupby(['product_module_code', 'nova'])['w'].sum().reset_index().sort_values('w').drop_duplicates('product_module_code', keep='last').set_index('product_module_code')['nova']
+    m4 = d['product_module_code'].map(mm)
+    use = nv.isna() & m4.notna()
+    nv[use] = m4[use]
+    ntier[use] = 4
+    d['nova_own'] = d['nova']
+    d['nova'] = nv
+    d['nova_tier'] = ntier
+    out = d[['upc_13', 'product_module_code', 'product_group_code', 'brand_descr', 'multi', 'cal_tier', 'nova', 'nova_own', 'nova_tier'] + cols]
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out.to_parquet(out_path, index=False)
+    print('UPCs by calorie tier:', out['cal_tier'].value_counts(dropna=False).sort_index().to_dict())
+    print('UPCs by NOVA tier:', out['nova_tier'].value_counts(dropna=False).sort_index().to_dict())
+    print(f'saved {out_path} ({time.time() - t0:.0f}s)')
 
 
 if __name__ == '__main__':
-    main()
+    main(sys.argv[1] if len(sys.argv) > 1 else 'usda')
