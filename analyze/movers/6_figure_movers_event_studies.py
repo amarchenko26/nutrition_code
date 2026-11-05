@@ -18,6 +18,8 @@ Outputs (figs/movers/):
   tabs/movers/movers_results.tex  post-move means for the three objects by sample, with / without controls
                                   (+ income-quintile movers rows when 4_ has been run with `income`)
   tabs/movers/income_movers_results.tex  the income-quintile rows alone, narrower (for labor_supply.tex)
+  event_study_income_levels_outcomes.png  the same design for eight sub-outcomes (calories/AE/day, ultra-processed share,
+                                  produce shares of calories and spending, sugar, sodium, whole grains, soda spending)
   event_study_income_levels.png   HEI (points) and own income around a SINGLE quintile move, up vs down, never-movers as
                                   controls, household FE (7_build_income_movers_levels.do)
   event_study_income_movers.png   income-quintile movers (1_ --places income, 4_ income): HEI on the quintile HEI gap,
@@ -212,6 +214,41 @@ def fig_income_levels(lc, ls_):
     save(fig, 'event_study_income_levels.png')
 
 
+SUB_OUTCOMES = [('cals_ae_day', 'Calories per adult equivalent per day', 'kcal'),
+                ('upf_share', 'Ultra-processed share of labelled calories', 'pct. points'),
+                ('produce_share', 'Produce share of calories', 'pct. points'),
+                ('produce_spend_share', 'Produce share of grocery spending', 'pct. points'),
+                ('sugar_1000', 'Sugar per 1,000 kcal', 'grams'),
+                ('sodium_1000', 'Sodium per 1,000 kcal', 'mg'),
+                ('whole_share', 'Whole-grain share', 'pct. points'),
+                ('soda_spend_share', 'Soda share of grocery spending', 'pct. points')]
+
+
+def fig_income_levels_outcomes(lc, ls_):
+    """event_study_income_levels_outcomes.png: the levels design of fig_income_levels for eight sub-outcomes."""
+    fig, axes = plt.subplots(2, 4, figsize=(22, 10))
+    fig.subplots_adjust(wspace=0.3, hspace=0.45)
+    for ax, (outcome, title, unit) in zip(axes.flat, SUB_OUTCOMES):
+        hdr = []
+        for direction, color, lab in [('up', BLUE, 'up'), ('down', RED, 'down')]:
+            d = lc[(lc['outcome'] == outcome) & (lc['direction'] == direction)].sort_values('r')
+            s = ls_[(ls_['outcome'] == outcome) & (ls_['direction'] == direction)]
+            if d.empty or s.empty:
+                continue
+            s = s.iloc[0]
+            ax.plot(d['r'], d['b'], color=color, lw=2.5, marker='o', ms=5, label=f'{lab} a quintile')
+            ax.fill_between(d['r'], d['b'] - 1.96 * d['se'], d['b'] + 1.96 * d['se'], color=color, alpha=0.15, lw=0)
+            hdr.append(f'{lab} {s["jump"]:+.2f} ({s["jump_se"]:.2f}), pre p {s["p_pretrend"]:.2f}')
+        ax.axhline(0, color=GREY, lw=1, ls='--'); ax.axvline(-0.5, color=GREY, lw=1, ls=':')
+        ax.set_xticks(range(-5, 6))
+        ax.set_title(f'{title}\n' + ' · '.join(hdr), fontsize=10.5)
+        ax.set_ylabel(f'Change ({unit})')
+    for ax in axes[-1]:
+        ax.set_xlabel('Year relative to the move')
+    axes[0, 0].legend(loc='upper left', frameon=False, fontsize=10)
+    save(fig, 'event_study_income_levels_outcomes.png')
+
+
 def table_results(summ, hei_sd, isum=None):
     """tabs/movers/movers_results.tex: post-move means of theta_1..theta_3 for the three outcome-gap pairs, by sample,
     with and without the age / kids / composition controls (labor_supply.tex Movers section, Anya 2026-11-05)."""
@@ -341,7 +378,9 @@ def main():
         fig_income_movers(ic, isum, hei_sd)
         table_income_results(isum, hei_sd)
     if (BASE / 'income_levels_summary.csv').exists():
-        fig_income_levels(pd.read_csv(BASE / 'income_levels_coefs.csv'), pd.read_csv(BASE / 'income_levels_summary.csv'))
+        lc, ls_ = pd.read_csv(BASE / 'income_levels_coefs.csv'), pd.read_csv(BASE / 'income_levels_summary.csv')
+        fig_income_levels(lc, ls_)
+        fig_income_levels_outcomes(lc, ls_)
     table_results(summ, hei_sd, isum)
     if (BASE / 'other_switches_summary.csv').exists():
         fig_other_switches(pd.read_csv(BASE / 'other_switches_coefs.csv'), pd.read_csv(BASE / 'other_switches_summary.csv'))

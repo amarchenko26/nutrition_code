@@ -2,7 +2,10 @@
 // 7_build_income_movers_levels.do -- does HEI change when a household moves up
 // or down the income distribution? (Anya 2026-11-05)
 //
-// Plain event study in LEVELS (HEI points; own income in $10k) by direction of
+// Plain event study in LEVELS (HEI points; own income in $10k; since 2026-11-05 also
+// the sub-outcomes carried by 1_: calories per adult equivalent per day, ultra-processed
+// and produce shares of calories, produce and soda shares of spending, sugar and sodium
+// per 1,000 kcal, whole-grain share) by direction of
 // the move, with a control group so the calendar-year effects are identified:
 //   movers   = households whose within-year income quintile changes exactly
 //              once over their observed years, between consecutive panel years
@@ -64,7 +67,7 @@ file open fh using "$idir/movers/income_levels_summary.csv", write replace
 file write fh "outcome,direction,n_movers,n_controls,jump,jump_se,jump_late,jump_late_se,pre,pre_se,p_pretrend,N" _n
 file close fh
 
-foreach y in hei_usda real_income {
+foreach y in hei_usda real_income cals_ae_day upf_share produce_share produce_spend_share sugar_1000 sodium_1000 whole_share soda_spend_share {
 	di _n "==== `y'"
 	reghdfe `y' `dlist' [pw = projection_factor], absorb(hhid year age5 kids hh_comp) cluster(hhid)
 	local N = e(N)

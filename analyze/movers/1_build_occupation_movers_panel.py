@@ -69,7 +69,15 @@ BASE = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data')
 IN = BASE / 'final' / 'labor_supply_reg_data.dta'
 OUT_DIR = BASE / 'interim' / 'movers'
 
-OUTCOMES = ['hei_usda', 'hi_usda', 'hi', 'real_income']   # real_income in $10k (2013$)
+# outcomes: nutrition indices, the sub-outcomes added 2026-11-05 at Anya's ask (sugar g and sodium mg per
+# 1,000 kcal, whole-grain share %, soda and produce shares of grocery spending %, all from the regression
+# data; calories per adult equivalent per day (UPC-dictionary densities, winsorized at p1/p99),
+# ultra-processed share of labelled calories % and produce share of calories % from
+# interim/health/nova_calorie_panel.parquet, complete rosters only), and real_income in $10k (2013$)
+OUTCOMES_DTA = ['hei_usda', 'hi_usda', 'hi', 'sugar_1000', 'sodium_1000', 'whole_share', 'soda_spend_share', 'produce_spend_share']
+OUTCOMES_NOVA = ['cals_ae_day', 'upf_share', 'produce_share']
+OUTCOMES = OUTCOMES_DTA + OUTCOMES_NOVA + ['real_income']
+NOVA = BASE / 'interim' / 'health' / 'nova_calorie_panel.parquet'
 OCC_LABELS = {1: 'Professional', 2: 'Manager/owner', 3: 'Clerical', 4: 'Sales',
               5: 'Craftsman', 6: 'Operative/driver', 7: 'Armed forces',
               8: 'Service', 9: 'Farmer', 10: 'Student <30h', 11: 'Laborer',
@@ -84,7 +92,8 @@ SIZE_BINS = [0, 1, 2, 4, np.inf]
 COLS = ['hhid', 'year', 'male_head_occupation', 'female_head_occupation',
         'hh_avg_yrsofschool', 'hh_size', 'avg_age_hh_head', 'kids', 'hh_comp',
         'fips_state_code', 'fips', 'zip_code', 'projection_factor', 'real_income',
-        'movers_f', 'n_heads', 'marital_status'] + [v for v in OUTCOMES if v != 'real_income']
+        'movers_f', 'n_heads', 'marital_status', 'hei_usda', 'hi_usda', 'hi', 'sugar_per_1000cal_usda',
+        'sodium_per_1000cal_usda', 'whole_usda', 'spend_soda', 'spend_total', 'spend_share_produce']
 
 
 def wmean(x, w):
@@ -160,6 +169,23 @@ def main(places='occupation'):
     df['hhid'] = df['hhid'].astype('int64')
     df['year'] = df['year'].astype(int)
     print(f'loaded {len(df):,} household-years')
+    df['sugar_1000'] = df['sugar_per_1000cal_usda']
+    df['sodium_1000'] = 1000 * df['sodium_per_1000cal_usda']
+    df['whole_share'] = 100 * df['whole_usda']
+    df['soda_spend_share'] = 100 * df['spend_soda'] / df['spend_total']
+    df['produce_spend_share'] = 100 * df['spend_share_produce']
+    nova = pd.read_parquet(NOVA, columns=['household_code', 'panel_year', 'cals_all', 'cals_nova1', 'cals_nova2', 'cals_nova3',
+                                          'cals_nova4', 'produce_cals_all', 'ae_total', 'ae_complete'])
+    nova = nova[nova['ae_complete'] == 1].copy()
+    nova['cals_ae_day'] = nova['cals_all'] / nova['ae_total'] / 365
+    lo, hi = nova['cals_ae_day'].quantile([0.01, 0.99])
+    nova['cals_ae_day'] = nova['cals_ae_day'].clip(lo, hi)
+    nova['upf_share'] = 100 * nova['cals_nova4'] / nova[['cals_nova1', 'cals_nova2', 'cals_nova3', 'cals_nova4']].sum(axis=1)
+    nova['produce_share'] = 100 * nova['produce_cals_all'] / nova['cals_all']
+    nova = nova.rename(columns={'household_code': 'hhid', 'panel_year': 'year'})[['hhid', 'year'] + OUTCOMES_NOVA]
+    nova['hhid'] = nova['hhid'].astype('int64'); nova['year'] = nova['year'].astype(int)
+    df = df.merge(nova, on=['hhid', 'year'], how='left')
+    print('sub-outcome means:', df[OUTCOMES_DTA[3:] + OUTCOMES_NOVA].mean().round(2).to_dict())
 
     # --------------------------------------------------- assigned occupation
     df = df[df['movers_f'] == 0].copy()

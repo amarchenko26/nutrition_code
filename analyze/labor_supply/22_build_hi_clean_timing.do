@@ -23,7 +23,7 @@
 // non-movers, [pw = projection_factor], absorb(year_state hhid kids avg_age_hh_head
 // hh_comp), county-clustered SE. Outcomes z-scored (SD per $10k).
 //
-// Output (tabs/labor_supply/): hi_clean_timing.tex
+// Output (tabs/labor_supply/): hi_clean_timing.tex, hi_clean_levels.tex (IV in event time, 2026-11-05)
 // ============================================================================
 
 clear all
@@ -121,6 +121,77 @@ foreach k of local lags {
 			append fragment booktabs ///
 			b(3) se(3) star(* 0.10 ** 0.05 *** 0.01) ///
 			keep(D.real_income) varlabels(D.real_income "`lab_`k''") ///
+			nomtitles nonumbers collabels(none) nonotes ///
+			stats(fs_F N, fmt(%9.0fc %9.0fc) labels("First-stage F" "N")) ///
+			posthead("%") prefoot("%") postfoot("\bottomrule" "\end{tabular}")
+	}
+}
+
+// ============================================================================
+// IV IN EVENT TIME (Anya 2026-11-05, to compare with the movers event studies):
+// the LEVEL of the z-scored outcome at t+k minus its level at t-1, k = -3, -2,
+// 0, 1, 2, 3, on the same income change t-1 -> t, same instrument, same FE.
+// The window-by-window changes above cumulate to these levels; the movers'
+// post-move coefficient is the mean of the k = 1..3 levels.
+// Output: tabs/labor_supply/hi_clean_levels.tex
+// ============================================================================
+
+foreach v of local outcomes {
+	gen lv_m3_`v' = L3.z_`v' - L.z_`v'
+	gen lv_m2_`v' = L2.z_`v' - L.z_`v'
+	gen lv_0_`v'  = z_`v' - L.z_`v'
+	gen lv_p1_`v' = F.z_`v' - L.z_`v'
+	gen lv_p2_`v' = F2.z_`v' - L.z_`v'
+	gen lv_p3_`v' = F3.z_`v' - L.z_`v'
+}
+local ks m3 m2 0 p1 p2 p3
+local klab_m3 "\(t-3\)"
+local klab_m2 "\(t-2\)"
+local klab_0  "\(t\)"
+local klab_p1 "\(t+1\)"
+local klab_p2 "\(t+2\)"
+local klab_p3 "\(t+3\)"
+eststo clear
+foreach k of local ks {
+	foreach v of local outcomes {
+		eststo l`k'_`v': ivreghdfe lv_`k'_`v' (D.real_income = D.iv_income_fips) ///
+			[pw = projection_factor] if clean == 1, ///
+			absorb(year_state hhid kids avg_age_hh_head hh_comp) cluster(fips)
+		estadd scalar fs_F = e(widstat)
+	}
+	esttab l`k'_hi l`k'_hi_usda l`k'_hei_usda, keep(D.real_income) b(4) se(4) ///
+		mtitles("Syndigo" "USDA" "HEI") title("level at `klab_`k'' minus level at t-1") stats(fs_F N, fmt(%9.0fc %9.0fc))
+}
+local file "$overleaf/tabs/labor_supply/hi_clean_levels.tex"
+local i = 0
+foreach k of local ks {
+	local ++i
+	if `i' == 1 {
+		esttab l`k'_hi l`k'_hi_usda l`k'_hei_usda using "`file'", ///
+			replace fragment booktabs ///
+			b(3) se(3) star(* 0.10 ** 0.05 *** 0.01) ///
+			keep(D.real_income) varlabels(D.real_income "`klab_`k''") ///
+			refcat(D.real_income "Level of the outcome in year ... minus its level in \(t-1\):", nolabel) ///
+			mtitles("Simple (Syndigo)" "Simple (USDA)" "Full HEI (USDA)") ///
+			collabels(none) nonotes ///
+			stats(fs_F N, fmt(%9.0fc %9.0fc) labels("First-stage F" "N")) ///
+			prehead("\begin{tabular}{l*{3}{c}}" "\toprule") posthead("\midrule") ///
+			prefoot("%") postfoot("\midrule")
+	}
+	else if `i' < 6 {
+		esttab l`k'_hi l`k'_hi_usda l`k'_hei_usda using "`file'", ///
+			append fragment booktabs ///
+			b(3) se(3) star(* 0.10 ** 0.05 *** 0.01) ///
+			keep(D.real_income) varlabels(D.real_income "`klab_`k''") ///
+			nomtitles nonumbers collabels(none) nonotes ///
+			stats(fs_F N, fmt(%9.0fc %9.0fc) labels("First-stage F" "N")) ///
+			posthead("%") prefoot("%") postfoot("\midrule")
+	}
+	else {
+		esttab l`k'_hi l`k'_hi_usda l`k'_hei_usda using "`file'", ///
+			append fragment booktabs ///
+			b(3) se(3) star(* 0.10 ** 0.05 *** 0.01) ///
+			keep(D.real_income) varlabels(D.real_income "`klab_`k''") ///
 			nomtitles nonumbers collabels(none) nonotes ///
 			stats(fs_F N, fmt(%9.0fc %9.0fc) labels("First-stage F" "N")) ///
 			posthead("%") prefoot("%") postfoot("\bottomrule" "\end{tabular}")
