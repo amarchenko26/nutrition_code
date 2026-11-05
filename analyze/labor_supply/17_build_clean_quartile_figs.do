@@ -30,6 +30,7 @@ replace occ_src = female_head_occupation if missing(occ_src) | inlist(occ_src, 0
 gen byte emp_cell     = inlist(occ_src, 1, 2, 3, 4, 5, 6, 8, 9, 11) if !missing(occ_src) & !inlist(occ_src, 0, 7)
 gen byte not_emp_cell = inlist(occ_src, 10, 12)                    if !missing(occ_src) & !inlist(occ_src, 0, 7)
 gen byte clean = (L.emp_cell == 1) if !missing(L.emp_cell)
+egen year_state = group(year fips_state_code)   // state-by-year FE, as in 12_ (2026-11-05)
 
 // z-scored outcomes and forward differences
 foreach v in hi_usda hei_usda {
@@ -53,12 +54,12 @@ foreach v in hi_usda hei_usda {
 	forvalues q = 1/4 {
 		ivreghdfe fz_`v' (D.real_income = D.iv_income_fips) [pw = projection_factor] ///
 			if clean == 1 & inc_q == `q', ///
-			absorb(year hhid kids avg_age_hh_head hh_comp) cluster(fips)
+			absorb(year_state hhid kids avg_age_hh_head hh_comp) cluster(fips)
 		estimates store cl_q`q'
 	}
 	ivreghdfe fz_`v' (D.real_income = D.iv_income_fips) [pw = projection_factor] ///
 		if clean == 1, ///
-		absorb(year hhid kids avg_age_hh_head hh_comp) cluster(fips)
+		absorb(year_state hhid kids avg_age_hh_head hh_comp) cluster(fips)
 	local beta_overall = _b[D.real_income]
 
 	coefplot cl_q*, keep(D.real_income) ///
@@ -67,8 +68,12 @@ foreach v in hi_usda hei_usda {
 	    ytitle("IV effect on Nutrition (std. dev. per $10k)", size(medlarge)) ///
 	    title("Effect of Income on Nutrition by Baseline Income") ///
 	    vertical yline(0, lcolor(gray) lpattern(solid)) ciopts(recast(rcap) lwidth(medthick)) ///
-	    yline(`beta_overall', lcolor(blue) lpattern(shortdash) lwidth(medthick)) legend(off) ///
-	    text(`=`beta_overall'+.015' .57 "Overall", color(blue) size(medlarge)) ///
+	    p1(mcolor(navy) ciopts(recast(rcap) lwidth(medthick) lcolor(navy))) ///   // project palette, no yellow (2026-11-05)
+	    p2(mcolor(maroon) ciopts(recast(rcap) lwidth(medthick) lcolor(maroon))) ///
+	    p3(mcolor("252 141 89") ciopts(recast(rcap) lwidth(medthick) lcolor("252 141 89"))) ///
+	    p4(mcolor(gs8) ciopts(recast(rcap) lwidth(medthick) lcolor(gs8))) ///
+	    yline(`beta_overall', lcolor(black) lpattern(shortdash) lwidth(medthick)) legend(off) ///
+	    text(`=`beta_overall'+.015' .57 "Overall", color(black) size(medlarge)) ///
 	    xlabel(.7 "Q1 (Lowest)" .9 "Q2" 1.1 "Q3" 1.3 "Q4 (Highest)", labsize(medlarge)) ///
 	    ylabel(, labsize(medlarge))
 	local stub = cond("`v'" == "hi_usda", "usda", "hei")

@@ -31,6 +31,7 @@ replace occ_src = female_head_occupation if missing(occ_src) | inlist(occ_src, 0
 gen byte emp_cell     = inlist(occ_src, 1, 2, 3, 4, 5, 6, 8, 9, 11) if !missing(occ_src) & !inlist(occ_src, 0, 7)
 gen byte not_emp_cell = inlist(occ_src, 10, 12)                    if !missing(occ_src) & !inlist(occ_src, 0, 7)
 gen byte clean = (L.emp_cell == 1) if !missing(L.emp_cell)
+egen year_state = group(year fips_state_code)   // state-by-year FE, as in 12_ (2026-11-05)
 
 // ------------------------------------------------- z-scored nutrition outcomes
 local outcomes hi hi_usda hei_usda
@@ -48,13 +49,13 @@ eststo clear
 foreach v of local outcomes {
 	eststo iv_`v': ivreghdfe fz_`v' (D.real_income = D.iv_income_fips) ///
 		[pw = projection_factor] if clean == 1, ///
-		absorb(year hhid kids avg_age_hh_head hh_comp) cluster(fips)
+		absorb(year_state hhid kids avg_age_hh_head hh_comp) cluster(fips)
 	estadd scalar fs_F = e(widstat)
 	gen byte smp_`v' = e(sample)
 
 	eststo ols_`v': reghdfe fz_`v' D.real_income ///
 		[pw = projection_factor] if smp_`v' == 1, ///
-		absorb(year hhid kids avg_age_hh_head hh_comp) cluster(fips)
+		absorb(year_state hhid kids avg_age_hh_head hh_comp) cluster(fips)
 }
 
 // Two coefficient rows in one table via fragment/append.

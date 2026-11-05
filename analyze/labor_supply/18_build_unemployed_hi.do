@@ -1,20 +1,18 @@
 // ============================================================================
 // 18_build_unemployed_hi.do -- the UNEMPLOYED households as a robustness
-// check on the nutrition result (Anya 2026-09-10). The clean sample (12_)
-// keeps only household-years with an employed shock cell at t-1 and t; this
-// script runs the same forward-diff IV on the excluded unemployed:
-//
-//   "Unemp. at t"  -- not-employed shock cell at t (includes job losers)
-//   "Stable unemp."-- not-employed cell at BOTH t-1 and t (the shock is then
-//                     within-cell income movement, not the cell switch)
-//
-// Retirement-age households (avg head age >= 62) are excluded so this is
-// about unemployment, not retirement. Hypothesis: unemployed households have
-// more time for home production, so if the main nutrition effect were about
-// time rather than income, the response here should attenuate or flip sign.
+// check on the nutrition result (Anya 2026-09-10; sample rules 2026-09-16).
+// The clean sample (12_) keeps household-years whose shock cell at t-1 is an
+// employed one; this script runs the same forward-diff IV on the complement:
+// not-employed shock cell at t-1 AND average head age under 67 at t-1 (so
+// this is about unemployment, not retirement). Status at t does not select.
+// Hypothesis: unemployed households have more time for home production, so
+// if the main nutrition effect were about time rather than income, the
+// response here should attenuate or flip sign.
+// Spec as in 12_ (state-by-year, household, kids, age, composition FE;
+// county-clustered SE; pw) since 2026-11-05.
 //
 // Output (tabs/labor_supply/):
-//   hi_unemployed.tex   3 outcomes x 2 samples
+//   hi_unemployed.tex   3 outcomes, one sample
 // ============================================================================
 
 clear all
@@ -37,6 +35,7 @@ gen byte not_emp_cell = inlist(occ_src, 10, 12) if !missing(occ_src) & !inlist(o
 
 gen byte unemp = (L.not_emp_cell == 1 & L.avg_age_hh_head < 67) ///
 	if !missing(L.not_emp_cell) & !missing(L.avg_age_hh_head)
+egen year_state = group(year fips_state_code)   // state-by-year FE, as in 12_ (2026-11-05)
 
 // ------------------------------------------------- z-scored nutrition outcomes
 local outcomes hi hi_usda hei_usda
@@ -54,7 +53,7 @@ eststo clear
 foreach v of local outcomes {
 	eststo `v'_u: ivreghdfe fz_`v' (D.real_income = D.iv_income_fips) ///
 		[pw = projection_factor] if unemp == 1, ///
-		absorb(year hhid kids avg_age_hh_head hh_comp) cluster(fips)
+		absorb(year_state hhid kids avg_age_hh_head hh_comp) cluster(fips)
 	estadd scalar fs_F = e(widstat)
 }
 

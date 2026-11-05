@@ -28,7 +28,9 @@
 // variables remain in the reg data for that validation only.
 //
 // Spec everywhere: forward-diff 2SLS, non-movers, [pw=projection_factor],
-// absorb(year hhid kids avg_age_hh_head hh_comp), county-clustered SE.
+// absorb(year_state hhid kids avg_age_hh_head hh_comp) for the nutrition tables
+// (state-by-year FE since 2026-09-18; 13_/17_/18_/22_ aligned 2026-11-05), absorb(year ...)
+// for labor supply; county-clustered SE.
 //
 // Outputs (tabs/labor_supply/):
 //   hi_clean.tex                     nutrition, 3 outcomes

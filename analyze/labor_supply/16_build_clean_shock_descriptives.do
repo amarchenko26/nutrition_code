@@ -52,33 +52,35 @@ gen byte neg_shock = (d_iv < 0) if !missing(d_iv)
 quietly count if !missing(d_iv)
 local N_all = r(N)
 
-matrix S = J(5, 5, .)
+matrix S = J(5, 6, .)
 local r = 1
 forvalues g = 1/4 {
-	quietly summarize d_iv if occ_bin == `g'
+	quietly summarize d_iv if occ_bin == `g', detail
 	matrix S[`r',1] = r(N)
 	matrix S[`r',2] = 100 * r(N) / `N_all'
 	matrix S[`r',3] = r(mean)
-	matrix S[`r',4] = r(sd)
+	matrix S[`r',4] = r(p50)
+	matrix S[`r',5] = r(sd)
 	quietly summarize neg_shock if occ_bin == `g'
-	matrix S[`r',5] = 100 * r(mean)
+	matrix S[`r',6] = 100 * r(mean)
 	local ++r
 }
-quietly summarize d_iv
+quietly summarize d_iv, detail
 matrix S[5,1] = r(N)
 matrix S[5,2] = 100
 matrix S[5,3] = r(mean)
-matrix S[5,4] = r(sd)
+matrix S[5,4] = r(p50)
+matrix S[5,5] = r(sd)
 quietly summarize neg_shock
-matrix S[5,5] = 100 * r(mean)
+matrix S[5,6] = 100 * r(mean)
 
 matrix rownames S = "White collar" "Blue collar" "Service/other" "Not employed" "Total"
-matrix colnames S = "N" "Share" "Mean" "SD" "Share neg."
+matrix colnames S = "N" "Share" "Mean" "Median" "SD" "Share neg."
 
-esttab matrix(S, fmt(%12.0fc 1 3 3 1)) using "$overleaf/tabs/labor_supply/shock_by_occupation_clean.tex", ///
+esttab matrix(S, fmt(%12.0fc 1 3 3 3 1)) using "$overleaf/tabs/labor_supply/shock_by_occupation_clean.tex", ///
 	replace booktabs nomtitles nonotes
 
-esttab matrix(S, fmt(%12.0fc 1 3 3 1))
+esttab matrix(S, fmt(%12.0fc 1 3 3 3 1))
 
 // ============================================================================
 // Figure: distribution of the shock, clean sample
