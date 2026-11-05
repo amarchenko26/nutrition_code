@@ -4,12 +4,17 @@ Reads interim/movers/event_study_coefs.csv and event_study_summary.csv
 (4_build_movers_event_study.do).
 
 Outputs (figs/movers/):
-  event_study_hei.png        FGW Fig. VI: theta_r for HEI, all moves between employed occupations
+  event_study_hei.png        FGW Fig. VI, 1 x 2 since 2026-11-05: theta_r for HEI on all moves (E->E plus into/out of
+                             not employed) and on moves from an employed occupation (origin != 12, employed at t-1);
+                             the E->E-only version lives on in event_study_samples / event_study_outcomes
   event_study_outcomes.png   theta_r for HEI, the simple USDA index and the simple Syndigo index, by sample (4 x 3)
   other_switches.png         the event study for births, deaths, education increases, retirement, job loss,
                              re-employment (8_build_life_event_studies.do), HEI points
-  event_study_income.png     income realized on move (share of the occupation income gap), employed-to-employed
-                             and into/out of not employed; HEI per $10k of the gap against the income IV's implied path
+  event_study_first_stage.png   theta_r for household income on the occupation INCOME gap (the first stage):
+                                all moves / employed origin (the movers analogue of the IV's employed-at-t-1 sample)
+  event_study_reduced_form.png  theta_r for HEI per $10k of the occupation income gap (the reduced form), same two
+                                samples, each against the path the income IV implies (0.035 SD per $10k x income theta_r)
+  (event_study_income.png, the two-panel predecessor, deleted 2026-11-05)
   event_study_samples.png    theta_r for HEI: all moves, moves not later reversed, first moves, single-change households
 """
 
@@ -57,22 +62,27 @@ def header(s, short=False, lines=False):
 
 
 def fig_event_study(coefs, summ):
-    d = coefs[(coefs['spec'] == 'main') & (coefs['outcome'] == 'hei_usda')]
-    s = summ[(summ['spec'] == 'main') & (summ['outcome'] == 'hei_usda')].iloc[0]
-    fig, ax = plt.subplots(figsize=(9, 5.5))
-    es_panel(ax, d)
-    ax.text(-6, 1.03, 'gap entirely due to occupation', va='bottom', fontsize=10, color=GREY)
-    ax.text(-6, 0.03, 'gap entirely due to households', va='bottom', fontsize=10, color=GREY)
-    ax.set_xlabel('Year relative to the move')
-    ax.set_ylabel('$\\theta_r$: share of the origin–destination HEI gap')
-    ax.set_title(f'Moves between employed occupations\n{header(s)}')
+    """1 x 2: theta_r for HEI (share of the HEI gap) on all moves and on moves from an employed occupation."""
+    panels = [('all', 'All moves (between employed occupations, and into or out of not employed)'),
+              ('emporig', 'Moves from an employed occupation (employed at t−1)')]
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5.8), sharey=True)
+    fig.subplots_adjust(wspace=0.08)
+    for ax, (spec, title) in zip(axes, panels):
+        d = coefs[(coefs['spec'] == spec) & (coefs['outcome'] == 'hei_usda')]
+        s = summ[(summ['spec'] == spec) & (summ['outcome'] == 'hei_usda')].iloc[0]
+        es_panel(ax, d)
+        ax.text(-6, 1.03, 'gap entirely due to occupation', va='bottom', fontsize=10, color=GREY)
+        ax.text(-6, 0.03, 'gap entirely due to households', va='bottom', fontsize=10, color=GREY)
+        ax.set_title(f'{title}\n{header(s, lines=True)}', fontsize=11)
+        ax.set_xlabel('Year relative to the move')
+    axes[0].set_ylabel('$\\theta_r$: share of the origin–destination HEI gap')
     save(fig, 'event_study_hei.png')
 
 
 def fig_outcomes(coefs, summ):
     outcomes = [('hei_usda', 'HEI (full index, USDA labels)'), ('hi_usda', 'Simple index, USDA labels'),
                 ('hi', 'Simple index, Syndigo labels')]
-    samples = [('main', 'All moves'), ('noreversal', 'Not later reversed'),
+    samples = [('main', 'All moves between employed occupations'), ('noreversal', 'Not later reversed'),
                ('firstmove', 'First move of each household'), ('single', 'Single-change households')]
     fig, axes = plt.subplots(4, 3, figsize=(17, 18), sharex=True, sharey=True)
     fig.subplots_adjust(wspace=0.12, hspace=0.45)
@@ -92,46 +102,60 @@ def fig_outcomes(coefs, summ):
     save(fig, 'event_study_outcomes.png')
 
 
-def fig_income(coefs, summ, hei_sd):
-    inc = coefs[(coefs['spec'] == 'income') & (coefs['outcome'] == 'real_income')].sort_values('r')
-    inc_ne = coefs[(coefs['spec'] == 'income_notemp') & (coefs['outcome'] == 'real_income')].sort_values('r')
-    hei = coefs[(coefs['spec'] == 'hei_per_inc') & (coefs['outcome'] == 'hei_usda')].sort_values('r')
-    si = summ[summ['spec'] == 'income'].iloc[0]
-    sn = summ[summ['spec'] == 'income_notemp'].iloc[0]
-    sh = summ[summ['spec'] == 'hei_per_inc'].iloc[0]
+SAMPLES = [('all', 'All moves (between employed occupations, and into or out of not employed)'),
+           ('emporig', 'Moves from an employed occupation (employed at t−1)')]
+
+
+def _spec(base, suffix):
+    return base if suffix == '' else f'{base}_{suffix}'
+
+
+def fig_first_stage(coefs, summ):
+    """theta_r for household income on the occupation income gap: the share of the cross-sectional gap realized."""
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5.8), sharey=True)
+    fig.subplots_adjust(wspace=0.08)
+    for ax, (suf, title) in zip(axes, SAMPLES):
+        spec = _spec('income', suf)
+        d = coefs[(coefs['spec'] == spec) & (coefs['outcome'] == 'real_income')].sort_values('r')
+        s = summ[(summ['spec'] == spec) & (summ['outcome'] == 'real_income')].iloc[0]
+        d = d[(d['r'] >= -6) & (d['r'] <= 6)]
+        ax.plot(d['r'], d['b'], color=BLUE, lw=2.5, marker='o', ms=6)
+        ax.fill_between(d['r'], d['b'] - 1.96 * d['se'], d['b'] + 1.96 * d['se'], color=BLUE, alpha=0.15, lw=0)
+        ax.axhline(0, color=GREY, lw=1, ls='--'); ax.axhline(1, color=GREY, lw=1, ls='--'); ax.axvline(-0.5, color=GREY, lw=1, ls=':')
+        ax.set_xticks(range(-6, 7))
+        ax.set_ylim(-0.4, 1.1)
+        ax.set_title(f'{title}\n{header(s, lines=True)}', fontsize=11)
+        ax.set_xlabel('Year relative to the move')
+    axes[0].set_ylabel('$\\theta_r$: share of the occupation income gap in household income')
+    save(fig, 'event_study_first_stage.png')
+
+
+def fig_reduced_form(coefs, summ, hei_sd):
+    """theta_r for HEI per $10k of the occupation income gap, against the path the income IV implies."""
     beta_pts = IV_BETA_SD * hei_sd
-    fig, axes = plt.subplots(1, 2, figsize=(16, 6))
-    ax = axes[0]
-    d = inc[(inc['r'] >= -6) & (inc['r'] <= 6)]
-    ax.plot(d['r'], d['b'], color=BLUE, lw=2.5, marker='o', ms=6,
-            label=f'between employed occupations ({int(si["n_events"]):,} moves): post {si["jump"]:.2f} (SE {si["jump_se"]:.2f})')
-    ax.fill_between(d['r'], d['b'] - 1.96 * d['se'], d['b'] + 1.96 * d['se'], color=BLUE, alpha=0.15, lw=0)
-    d = inc_ne[(inc_ne['r'] >= -6) & (inc_ne['r'] <= 6)]
-    ax.plot(d['r'], d['b'], color=GREY, lw=2, ls='--', marker='s', ms=5,
-            label=f'into or out of not employed ({int(sn["n_events"]):,} moves): post {sn["jump"]:.2f} (SE {sn["jump_se"]:.2f})')
-    ax.fill_between(d['r'], d['b'] - 1.96 * d['se'], d['b'] + 1.96 * d['se'], color=GREY, alpha=0.15, lw=0)
-    ax.axhline(0, color=GREY, lw=1, ls='--'); ax.axhline(1, color=GREY, lw=1, ls='--'); ax.axvline(-0.5, color=GREY, lw=1, ls=':')
-    ax.set_xticks(range(-6, 7))
-    ax.set_ylim(-0.4, 1.1)
-    ax.set_title('Household income: share of the occupation income gap realized')
-    ax.set_ylabel('$\\theta_r$ for household income (2013 dollars)')
-    ax.set_xlabel('Year relative to the move')
-    ax.legend(loc='lower right', frameon=False, fontsize=9.5)
-    ax = axes[1]
-    d = hei[(hei['r'] >= -6) & (hei['r'] <= 6)]
-    ax.plot(d['r'], d['b'], color=BLUE, lw=2.5, marker='o', ms=6, label='movers, estimated')
-    ax.fill_between(d['r'], d['b'] - 1.96 * d['se'], d['b'] + 1.96 * d['se'], color=BLUE, alpha=0.15, lw=0)
-    implied = inc.set_index('r')['b'] * beta_pts
-    implied = implied[(implied.index >= -6) & (implied.index <= 6)]
-    ax.plot(implied.index, implied.values, color=RED, lw=2.5, ls='--', marker='s', ms=5,
-            label=f'implied by the income IV: {IV_BETA_SD:.3f} SD = {beta_pts:.2f} HEI points per \\$10k, times the income path')
-    ax.axhline(0, color=GREY, lw=1, ls='--'); ax.axvline(-0.5, color=GREY, lw=1, ls=':')
-    ax.set_xticks(range(-6, 7))
-    ax.set_title(f'HEI per \\$10k of the occupation income gap\npost {sh["jump"]:.3f} (SE {sh["jump_se"]:.3f}); IV-implied {beta_pts * si["jump"]:.3f}')
-    ax.set_ylabel('HEI points per \\$10k of cross-sectional income gap')
-    ax.set_xlabel('Year relative to the move')
-    ax.legend(loc='upper left', frameon=False, fontsize=9.5)
-    save(fig, 'event_study_income.png')
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5.8), sharey=True)
+    fig.subplots_adjust(wspace=0.08)
+    for ax, (suf, title) in zip(axes, SAMPLES):
+        spec, ispec = _spec('hei_per_inc', suf), _spec('income', suf)
+        d = coefs[(coefs['spec'] == spec) & (coefs['outcome'] == 'hei_usda')].sort_values('r')
+        s = summ[(summ['spec'] == spec) & (summ['outcome'] == 'hei_usda')].iloc[0]
+        inc = coefs[(coefs['spec'] == ispec) & (coefs['outcome'] == 'real_income')].sort_values('r')
+        si = summ[(summ['spec'] == ispec) & (summ['outcome'] == 'real_income')].iloc[0]
+        d = d[(d['r'] >= -6) & (d['r'] <= 6)]
+        ax.plot(d['r'], d['b'], color=BLUE, lw=2.5, marker='o', ms=6, label='movers, estimated')
+        ax.fill_between(d['r'], d['b'] - 1.96 * d['se'], d['b'] + 1.96 * d['se'], color=BLUE, alpha=0.15, lw=0)
+        implied = inc.set_index('r')['b'] * beta_pts
+        implied = implied[(implied.index >= -6) & (implied.index <= 6)]
+        ax.plot(implied.index, implied.values, color=RED, lw=2.5, ls='--', marker='s', ms=5,
+                label=f'implied by the income IV: {beta_pts:.2f} HEI points per \\$10k times the income path')
+        ax.axhline(0, color=GREY, lw=1, ls='--'); ax.axvline(-0.5, color=GREY, lw=1, ls=':')
+        ax.set_xticks(range(-6, 7))
+        ax.set_title(f'{title}\n{int(s["n_events"]):,} moves · post {s["jump"]:.3f} (SE {s["jump_se"]:.3f}) · '
+                     f'IV-implied {beta_pts * si["jump"]:.3f} · pre-trend p = {s["p_pretrend"]:.2f}', fontsize=11)
+        ax.set_xlabel('Year relative to the move')
+    axes[0].set_ylabel('HEI points per \\$10k of the occupation income gap')
+    axes[0].legend(loc='upper left', frameon=False, fontsize=9.5)
+    save(fig, 'event_study_reduced_form.png')
 
 
 def fig_other_switches(oc, os_):
@@ -186,9 +210,10 @@ def main():
     fig_event_study(coefs, summ)
     fig_outcomes(coefs, summ)
     fig_samples(coefs, summ)
-    if (coefs['spec'] == 'income').any():
-        panel = pd.read_parquet(BASE / 'occupation_movers_panel.parquet', columns=['analysis', 'hei_usda'])
-        fig_income(coefs, summ, panel.loc[panel['analysis'] == 1, 'hei_usda'].std())
+    panel = pd.read_parquet(BASE / 'occupation_movers_panel.parquet', columns=['analysis', 'hei_usda'])
+    hei_sd = panel.loc[panel['analysis'] == 1, 'hei_usda'].std()
+    fig_first_stage(coefs, summ)
+    fig_reduced_form(coefs, summ, hei_sd)
     if (BASE / 'other_switches_summary.csv').exists():
         fig_other_switches(pd.read_csv(BASE / 'other_switches_coefs.csv'), pd.read_csv(BASE / 'other_switches_summary.csv'))
     print(summ.round(3).to_string())

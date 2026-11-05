@@ -19,6 +19,10 @@
 // moves only and on single-change households (the old design); HEI on moves
 // into or out of not employed; household income scaled by the occupation
 // income gap (the wage validation); HEI per $10k of the occupation income gap.
+// Since 2026-11-05 also, for the Movers section of notes/labor_supply.tex: ALL
+// MOVES pooled (E->E plus into/out of not employed) and EMPLOYED ORIGIN (origin
+// != 12, the movers analogue of the IV's employed-at-t-1 clean sample) for the
+// three objects.
 //
 // Outputs (interim/movers/): event_study_coefs.csv, event_study_summary.csv
 // ============================================================================
@@ -116,5 +120,22 @@ es_run "income_notemp" "real_income" "notemp == 1"
 es_run "income_single" "real_income" "emp2emp == 1 & single == 1"
 // HEI scaled by the occupation INCOME gap: theta_r = HEI points per $10k of cross-sectional income gap
 es_run "hei_per_inc" "hei_usda"    "emp2emp == 1" "delta_real_income"
+
+// ALL MOVES pooled (between employed occupations, and into or out of not employed), and the
+// movers analogue of the IV's clean sample, EMPLOYED ORIGIN: origin an employed occupation,
+// destination another employed occupation or not employed (moves out of not employed
+// excluded) -- labor_supply.tex "Movers" section (Anya 2026-11-05)
+es_run "all"                 "hei_usda"    "1"
+es_run "emporig"             "hei_usda"    "origin != 12"
+es_run "income_all"          "real_income" "1"
+es_run "income_emporig"      "real_income" "origin != 12"
+es_run "hei_per_inc_all"     "hei_usda"    "1"            "delta_real_income"
+es_run "hei_per_inc_emporig" "hei_usda"    "origin != 12" "delta_real_income"
+// NO plain event study (rho_r alone, by direction of the move) on this panel: every
+// household is a mover, so a linear trend in r is collinear with the year effects and
+// the event FE and is pinned only by the binned tails -- tried 2026-11-05 for up-moves
+// from an employed occupation: post(1..3) = 0.36 / 0.54 / 0.42 HEI points with r binned
+// at +/-4 / +/-7 / +/-10 and -0.22 without year FE. A level change by direction needs
+// non-mover controls (3_'s matched non-movers, or 8_'s never-changer design).
 
 di "4_build_movers_event_study.do complete"
