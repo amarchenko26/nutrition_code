@@ -164,7 +164,8 @@ seconds of a push. So, every time:
 1. BEFORE writing anything into the clone (a figure job, a table, a note edit):
    `git -C "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf" pull --rebase`
 2. Write the outputs (scripts write straight into the clone's `figs/`, `tabs/`, `notes/`).
-3. AFTER writing: `git -C <clone> add -A && git -C <clone> commit -m "<what changed>" && git -C <clone> push`.
+3. AFTER writing: `git -C <clone> add -A && git -C <clone> commit -m "<what changed>"`, THEN
+   `git -C <clone> pull --rebase` (a pull with uncommitted files is refused), THEN `git -C <clone> push`.
    Commit messages in the clone: plain description of the exhibits changed, no job numbers.
 4. A rejected push means Anya edited in between: `pull --rebase`, resolve any conflict in favour of her text,
    push again. Never `--force`, never push a branch other than the one the clone is on, never commit
