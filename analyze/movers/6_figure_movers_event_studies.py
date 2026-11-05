@@ -170,10 +170,10 @@ def table_results(summ, hei_sd, isum=None):
     def g(spec, outcome):
         r = summ[(summ['spec'] == spec) & (summ['outcome'] == outcome)]
         return None if r.empty else r.iloc[0]
-    out = ['\\begin{tabular}{llrcccccc}', '\\toprule',
-           ' & & & \\multicolumn{2}{c}{HEI on the HEI gap} & \\multicolumn{2}{c}{Income on the income gap} & \\multicolumn{2}{c}{HEI on the income gap} \\\\',
-           '\\cmidrule(lr){4-5} \\cmidrule(lr){6-7} \\cmidrule(lr){8-9}',
-           'Sample & Controls & Moves & share of gap & pre $p$ & share of gap & pre $p$ & HEI pts per \\$10k & IV-implied \\\\', '\\midrule']
+    out = ['\\begin{tabular}{llrccccccc}', '\\toprule',
+           ' & & & \\multicolumn{2}{c}{HEI on the HEI gap} & \\multicolumn{2}{c}{Income on the income gap} & \\multicolumn{2}{c}{HEI on the income gap} & HEI per \\$10k \\\\',
+           '\\cmidrule(lr){4-5} \\cmidrule(lr){6-7} \\cmidrule(lr){8-9} \\cmidrule(lr){10-10}',
+           'Sample & Controls & Moves & share of gap & pre $p$ & share of gap & pre $p$ & HEI pts per \\$10k & IV-implied & of own income \\\\', '\\midrule']
     blocks = [(summ, 'All moves', 'all'), (summ, 'From an employed occupation', 'emporig')]
     if isum is not None:
         blocks.append((isum, 'Income-quintile movers', 'all'))
@@ -185,9 +185,11 @@ def table_results(summ, hei_sd, isum=None):
             h, i, pr = gg(base + suf, 'hei_usda'), gg('income_' + base + suf, 'real_income'), gg('hei_per_inc_' + base + suf, 'hei_usda')
             if h is None or i is None or pr is None:
                 continue
+            wald = pr['jump'] / i['jump']                     # HEI points per $10k of realized own income (reduced form / first stage)
+            wald_se = np.sqrt((pr['jump_se'] / i['jump']) ** 2 + (pr['jump'] * i['jump_se'] / i['jump'] ** 2) ** 2)   # delta method, estimates treated as independent
             out.append(f'{label if suf == "" else ""} & {ctl} & {int(h["n_events"]):,} & {h["jump"]:.3f} ({h["jump_se"]:.3f}) & {h["p_pretrend"]:.2f} & '
-                       f'{i["jump"]:.3f} ({i["jump_se"]:.3f}) & {i["p_pretrend"]:.2f} & {pr["jump"]:.3f} ({pr["jump_se"]:.3f}) & {beta_pts * i["jump"]:.3f} \\\\')
-    out += ['\\bottomrule', '\\end{tabular}']
+                       f'{i["jump"]:.3f} ({i["jump_se"]:.3f}) & {i["p_pretrend"]:.2f} & {pr["jump"]:.3f} ({pr["jump_se"]:.3f}) & {beta_pts * i["jump"]:.3f} & {wald:.3f} ({wald_se:.3f}) \\\\')
+    out += ['\\midrule', f'\\multicolumn{{9}}{{l}}{{Income IV, Table~\\ref{{tab:hi_clean}}, full HEI: 0.035 SD per \\$10k of own income}} & {beta_pts:.2f} ({0.016 * hei_sd:.2f}) \\\\', '\\bottomrule', '\\end{tabular}']
     TAB.mkdir(parents=True, exist_ok=True)
     (TAB / 'movers_results.tex').write_text('\n'.join(out) + '\n')
     print(f'saved {TAB / "movers_results.tex"}')
