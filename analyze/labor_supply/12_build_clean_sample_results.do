@@ -41,8 +41,7 @@
 
 clear all
 
-global data     "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data"
-global overleaf "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf"
+do "/Users/anyamarchenko/Documents/GitHub/nutrition_code/paths.do"
 
 use "$data/final/labor_supply_reg_data.dta", clear
 xtset hhid year
@@ -93,6 +92,15 @@ foreach v of local outcomes {
 		absorb(year_state hhid kids avg_age_hh_head hh_comp) cluster(fips)
 	estadd scalar fs_F = e(widstat)
 }
+
+// the estimates the movers figures compare with (analyze/movers 6_ and 8_ read this file)
+file open fh using "$idir/labor_supply/iv_main_estimates.csv", write replace
+file write fh "outcome,b,se,f,n" _n
+foreach v of local outcomes {
+	estimates restore `v'
+	file write fh "`v'," (_b[D.real_income]) "," (_se[D.real_income]) "," (e(widstat)) "," (e(N)) _n
+}
+file close fh
 
 esttab hi hi_usda hei_usda ///
 	using "$overleaf/tabs/labor_supply/hi_clean.tex", ///

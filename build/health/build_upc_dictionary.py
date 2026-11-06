@@ -15,8 +15,14 @@ For each nutrient separately, the value per 100 g is, in order:
   3  the mean over labelled UPCs of the same brand and module;
   4  the module mean over labelled UPCs, weighted by the UPC's 2004-2020 spending;
   5  the mean over the product group's labelled UPCs.
-Labels are dropped first when impossible: above 900 kcal/100 g, sugar, fiber or fat above 100 g, sodium above 40 g
-or cholesterol above 3 g per 100 g, or fats above the calories they imply. A typed commodity value (USDA Standard
+Labels are cleaned first. The whole label goes when it is above 900 kcal/100 g, or above five times its module's median
+density by at least 200 kcal (a false UPC match: a soda labelled as chocolate; pepperoni among deli meats and salad kits
+with dressing stay in). One field goes when above 100 g (sugar,
+fiber, fat), 40 g (sodium) or 3 g (cholesterol) per 100 g. Saturated fat is never above total fat, as in Allcott et al.
+(prepare_gladson_nut_facts_for_imputation.do); saturated fat and sugar go when above the calories they imply, with 20%
+and 5 kcal of slack for rounding (some labels carry the sodium figure in the saturated fat field: Mountain Dew, 60 mg
+sodium, "60 g" saturated fat). Monounsaturated and polyunsaturated fat go when the fats exceed the calories they imply or
+total fat. A typed commodity value (USDA Standard
 Reference, kcal per 100 g) replaces tiers 2-5 for calories in fresh commodity modules, whose labelled UPCs are
 atypical (apple chips in FRESH APPLES); Allcott et al. also hand-enter these modules (nut_facts_for_missing_modules).
 NOVA (usda_nova.parquet; both sources use it): own ingredient list, else the nearest-sized labelled relative, else
@@ -104,15 +110,33 @@ def main(source):
     cols = [f'{n}_per_100g' for n in nuts]
     wide = pd.read_parquet(path, columns=[key] + cols).rename(columns={key: 'upc_13'}).drop_duplicates('upc_13')
     # impossible labels
+    n_dense = int((wide['cal_per_100g'] > CAPS['cal']).sum())
+    wide.loc[wide['cal_per_100g'] > CAPS['cal'], cols] = np.nan
     for n in nuts:
         c = f'{n}_per_100g'
         wide.loc[(wide[c] > CAPS[n]) | (wide[c] < 0), c] = np.nan
+    over_total = wide['satfat_per_100g'] > wide['totfat_per_100g']
+    wide.loc[over_total, 'satfat_per_100g'] = wide.loc[over_total, 'totfat_per_100g']
+    implied = 1.2 * wide['cal_per_100g'] + 5
+    no_sat = 9 * wide['satfat_per_100g'] > implied
+    wide.loc[no_sat, 'satfat_per_100g'] = np.nan
+    no_sugar = 4 * wide['sugar_per_100g'] > implied
+    wide.loc[no_sugar, 'sugar_per_100g'] = np.nan
+    if 'addsugar_per_100g' in wide.columns:
+        wide.loc[4 * wide['addsugar_per_100g'] > implied, 'addsugar_per_100g'] = np.nan
+    print(f'labels above 900 kcal/100 g: {n_dense:,}; saturated fat set to total fat: {int(over_total.sum()):,}; saturated fat dropped: {int(no_sat.sum()):,}; sugar dropped: {int(no_sugar.sum()):,}')
     fats = [c for c in ('mufat_per_100g', 'pufat_per_100g', 'mofat_per_100g', 'pofat_per_100g', 'satfat_per_100g') if c in wide.columns]
     fat3 = wide[fats].sum(axis=1, min_count=1)
     bad = ((9 * fat3 > 1.1 * wide['cal_per_100g']) | (fat3 > wide['totfat_per_100g'] + 1)).fillna(False)
     wide.loc[bad, [c for c in fats if c != 'satfat_per_100g']] = np.nan
     print(f'{len(wide):,} labels; fat fields dropped as impossible on {int(bad.sum()):,}')
     d = prod.merge(wide, on='upc_13', how='left')
+    # false matches: far above the module's usual density
+    med = d.groupby('product_module_code')['cal_per_100g'].transform('median')
+    far = d['cal_per_100g'] > np.maximum(5 * med, med + 200)
+    print(f'labels far above their module (false matches): {int(far.sum()):,}; of labelled spending {d.loc[far, "upc_13"].map(spend).sum() / d.loc[d["cal_per_100g"].notna(), "upc_13"].map(spend).sum():.4f}')
+    print(d[far].assign(sp=d.loc[far, 'upc_13'].map(spend)).sort_values('sp', ascending=False).head(15)[['product_module_descr', 'brand_descr', 'cal_per_100g', 'sp']].round(0).to_string(index=False))
+    d.loc[far, cols] = np.nan
     nova = pd.read_parquet(idir / 'usda_nielsen_merged' / 'usda_nova.parquet', columns=['upc13', 'nova']).rename(columns={'upc13': 'upc_13'}).drop_duplicates('upc_13')
     d = d.merge(nova, on='upc_13', how='left')
     d['nova'] = d['nova'].astype('float')

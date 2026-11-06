@@ -23,7 +23,7 @@
 // others); share = jump / gap. For the employment switches FGW's specification
 // (theta_r x delta_e + rho_r) is run as well. Each switch is also run with
 // household income (2013 dollars, $10k) as the outcome; its post-switch jump
-// times the income IV's 0.035 SD per $10k (in HEI points) is the HEI jump the
+// times the income IV's estimate (SD per $10k, in HEI points) is the HEI jump the
 // IV implies.
 //
 // Outputs (interim/movers/): other_switches_coefs.csv, other_switches_summary.csv
@@ -32,12 +32,16 @@
 clear all
 set more off
 
-global data "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data"
-global out  "$data/interim/movers"
+do "/Users/anyamarchenko/Documents/GitHub/nutrition_code/paths.do"
+global out  "$idir/movers"
+
+import delimited "$idir/labor_supply/iv_main_estimates.csv", clear
+quietly summarize b if outcome == "hei_usda"
+local iv_sd = r(mean)                   // income IV, full HEI, clean sample: SD per $10k (analyze/labor_supply/12_)
 
 use "$out/occupation_movers_panel.dta", clear
 quietly summarize hei_usda if analysis == 1
-global iv_beta_pts = 0.035 * r(sd)     // income IV, full HEI, clean sample: 0.035 SD per $10k, in HEI points
+global iv_beta_pts = `iv_sd' * r(sd)    // the same estimate in HEI points
 di "IV coefficient in HEI points per 10k: $iv_beta_pts"
 
 // ------------------------------------ state gaps for births and deaths

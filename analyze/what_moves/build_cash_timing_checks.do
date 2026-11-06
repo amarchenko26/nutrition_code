@@ -3,7 +3,7 @@
 // about the calendar? (2026-11-05). The 2004-2016 refund window, Jan 29 - Feb 18, holds the Super Bowl and
 // Valentine's Day, and refund-eligible households all have children. Two checks of the unhealthy and healthy
 // shares and spending:
-//   same comparison group: refund-eligible households against INELIGIBLE HOUSEHOLDS WITH CHILDREN;
+//   same comparison group: refund-eligible households against SNAP-ONLY HOUSEHOLDS WITH CHILDREN;
 //   placebo: the OLD window in 2017-2020, when the PATH Act holds refunds until after Feb 15 and most
 //   arrive after Feb 22, so cash no longer arrives in that window. A result there is the calendar.
 // Output: interim/what_moves/cash_timing_checks.csv
@@ -25,8 +25,8 @@ cap file close fh
 file open fh using "$idir/what_moves/cash_timing_checks.csv", write replace
 file write fh "check,years,window,control,outcome,b,se,N" _n
 file close fh
-cap program drop one
-program define one
+cap program drop run_check
+program define run_check
 	args check years win ctl cond
 	gen byte tw = eitc_eligible * `win'
 	foreach y in hs us ps spend {
@@ -38,8 +38,8 @@ program define one
 	}
 	drop tw
 end
-one "kids_control" "2004-2016" oldwin "with_children" "inrange(year, 2004, 2016) & has_children == 1"
-one "placebo_oldwindow" "2017-2020" oldwin "all" "inrange(year, 2017, 2020)"
-one "placebo_oldwindow" "2017-2020" oldwin "with_children" "inrange(year, 2017, 2020) & has_children == 1"
-one "kids_control" "2017-2020" newwin "with_children" "inrange(year, 2017, 2020) & has_children == 1"
+run_check "kids_control" "2004-2016" oldwin "with_children" "inrange(year, 2004, 2016) & has_children == 1"
+run_check "placebo_oldwindow" "2017-2020" oldwin "all" "inrange(year, 2017, 2020)"
+run_check "placebo_oldwindow" "2017-2020" oldwin "with_children" "inrange(year, 2017, 2020) & has_children == 1"
+run_check "kids_control" "2017-2020" newwin "with_children" "inrange(year, 2017, 2020) & has_children == 1"
 di "build_cash_timing_checks.do complete"

@@ -3,7 +3,7 @@
 // when cash arrives? Two within-year income-timing designs with a comparison
 // group (the May 2026 monthly-cycle figures had none):
 //   EITC: households eligible for the EITC (low income with children, flag from
-//         build/monthly_cycle/build_monthly_cycle_panel.py) vs ineligible
+//         build/monthly_cycle/build_monthly_cycle_panel.py) vs households eligible only for SNAP (the daily panel keeps no one else)
 //         households, shopping days in the refund window vs other shopping days
 //         of January-March. Since the 2017 PATH Act the IRS holds EITC refunds
 //         until Feb 15 and most arrive Feb 22 - Mar 1, so the window is

@@ -8,15 +8,22 @@ UPC Harmonization:
 """
 
 import os
+import sys
+from pathlib import Path
+_r = Path(__file__).resolve().parent
+while not (_r / "paths.py").exists():
+    _r = _r.parent
+sys.path.insert(0, str(_r))
+from paths import *
+
 import pandas as pd
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
 
-BASE_DATA_DIR           = '/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data'
-SYNDIGO_DIR             = os.path.join(BASE_DATA_DIR, 'raw', 'syndigo')
-OUTPUT_DIR              = os.path.join(BASE_DATA_DIR, 'interim', 'syndigo')
+SYNDIGO_DIR             = str(rdir / 'syndigo')
+OUTPUT_DIR              = str(idir / 'syndigo')
 
 SYNDIGO_YEARS = list(range(2005, 2025))
 
@@ -53,6 +60,23 @@ def get_product_filename(year):
 def harmonize_syndigo_upc(upc_series):
     """Syndigo 14-digit GTIN-14 -> drop last digit (check digit) -> 13 digits."""
     return upc_series.astype(str).str.strip().str.zfill(14).str[:-1]
+
+
+def parse_servings(servings):
+    """Servings per container as a number, after the text rules of prepare_gladson_nut_facts_for_imputation.do in the
+    Allcott et al. replication: 'about 8' -> 8, '2-3' -> 2.5, '3 1/2' -> 3.5, '32+' -> 32, 'varied' -> missing. From
+    2015 on 9-23% of the records are text; until 2026-11-05 they counted as missing."""
+    t = (servings.astype(str).str.strip().str.lower()
+         .str.replace(r'^(about|abut|abotu|abouat|sbout|approximately|approx\.?|aprox\.?|aprx\.?|appr\.?|usually|usally)\s+', '', regex=True))
+    plain = pd.to_numeric(t, errors='coerce')
+    mixed = t.str.extract(r'^(\d+)[\s-]+(\d+)/(\d+)')
+    mixed = mixed[0].astype(float) + mixed[1].astype(float) / mixed[2].astype(float)
+    frac = t.str.extract(r'^(\d+)/(\d+)')
+    frac = frac[0].astype(float) / frac[1].astype(float)
+    rng = t.str.extract(r'^(\d+\.?\d*)\s*(?:-|to)\s*(\d+\.?\d*)')
+    rng = (rng[0].astype(float) + rng[1].astype(float)) / 2
+    lead = t.str.extract(r'^(\d+\.?\d*)')[0].astype(float)
+    return plain.fillna(mixed).fillna(frac).fillna(rng).fillna(lead).abs()
 
 
 def convert_itemsize_to_grams(itemsize, itemmeasure):
@@ -314,13 +338,15 @@ def load_syndigo_year(year):
 
 
     #------ Calculate nutrients per 100g
+    # First pass, kept for the year-to-year checks below and for the package weights in build_package_params.py.
+    # merge_nielsen_syndigo.py replaces g_serving_size and nut_per_100g with the rule that uses Nielsen's package.
     # g_total = ItemSize converted to grams (using ItemMeasure, which is the unit for ItemSize)
     # g_serving_size = serving size in grams (direct from serving text/uom, or g_total / servingspercontainer)
     # nutrients_per_100g = nutrients_per_serving / g_serving_size × 100
 
     # Quantity, servingspercontainer are stored as negative if it's less than, just like in Nielsen. Take absolute value to get actual quantity.
     merged['quantity'] = pd.to_numeric(merged['quantity'], errors='coerce').abs()
-    merged['servingspercontainer'] = pd.to_numeric(merged['servingspercontainer'], errors='coerce').abs()
+    merged['servingspercontainer'] = parse_servings(merged['servingspercontainer'])
 
     # Package weight in grams 
     merged['g_total'] = convert_itemsize_to_grams(merged['itemsize'], merged['itemmeasure'])

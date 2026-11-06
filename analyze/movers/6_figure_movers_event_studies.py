@@ -13,7 +13,7 @@ Outputs (figs/movers/):
   event_study_first_stage.png   theta_r for household income on the occupation INCOME gap (the first stage):
                                 all moves / employed origin (the movers analogue of the IV's employed-at-t-1 sample)
   event_study_reduced_form.png  theta_r for HEI per $10k of the occupation income gap (the reduced form), same two
-                                samples, each against the path the income IV implies (0.035 SD per $10k x income theta_r)
+                                samples, each against the path the income IV implies (the IV estimate x income theta_r)
   (event_study_income.png, the two-panel predecessor, deleted 2026-11-05)
   tabs/movers/movers_results.tex  post-move means for the three objects by sample, with / without controls
                                   (+ income-quintile movers rows when 4_ has been run with `income`)
@@ -31,17 +31,26 @@ Outputs (figs/movers/):
 """
 
 import pandas as pd
+import sys
+from pathlib import Path
+_r = Path(__file__).resolve().parent
+while not (_r / "paths.py").exists():
+    _r = _r.parent
+sys.path.insert(0, str(_r))
+from paths import *
+
 import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from pathlib import Path
 
-BASE = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data') / 'interim' / 'movers'
-FIG = Path('/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf') / 'figs' / 'movers'
-TAB = Path('/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf') / 'tabs' / 'movers'
+BASE = idir / 'movers'
+FIG = fdir / 'movers'
+TAB = tdir / 'movers'
 BLUE, RED, GREY = '#3b6b9a', '#a63d40', '#7a7a7a'
-IV_BETA_SD = 0.035      # income IV, full HEI, clean sample: SD per $10k (tabs/labor_supply/hi_clean.tex)
+# income IV, full HEI, clean sample: SD per $10k, from analyze/labor_supply/12_ (tabs/labor_supply/hi_clean.tex)
+_iv = pd.read_csv(idir / 'labor_supply' / 'iv_main_estimates.csv').set_index('outcome')
+IV_BETA_SD, IV_SE_SD = float(_iv.loc['hei_usda', 'b']), float(_iv.loc['hei_usda', 'se'])
 
 plt.rcParams.update({'font.size': 13, 'axes.labelsize': 14, 'axes.titlesize': 13,
                      'xtick.labelsize': 12, 'ytick.labelsize': 12, 'legend.fontsize': 11,
@@ -187,7 +196,7 @@ def table_income_results(isum, hei_sd):
         wald_se = np.sqrt((pr['jump_se'] / i['jump']) ** 2 + (pr['jump'] * i['jump_se'] / i['jump'] ** 2) ** 2)
         out.append(f'{ctl} & {int(h["n_events"]):,} & {h["jump"]:.3f} ({h["jump_se"]:.3f}) & {h["p_pretrend"]:.2f} & '
                    f'{i["jump"]:.3f} ({i["jump_se"]:.3f}) & {i["p_pretrend"]:.2f} & {pr["jump"]:.3f} ({pr["jump_se"]:.3f}) & {wald:.3f} ({wald_se:.3f}) \\\\')
-    out += ['\\midrule', f'\\multicolumn{{7}}{{l}}{{Income IV, Table~\\ref{{tab:hi_clean}}, full HEI (0.035 SD per \\$10k of own income)}} & {beta_pts:.2f} ({0.016 * hei_sd:.2f}) \\\\',
+    out += ['\\midrule', f'\\multicolumn{{7}}{{l}}{{Income IV, Table~\\ref{{tab:hi_clean}}, full HEI ({IV_BETA_SD:.3f} SD per \\$10k of own income)}} & {beta_pts:.2f} ({IV_SE_SD * hei_sd:.2f}) \\\\',
             '\\bottomrule', '\\end{tabular}']
     (TAB / 'income_movers_results.tex').write_text('\n'.join(out) + '\n')
     print(f'saved {TAB / "income_movers_results.tex"}')
@@ -310,7 +319,7 @@ def table_results(summ, hei_sd, isum=None):
             wald_se = np.sqrt((pr['jump_se'] / i['jump']) ** 2 + (pr['jump'] * i['jump_se'] / i['jump'] ** 2) ** 2)   # delta method, estimates treated as independent
             out.append(f'{label if suf == "" else ""} & {ctl} & {int(h["n_events"]):,} & {h["jump"]:.3f} ({h["jump_se"]:.3f}) & {h["p_pretrend"]:.2f} & '
                        f'{i["jump"]:.3f} ({i["jump_se"]:.3f}) & {i["p_pretrend"]:.2f} & {pr["jump"]:.3f} ({pr["jump_se"]:.3f}) & {beta_pts * i["jump"]:.3f} & {wald:.3f} ({wald_se:.3f}) \\\\')
-    out += ['\\midrule', f'\\multicolumn{{9}}{{l}}{{Income IV, Table~\\ref{{tab:hi_clean}}, full HEI: 0.035 SD per \\$10k of own income}} & {beta_pts:.2f} ({0.016 * hei_sd:.2f}) \\\\', '\\bottomrule', '\\end{tabular}']
+    out += ['\\midrule', f'\\multicolumn{{9}}{{l}}{{Income IV, Table~\\ref{{tab:hi_clean}}, full HEI: {IV_BETA_SD:.3f} SD per \\$10k of own income}} & {beta_pts:.2f} ({IV_SE_SD * hei_sd:.2f}) \\\\', '\\bottomrule', '\\end{tabular}']
     TAB.mkdir(parents=True, exist_ok=True)
     (TAB / 'movers_results.tex').write_text('\n'.join(out) + '\n')
     print(f'saved {TAB / "movers_results.tex"}')

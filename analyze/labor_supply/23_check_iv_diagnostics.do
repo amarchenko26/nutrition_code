@@ -33,7 +33,7 @@ replace stype = 5 if sw_occ + sw_edu + sw_size >= 2
 label define stype 1 "no switch" 2 "occupation only" 3 "size only" 4 "education only" 5 "two or more"
 label values stype stype
 
-di _n "HEI SD = `sd' (0.035 SD = " 0.035 * `sd' " points)"
+di _n "HEI SD = `sd' points"
 di _n "==== A. baseline (12_): forward change t->t+1, hhid + state-year FE"
 ivreghdfe fz (d_inc = d_iv) [pw = projection_factor] if clean == 1, absorb(year_state hhid kids avg_age_hh_head hh_comp) cluster(fips)
 di "A  beta = " _b[d_inc] " (" _se[d_inc] ")  F = " e(widstat)

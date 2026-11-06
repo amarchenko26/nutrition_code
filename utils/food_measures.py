@@ -16,6 +16,11 @@ Package grams (package_grams):
     more is per 100 g of powder, so the package holds size x grams of powder per prepared quart (from
     build/health/build_package_params.py); a lower density is per 100 g of prepared drink, so the package
     counts at 946 g per quart. Without this a 34-quart can of lemonade mix counts as 32 kg of powder.
+  * Grams on the label's basis (edible_factor.parquet, from build/health/build_package_params.py). GetGrams.do needs no
+    such step because its calories per UPC are label totals. Here calories are density x grams, so a package whose
+    Nielsen size overstates the grams the label describes is corrected by module: ice cream sized in fluid ounces at
+    the density of water, bacon whose label describes cooked slices, canned fish and pickles labelled drained, nuts in
+    the shell.
 
 Food groups (is_fruit, is_veg): the module and group code lists of UPCDataPrep.do. Fruit juice and fruit
 drinks are not fruit, rice and dry beans are not vegetables, precut salad is a vegetable.
@@ -61,7 +66,8 @@ def _load_params():
     if 'ct' not in _cache:
         _cache['ct'] = pd.read_parquet(PARAMS_DIR / 'count_gram_params.parquet')
         _cache['powder'] = pd.read_parquet(PARAMS_DIR / 'powder_grams_per_quart.parquet').set_index('upc_13')['g_per_qt']
-    return _cache['ct'], _cache['powder']
+        _cache['edible'] = pd.read_parquet(PARAMS_DIR / 'edible_factor.parquet').set_index('product_module_code')['factor']
+    return _cache['ct'], _cache['powder'], _cache['edible']
 
 
 def is_fruit(module, group):
@@ -93,7 +99,7 @@ def _count_grams(total_ct, module, group, ct):
 def package_grams(d, cal_col='cal_per_100g'):
     """Grams in one package, for a frame with upc_13, product_module_code, product_group_code, multi,
     size1_amount, size1_units and (for powdered mixes) the label density in cal_col. Multiply by quantity."""
-    ct, powder = _load_params()
+    ct, powder, edible = _load_params()
     unit = d['size1_units'].astype(str).str.strip()
     size = pd.to_numeric(d['size1_amount'], errors='coerce').values
     multi = pd.to_numeric(d['multi'], errors='coerce').fillna(1).clip(lower=1).values
@@ -104,6 +110,8 @@ def package_grams(d, cal_col='cal_per_100g'):
     is_ct = (unit == 'CT').values
     if is_ct.any():
         grams[is_ct] = _count_grams(size[is_ct] * multi[is_ct], module[is_ct], group[is_ct], ct)
+    # grams on the label's basis
+    grams = grams * edible.reindex(module).fillna(1.0).values
     # eggs
     eggs = is_ct & (group == EGG_GROUP)
     grams[eggs] = GRAMS_PER_EGG * size[eggs] * multi[eggs]

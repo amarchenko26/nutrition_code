@@ -58,7 +58,7 @@ def module_groups():
     prep = pd.read_parquet(idir / 'rms_variety' / 'prep_time_scores.parquet', columns=['product_module_code', 'prep_time'])
     prep['product_module_code'] = pd.to_numeric(prep['product_module_code'], errors='coerce')
     prep['g_prep'] = np.select([prep['prep_time'] == 1, prep['prep_time'] >= 4], ['lowprep', 'cook'], default=None)
-    d = pd.read_parquet(idir / 'health' / 'upc_dictionary.parquet', columns=['product_module_code', 'nova']).dropna(subset=['nova'])
+    d = pd.read_parquet(idir / 'health' / 'upc_dictionary.parquet', columns=['product_module_code', 'nova_own']).rename(columns={'nova_own': 'nova'}).dropna(subset=['nova'])
     upf = d.groupby('product_module_code')['nova'].apply(lambda s: (s == 4).mean()).rename('upf_share').reset_index()
     cut = upf['upf_share'].median()
     upf['g_upf'] = np.where(upf['upf_share'] >= cut, 'upf', 'nonupf')

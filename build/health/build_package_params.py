@@ -1,7 +1,8 @@
-"""Inputs for utils/food_measures.package_grams: count-size distributions and powder grams per quart.
+"""Inputs for utils/food_measures.package_grams: count-size distributions, powder grams per quart, label-basis factors.
 
-Reads raw/products.tsv (latest version of each UPC) and interim/syndigo_nielsen_merged/syndigo_wide.parquet
-(Syndigo's package weight g_total and label density).
+Reads raw/products.tsv (latest version of each UPC), interim/syndigo/syndigo_nutrients_master.parquet (Syndigo's
+package weight g_total, label calories, servings per container) and interim/usda_nielsen_merged/usda_wide.parquet.
+Runs after clean_syndigo.py and before merge_nielsen_syndigo.py.
 Outputs (interim/health/):
   count_gram_params.parquet       by module and by product group: mean and sd of total count (size x multi) of
                                   count-sized UPCs; mean, sd, min and max of grams of weight-sized UPCs
@@ -11,6 +12,11 @@ Outputs (interim/health/):
                                   the label is at most 900 kcal/100 g: many sugar-free records were filled from
                                   Nielsen's prepared quarts (946 g per quart). Fallbacks: median of usable
                                   records by brand, then by module and sweetener (SS, SF, UN in the brand name).
+  edible_factor.parquet           product_module_code, factor, n: grams the label describes per gram of Nielsen
+                                  package. On UPCs with both labels and a single package, the median of label total
+                                  (Syndigo calories per serving x servings per container) over USDA calories per
+                                  100 g x Nielsen grams. Kept when at least 20 UPCs and more than 15% away from 1.
+                                  Powdered mixes and count-sized UPCs are left out.
 """
 import sys
 from pathlib import Path
@@ -29,7 +35,7 @@ OUT = idir / 'health'
 
 def main():
     prod = pd.read_csv(rdir / 'products.tsv', sep='\t', encoding='latin-1', dtype={'upc': str},
-                       usecols=['upc', 'upc_ver_uc', 'product_module_code', 'product_group_code', 'brand_descr', 'multi', 'size1_amount', 'size1_units'])
+                       usecols=['upc', 'upc_ver_uc', 'product_module_code', 'product_module_descr', 'product_group_code', 'brand_descr', 'multi', 'size1_amount', 'size1_units'])
     prod = prod.sort_values(['upc', 'upc_ver_uc']).drop_duplicates('upc', keep='last')
     prod['upc_13'] = '0' + prod['upc'].str.zfill(12)
     prod['unit'] = prod['size1_units'].astype(str).str.strip()
@@ -52,8 +58,9 @@ def main():
     print(f'count params: {len(ct):,} rows, modules with count and weight sizes: {((ct.level == "module") & ct.mean_ct.notna() & ct.mean_g.notna()).sum():,}')
 
     pw = prod[prod['product_module_code'].isin(POWDER_MODULES) & (prod['unit'] == 'QT')].copy()
-    syn = pd.read_parquet(idir / 'syndigo_nielsen_merged' / 'syndigo_wide.parquet', columns=['upc', 'g_total', 'cal_per_100g']).rename(columns={'upc': 'upc_13'})
-    pw = pw.merge(syn, on='upc_13', how='left')
+    mas = pd.read_parquet(idir / 'syndigo' / 'syndigo_nutrients_master.parquet', columns=['upc', 'nutrient_id', 'g_total', 'nut_per_100g', 'g_nut_per_serving', 'servingspercontainer'])
+    syn = mas[mas['nutrient_id'] == 1].drop_duplicates('upc').rename(columns={'upc': 'upc_13', 'nut_per_100g': 'cal_per_100g', 'g_nut_per_serving': 'kcal_serving'})
+    pw = pw.merge(syn[['upc_13', 'g_total', 'cal_per_100g']], on='upc_13', how='left')
     pw['per_qt'] = pw['g_total'] / pw['size']
     usable = pw['per_qt'].between(0.5, 300) & ~(pw['cal_per_100g'] > 900)
     pw['g_own'] = pw['per_qt'].where(usable)
@@ -69,6 +76,19 @@ def main():
     pw['source'] = np.select([pw['g_own'].notna(), pw['g_brand'].notna(), pw['g_type'].notna()], ['own', 'brand', 'module_sweetener'], default='module')
     print('UPCs by source:', pw['source'].value_counts().to_dict(), '; missing:', int(pw['g_per_qt'].isna().sum()))
     pw[['upc_13', 'product_module_code', 'sweet', 'g_per_qt', 'source']].to_parquet(OUT / 'powder_grams_per_quart.parquet', index=False)
+
+    # grams the label describes per gram of Nielsen package
+    usda = pd.read_parquet(idir / 'usda_nielsen_merged' / 'usda_wide.parquet', columns=['upc13', 'cal_per_100g']).drop_duplicates('upc13').rename(columns={'upc13': 'upc_13', 'cal_per_100g': 'usda_cal'})
+    x = prod[(prod['multi'] == 1) & prod['grams'].gt(0)].merge(syn[['upc_13', 'kcal_serving', 'servingspercontainer']], on='upc_13').merge(usda, on='upc_13')
+    x = x[x['kcal_serving'].gt(0) & x['servingspercontainer'].gt(0) & x['usda_cal'].between(1, 900)]
+    x['ratio'] = x['kcal_serving'] * x['servingspercontainer'] / (x['usda_cal'] / 100 * x['grams'])
+    x = x[x['ratio'].between(0.05, 20)]
+    t = x.groupby('product_module_code').agg(n=('ratio', 'size'), ratio=('ratio', 'median'), module=('product_module_descr', 'first')).reset_index()
+    print(f'label totals vs USDA density x Nielsen grams: {len(x):,} UPCs, median ratio {x["ratio"].median():.3f}')
+    keep = t[(t['n'] >= 20) & (np.abs(np.log(t['ratio'])) > np.log(1.15))].copy()
+    keep['factor'] = keep['ratio'].clip(0.2, 1.25)
+    print(keep.sort_values('n', ascending=False)[['module', 'n', 'ratio', 'factor']].round(3).to_string(index=False))
+    keep[['product_module_code', 'factor', 'n']].to_parquet(OUT / 'edible_factor.parquet', index=False)
 
 
 if __name__ == '__main__':
