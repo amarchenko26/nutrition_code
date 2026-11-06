@@ -16,7 +16,7 @@ calories, a preparation score and at least half of their spending on rows with a
 Household level (interim/health/nova_calorie_panel.parquet, interim/panel_dataset/
 panel_prep_time.parquet, panel_hh_year.parquet; sample as in figure_nutrition_over_time.py):
   time_vs_money_households.png  left: binscatter (20 bins) of the household's real price per 1,000
-                              kcal (spending / calories, labelled + imputed) on its spending-weighted
+                              kcal (spending / calories) on its spending-weighted
                               preparation score, both residualized on year dummies, projection-
                               weighted; slope and SE clustered on household. Right: the
                               projection-weighted mean preparation score and mean price per 1,000

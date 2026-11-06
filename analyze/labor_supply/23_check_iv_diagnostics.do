@@ -118,4 +118,16 @@ di "G  OLS + change in household size: " %7.4f _b[dinc] " (" %6.4f _se[dinc] ");
 quietly ivreghdfe dz (dinc = div) [pw = projection_factor0], absorb(y00 y01 age0) cluster(fips0)
 di "G  IV (long change in cell income): " %7.4f _b[dinc] " (" %6.4f _se[dinc] ")  F = " %6.1f e(widstat) "  N = " e(N)
 restore
+di _n "==== H. by quartile of the household's income in its first panel year (the 17_ grouping): change after, levels, before"
+cap drop inc_q baseline_income
+bysort hhid (year): gen baseline_income = real_income[1]
+xtile inc_q = baseline_income [aw = projection_factor], nquantiles(4)
+cap drop c_b
+gen c_b = L2.z - L3.z
+forvalues q = 1/4 {
+	foreach k in fz c_0 c_p1 c_b {
+		quietly ivreghdfe `k' (d_inc = d_iv) [pw = projection_factor] if clean == 1 & inc_q == `q', absorb(year_state hhid kids avg_age_hh_head hh_comp) cluster(fips)
+		di "H  Q`q' `k': beta = " %7.4f _b[d_inc] " (" %6.4f _se[d_inc] ")  N = " e(N) "  F = " %5.0f e(widstat)
+	}
+}
 di "iv_diagnostics complete"

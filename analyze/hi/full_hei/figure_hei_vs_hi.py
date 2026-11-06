@@ -60,8 +60,7 @@ df['bin'] = np.minimum((cum * 20).astype(int), 19)
 g = df.groupby('bin').apply(
     lambda d: pd.Series({
         'x': np.average(d['hi'], weights=d['projection_factor']),
-        'y': np.average(d['hei_usda'], weights=d['projection_factor'])}),
-    include_groups=False)
+        'y': np.average(d['hei_usda'], weights=d['projection_factor'])}))
 fig, ax = plt.subplots(figsize=(8.5, 6))
 ax.scatter(g['x'], g['y'], s=60, color=C_FULL, zorder=3, edgecolors='white', linewidth=0.6)
 ax.set_xlabel('Simple index (std. dev.)')

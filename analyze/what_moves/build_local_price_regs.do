@@ -21,8 +21,7 @@
 // households present in both windows; a placebo of the later price change on the
 // diet change BEFORE 2008; store-side spending ratios on the same prices. Zip3
 // adds the comparison ACROSS markets (no household FE). Projection weights; SE
-// clustered on market; geographic non-movers. HEI is the post-fatty-acid-fix
-// series from hei_usda_panel (the reg data still holds the pre-fix one).
+// clustered on market; geographic non-movers. HEI comes from hei_usda_panel.
 // Output: interim/what_moves/local_price_regs_<county|zip3>.csv,
 //         local_price_longdiff_<county|zip3>.dta
 // ============================================================================

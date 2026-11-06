@@ -40,7 +40,7 @@ def main():
     ax.axhline(0, color=GREY, lw=1, ls='--')
     ax.axvspan(datetime.date(2019, 2, 22), datetime.date(2019, 3, 7), color=ORANGE, alpha=0.15, lw=0)
     s = d[(d['design'] == 'eitc') & (d['years'] == '2017-2020') & (d['outcome'] == 'hs')].iloc[0]
-    ax.set_title(f'EITC refunds, 2017-2020: eligible households minus SNAP-only households, healthy share of the day\'s spending\n'
+    ax.set_title(f'EITC refunds, 2017-2020: eligible minus SNAP-only households,\nhealthy share of the day\'s spending\n'
                  f'refund window Feb 22 - Mar 7 (shaded): {s["b"]:+.2f} pct. points (SE {s["se"]:.2f}); '
                  f'{int(s["n_treated_hh"]):,} eligible households', fontsize=11)
     ax.set_ylabel('Difference in healthy share (pct. points), Mar 1 = 0')
@@ -57,7 +57,7 @@ def main():
     ax.axhline(0, color=GREY, lw=1, ls='--')
     ax.set_xticks(w); ax.set_xticklabels(['week 2\n(days 8-14)', 'week 3\n(days 15-21)', 'week 4\n(days 22-31)'])
     n = int(d[d['design'] == 'snap'].iloc[0]['n_treated_hh'])
-    ax.set_title(f'SNAP-eligible minus EITC-only households, by week of the month\n(week 1 = days 1-7 omitted; {n:,} eligible households, 2004-2020)', fontsize=11)
+    ax.set_title(f'SNAP-eligible minus EITC-only households,\nby week of the month (week 1 = days 1-7 omitted;\n{n:,} eligible households, 2004-2020)', fontsize=11)
     ax.set_ylabel('Difference in share of the day\'s spending (pct. points)')
     ax.legend(frameon=False)
     out = fdir / 'what_moves' / 'income' / 'cash_timing.png'

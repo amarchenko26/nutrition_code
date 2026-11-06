@@ -28,7 +28,7 @@ the two file years r = 1, 2). basecell = the household's employment state at its
 and some not, 4 no head employed) x 10-year bin of average head age at first observation; tenure =
 years since the household's first observed year, capped at 8.
 
-Outcomes: hei_usda, prep_time_raw (basket preparation-time score, 1-9), upf_share (% of labelled
+Outcomes: hei_usda, prep_time_raw (basket preparation-time score, 1-9), upf_share (% of
 calories ultra-processed), cals_ae_day (calories per adult equivalent per day, complete rosters,
 winsorized p1/p99), produce_share (% of calories), sugar_1000 (g per 1,000 kcal), n_trips (trips
 with a food item), spend_ae (real 2013$ food spending per adult equivalent per year), real_income

@@ -90,7 +90,7 @@ OUT_DIR = BASE / 'interim' / 'movers'
 # outcomes: nutrition indices, the sub-outcomes added 2026-11-05 at Anya's ask (sugar g and sodium mg per
 # 1,000 kcal, whole-grain share %, soda and produce shares of grocery spending %, all from the regression
 # data; calories per adult equivalent per day (UPC-dictionary densities, winsorized at p1/p99),
-# ultra-processed share of labelled calories % and produce share of calories % from
+# ultra-processed share of calories % and produce share of calories % from
 # interim/health/nova_calorie_panel.parquet, complete rosters only), and real_income in $10k (2013$)
 OUTCOMES_DTA = ['hei_usda', 'hi_usda', 'hi', 'sugar_1000', 'sodium_1000', 'whole_share', 'soda_spend_share', 'produce_spend_share']
 OUTCOMES_NOVA = ['cals_ae_day', 'upf_share', 'produce_share']

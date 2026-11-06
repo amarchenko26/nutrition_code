@@ -5,8 +5,8 @@ analyze/hi/figure_gradient_by_year.py, both deleted 2026-11-03 at Anya's request
 
 Data: interim/health/nova_calorie_panel.parquet (build/health/build_nova_calorie_panel.py:
 household-year grams, calories of all purchase rows at the UPC's time-invariant calorie density
-from build_upc_dictionary.py (cals_all: own label, else nearest-sized labelled UPC of the same
-brand and module, else brand x module mean, else pooled module density) and of the rows with
+from build_upc_dictionary.py (cals_all: own label, else mean over the same Nielsen description, else closest
+size in the brand and module, else brand x module mean, else module mean) and of the rows with
 their own label (cals_matched), calories by NOVA group, produce calories, adult equivalents),
 interim/panel_dataset/hei_usda_panel.parquet (HEI from USDA labels),
 interim/panel_dataset/hi_usda_panel.parquet (sugar per 1,000 kcal),
@@ -22,9 +22,9 @@ Figures (figs/health/diet/):
   calories_over_time.png          calories per person (per adult equivalent) per day, all purchases
                                   at the product-level density (solid) and products with their own
                                   label only (dashed); right: all purchases by income quartile
-  calorie_sources_over_time.png   produce share of all calories; NOVA group shares of labelled
+  calorie_sources_over_time.png   produce share of all calories; NOVA group shares of
                                   calories (ultra-processed against minimally processed)
-  upf_share_over_time.png         ultra-processed share of labelled calories, all households
+  upf_share_over_time.png         ultra-processed share of calories, all households
   upf_by_income_over_time.png     ultra-processed and minimally processed calorie shares by income
                                   quartile
   nutrition_by_income_over_time.png  1x3: HEI by income quartile; sugar per 1,000 kcal by quartile;
@@ -138,7 +138,7 @@ def main():
     src = by_year(df, 'produce_share_all')
     nova = pd.DataFrame({g: by_year(df, f'share_nova{g}') for g in (1, 2, 3, 4)})
     print('\nproduce share of all calories:'); print((100 * src).round(2).to_string())
-    print('\nNOVA shares of labelled calories:'); print((100 * nova).round(1).to_string())
+    print('\nNOVA shares of calories:'); print((100 * nova).round(1).to_string())
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
     ax = axes[0]
     ax.plot(src.index, 100 * src, color=BLUE, lw=2.5, marker='o')
@@ -147,7 +147,7 @@ def main():
     ax = axes[1]
     for g in (4, 1, 3, 2):
         ax.plot(nova.index, 100 * nova[g], color=NOVA_COL[g], lw=2.5 if g in (1, 4) else 1.5, marker='o', ms=5 if g in (1, 4) else 3, label=NOVA_LAB[g])
-    ax.set_ylabel('Percent of labelled calories'); ax.set_xlabel('Year'); ax.set_ylim(0, 100)
+    ax.set_ylabel('Percent of calories'); ax.set_xlabel('Year'); ax.set_ylim(0, 100)
     ax.set_title('Ultra-processed and other calories, share of calories with an ingredient list'); ax.legend(frameon=False, loc='center left')
     for ax in axes:
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
@@ -157,7 +157,7 @@ def main():
     # ---------------------------------------------------------- ultra-processed share, all households
     fig, ax = plt.subplots(figsize=(9, 6))
     ax.plot(nova.index, 100 * nova[4], color=RED, lw=2.5, marker='o')
-    ax.set_ylabel('Percent of labelled calories'); ax.set_xlabel('Year')
+    ax.set_ylabel('Percent of calories'); ax.set_xlabel('Year')
     ax.set_ylim(100 * nova[4].min() - 0.5, 100 * nova[4].max() + 0.5)    # tight range, as the by-income figure autoscales
     ax.set_title('Ultra-processed share of grocery calories')
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
@@ -170,10 +170,10 @@ def main():
     print('\nminimally processed share by income quartile:'); print((100 * n1).round(1).to_string())
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
     ax = axes[0]; plot_q(ax, n4, 100)
-    ax.set_ylabel('Percent of labelled calories'); ax.set_xlabel('Year')
+    ax.set_ylabel('Percent of calories'); ax.set_xlabel('Year')
     ax.set_title('Ultra-processed share of calories, by income quartile'); ax.legend(frameon=False)
     ax = axes[1]; plot_q(ax, n1, 100)
-    ax.set_ylabel('Percent of labelled calories'); ax.set_xlabel('Year')
+    ax.set_ylabel('Percent of calories'); ax.set_xlabel('Year')
     ax.set_title('Unprocessed or minimally processed share of calories, by income quartile'); ax.legend(frameon=False)
     for ax in axes:
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))

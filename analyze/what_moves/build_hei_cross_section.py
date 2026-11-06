@@ -70,8 +70,9 @@ def main():
     h['educ_b'] = pd.cut(h.educ, [0, 11.9, 12.9, 15.9, np.inf], labels=False)
     h['coh_b'] = (np.floor(h.birth / 5) * 5).clip(1925, 1985)
     h['size_b'] = pd.cut(h['size'], [0, 1.5, 2.5, 4.5, np.inf], labels=False)
-    st = pd.to_numeric(h.state, errors='coerce').astype(int)
-    h['region'] = st.map(REGIONS).fillna('South')
+    h['state'] = pd.to_numeric(h.state, errors='coerce')  # a handful of rows carry '.'
+    h = h[h.state.notna()].copy()
+    h['region'] = h.state.astype(int).map(REGIONS).fillna('South')
     GROUPS = {'Income': 'inc_b', 'Education': 'educ_b', 'Birth cohort': 'coh_b', 'Race': 'race', 'Hispanic origin': 'hisp', 'Census region': 'region', 'Children': 'kids', 'Household size': 'size_b'}
     names = list(GROUPS)
     X = {k: dummies(h[v]) for k, v in GROUPS.items()}

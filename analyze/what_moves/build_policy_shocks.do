@@ -17,7 +17,7 @@
 // blue-collar and service jobs in those years, and households with school-age children
 // against households without them, in 2020 relative to 2019, with each household's own
 // level removed. Sample: employed occupation cell in 2019.
-// Outputs (interim/what_moves/): policy_shock_coefs.csv
+// Outputs (interim/what_moves/): policy_shock_coefs.csv, policy_shock_pretests.csv (joint test of the years before the change)
 // ============================================================================
 clear all
 set more off
@@ -48,6 +48,9 @@ cap file close fh
 file open fh using "$idir/what_moves/policy_shock_coefs.csv", write replace
 file write fh "design,outcome,term,b,se,N,n_treated,n_control" _n
 file close fh
+file open fp using "$idir/what_moves/policy_shock_pretests.csv", write replace
+file write fp "design,outcome,p_pretrend" _n
+file close fp
 
 // ---------------------------------------------------------------- WIC
 keep if inrange(year, 2005, 2013) & (wic_base == 1 | low_base == 1)
@@ -67,6 +70,10 @@ gen byte tpost = treat * post
 foreach v in hei_usda produce_share produce_spend_share whole_share sugar_1000 upf_share cals_ae_day real_income {
 	quietly reghdfe `v' t_* [pw = projection_factor], absorb(hhid year age5 kids hh_comp) cluster(hhid)
 	local N = e(N)
+	quietly test t_2005 t_2006 t_2007
+	file open fp using "$idir/what_moves/policy_shock_pretests.csv", write append
+	file write fp "wic,`v',`=r(p)'" _n
+	file close fp
 	file open fh using "$idir/what_moves/policy_shock_coefs.csv", write append
 	forvalues y = 2005/2013 {
 		if `y' == 2008 {
@@ -108,6 +115,12 @@ forvalues y = 2016/2020 {
 	gen byte t_`y' = white_2019 * (year == `y')
 }
 foreach v in hei_usda upf_share cals_ae_day produce_share sugar_1000 sodium_1000 real_income {
+	quietly reghdfe `v' t_* [pw = projection_factor], absorb(hhid year age5 kids hh_comp) cluster(hhid)
+	local N = e(N)
+	quietly test t_2016 t_2017 t_2018
+	file open fp using "$idir/what_moves/policy_shock_pretests.csv", write append
+	file write fp "covid_white,`v',`=r(p)'" _n
+	file close fp
 	quietly reghdfe `v' t_* [pw = projection_factor], absorb(hhid year age5 kids hh_comp) cluster(hhid)
 	file open fh using "$idir/what_moves/policy_shock_coefs.csv", write append
 	forvalues y = 2016/2020 {

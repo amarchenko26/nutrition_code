@@ -4,12 +4,12 @@ groceries over time, for the Prices section of notes/obesity.tex (the price-per-
 counterpart of figs/variety/price/variety_price_level_by_upf.png, asked for 2026-11-04).
 
 Data: interim/health/nova_calorie_panel.parquet (build/health/build_nova_calorie_panel.py):
-household-year spending and calories of purchase rows whose UPC matches a USDA label with an
-ingredient list, by NOVA group (spend_nova1..4, cals_nova1..4). "Ultra-processed" = NOVA group 4
+household-year spending and calories of all purchase rows by NOVA group (spend_nova1..4, cals_nova1..4;
+products without an ingredient list take the group of their relatives, build/health/build_upc_dictionary.py). "Ultra-processed" = NOVA group 4
 of clean/usda/build_usda_nova.py; "other" = NOVA groups 1-3. Sample: figure_nutrition_over_time.load()
-(household-years 2004-2020 with a complete roster, income and labelled calories per adult
+(household-years 2004-2020 with a complete roster, income and calories per adult
 equivalent inside the 1st-99th percentiles), projection-weighted.
-Price per 1,000 kcal in year t = (projection-weighted sum of spending on the group's labelled
+Price per 1,000 kcal in year t = (projection-weighted sum of spending on the group's
 rows, deflated to 2013 dollars with the CPI-U) / (projection-weighted sum of their calories) x 1,000.
 Unlike the retail-scanner price index, which chains unit-value changes of continuing products,
 this is a unit value and moves with the mix of products bought as well as with their prices.
@@ -53,11 +53,11 @@ def main():
     g = d.groupby('year').sum()
     out = pd.DataFrame({'Ultra-processed (NOVA 4)': 1000 * g['sp_upf'] / g['kc_upf'],
                         'Other groceries (NOVA 1-3)': 1000 * g['sp_oth'] / g['kc_oth'],
-                        'All labelled groceries': 1000 * (g['sp_upf'] + g['sp_oth']) / (g['kc_upf'] + g['kc_oth'])})
+                        'All groceries': 1000 * (g['sp_upf'] + g['sp_oth']) / (g['kc_upf'] + g['kc_oth'])})
     idx = out / out.iloc[0]
     print('real $ (2013) per 1,000 kcal by group and year:'); print(out.round(3).to_string())
     print('\nindexed to 2004 = 1:'); print(idx.round(3).to_string())
-    cols = {'Ultra-processed (NOVA 4)': RED, 'Other groceries (NOVA 1-3)': BLUE, 'All labelled groceries': GREY}
+    cols = {'Ultra-processed (NOVA 4)': RED, 'Other groceries (NOVA 1-3)': BLUE, 'All groceries': GREY}
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
     ax = axes[0]
     for c, col in cols.items():

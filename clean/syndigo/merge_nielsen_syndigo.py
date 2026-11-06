@@ -18,8 +18,8 @@ Otherwise the label has no grams and gives no values: build_upc_dictionary.py fi
 
 Until 2026-11-05 this file took grams per serving as Syndigo's item size over servings per container, then the serving
 as stated with a cup as water. Multipacks came out 4 to 24 times too dense (a can's weight over a pack's servings) and
-cereal five times too thin. Comparison with USDA labels of the same UPC: within 25% on 79% of labels before, 85% after;
-multipacks 66% and 88%; ready-to-eat cereal 29% and 69%.
+cereal five times too thin. Comparison with USDA labels of the same UPC, calories per 100 g within 25%: 79% of labels
+before, 91% after; multipacks 34% and 87%; ready-to-eat cereal 31% and 97%; carbonated soda 72% and 91%.
 """
 import sys
 from pathlib import Path

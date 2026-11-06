@@ -4,10 +4,11 @@ Projection-weighted means over the household-year panel: full HEI and its added-
 whole-grain and vegetable components (interim/panel_dataset/hei_usda_panel.parquet), sugar per 1,000 kcal from the
 Syndigo labels (panel_hh_year.sugar_per_1000cal) and from the USDA labels (final/labor_supply_reg_data.dta
 sugar_per_1000cal_usda), the soda share of grocery spending (spend_soda / spend_total, reg data), the
-ultra-processed share of labelled calories, the produce share of calories and calories per adult equivalent per day
+ultra-processed share of calories, the produce share of calories and calories per adult equivalent per day
 (interim/health/nova_calorie_panel.parquet, complete rosters, calories winsorized at 4,000), and real household
 income (thousands of 2013 dollars, the panel's real_income). Output: tabs/what_moves/national_series.tex (every fourth year and the 2004-2020
-change); the full year-by-year table is printed.
+change); the full year-by-year table is printed. Also tabs/what_moves/gaps_by_group.tex: HEI and sugar gaps between within-year income
+quartiles and between education groups by year, and the within-year slope of HEI on income (final/labor_supply_reg_data.dta).
 """
 import sys
 from pathlib import Path
@@ -55,7 +56,7 @@ def main():
             ('hei_c_wholegrain', 'HEI whole-grain component', 2), ('hei_c_totveg', 'HEI vegetable component', 2),
             ('sugar_per_1000cal', 'Sugar, g per 1,000 kcal (Syndigo labels)', 1),
             ('sugar_per_1000cal_usda', 'Sugar, g per 1,000 kcal (USDA labels)', 1),
-            ('soda_share', 'Soda, \\% of grocery spending', 2), ('upf_share', 'Ultra-processed, \\% of labelled calories', 1),
+            ('soda_share', 'Soda, \\% of grocery spending', 2), ('upf_share', 'Ultra-processed, \\% of calories', 1),
             ('produce_share', 'Produce, \\% of calories', 1), ('cals_ae_day', 'Calories per adult equivalent per day', 0),
             ('income_k', 'Real household income, \\$ thousands', 1)]
     rows = {}
@@ -76,5 +77,38 @@ def main():
     print(f'saved {OUT}')
 
 
+def gaps_table():
+    d, _ = pyreadstat.read_dta(str(gdir / 'labor_supply_reg_data.dta'), usecols=['year', 'hei_usda', 'sugar_per_1000cal_usda', 'hh_avg_yrsofschool', 'real_income', 'projection_factor'])
+    d = d.dropna(subset=['hei_usda', 'sugar_per_1000cal_usda', 'real_income', 'projection_factor', 'hh_avg_yrsofschool'])
+    rng = np.random.default_rng(0)
+    d = d.assign(tie=rng.random(len(d))).sort_values(['year', 'real_income', 'tie'])
+    d['cum'] = d.groupby('year')['projection_factor'].cumsum() / d.groupby('year')['projection_factor'].transform('sum')
+    d['q'] = np.minimum((d['cum'] * 4).astype(int), 3)
+    years = [2004, 2007, 2012, 2016, 2020]
+    rows = {}
+    for y in years:
+        g = d[d['year'] == y]
+        low, high = g[g['hh_avg_yrsofschool'] < 13], g[g['hh_avg_yrsofschool'] >= 16]
+        bot, top = g[g['q'] == 0], g[g['q'] == 3]
+        rows[y] = {'hei_q': wmean(top, 'hei_usda') - wmean(bot, 'hei_usda'),
+                   'slope': np.polyfit(g['real_income'], g['hei_usda'], 1, w=np.sqrt(g['projection_factor']))[0],
+                   'hei_low': wmean(low, 'hei_usda'), 'hei_high': wmean(high, 'hei_usda'), 'hei_e': wmean(high, 'hei_usda') - wmean(low, 'hei_usda'),
+                   'sug_q': wmean(bot, 'sugar_per_1000cal_usda') - wmean(top, 'sugar_per_1000cal_usda'),
+                   'sug_e': wmean(low, 'sugar_per_1000cal_usda') - wmean(high, 'sugar_per_1000cal_usda')}
+    t = pd.DataFrame(rows)
+    print(t.round(2).to_string())
+    labs = [('hei_q', 'HEI, top minus bottom income quartile'), ('slope', 'HEI on income within the year, points per \\$10,000'), ('hei_low', 'HEI, 12 or fewer years of schooling'),
+            ('hei_high', 'HEI, 16 or more years of schooling'), ('hei_e', 'HEI, 16 or more minus 12 or fewer'), ('sug_q', 'Sugar per 1,000 kcal, bottom minus top income quartile'),
+            ('sug_e', 'Sugar per 1,000 kcal, 12 or fewer minus 16 or more')]
+    lines = ['\\begin{tabular}{l' + 'r' * len(years) + '}', '\\toprule', ' & ' + ' & '.join(str(y) for y in years) + ' \\\\', '\\midrule']
+    for k, lab in labs:
+        lines.append(f'{lab} & ' + ' & '.join(f'{t.loc[k, y]:.2f}' for y in years) + ' \\\\')
+    lines += ['\\bottomrule', '\\end{tabular}']
+    out = tdir / 'what_moves' / 'gaps_by_group.tex'
+    out.write_text('\n'.join(lines) + '\n')
+    print(f'saved {out}')
+
+
 if __name__ == '__main__':
     main()
+    gaps_table()

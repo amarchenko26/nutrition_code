@@ -22,7 +22,7 @@
 // -4 and +3; x = kids, composition, 5-year age bin; pw; cluster on county.
 // Outcomes: sugary-soda ounces per household-year (2010-2020), share of those ounces bought in the own zip3,
 // soda share of grocery spending (%), soda spending (2013 $), sugar g
-// per 1,000 kcal, HEI, ultra-processed share of labelled calories (%).
+// per 1,000 kcal, HEI, ultra-processed share of calories (%).
 // Soda = module SOFT DRINKS - CARBONATED (diet included).
 // Outputs: interim/what_moves/soda_tax_coefs.csv, soda_tax_summary.csv
 // ============================================================================

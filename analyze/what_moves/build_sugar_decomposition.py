@@ -6,9 +6,9 @@ UPC, fixed over time, so these series move only through the mix of products boug
 a given UPC and never through the label match rate). Grams = quantity x utils.food_measures.package_grams.
 
 Outputs (interim/what_moves/):
-  sugar_module_year.parquet  panel_year x module, projection-weighted sums: grams, kcal, sugar_g, addsug_g, kcal_lab,
+  sugar_module_year.parquet  panel_year x module, projection-weighted sums: grams, kcal, sugar_g, addsug_g, satfat_g, kcal_lab,
                              sugar_lab (rows with their own label), spend; n_rows unweighted
-  sugar_hh_year.parquet      household_code x panel_year, unweighted sums: grams, kcal, sugar_g, addsug_g, kcal_lab,
+  sugar_hh_year.parquet      household_code x panel_year, unweighted sums: grams, kcal, sugar_g, addsug_g, satfat_g, kcal_lab,
                              sugar_lab, spend, soda_reg_g, soda_diet_g
 """
 import sys
@@ -34,7 +34,7 @@ SODA_REG, SODA_DIET = 1484, 1553
 def main():
     t0 = time.time()
     OUT.mkdir(parents=True, exist_ok=True)
-    dic = pd.read_parquet(DICT, columns=['upc_13', 'cal_per_100g', 'cal_tier', 'sugar_per_100g', 'addsugar_per_100g'])
+    dic = pd.read_parquet(DICT, columns=['upc_13', 'cal_per_100g', 'cal_tier', 'sugar_per_100g', 'addsugar_per_100g', 'satfat_per_100g'])
     pan = pd.read_parquet(PAN, columns=['household_code', 'panel_year', 'projection_factor'])
     mods, hhs = [], []
     for y in range(2004, 2021):
@@ -49,17 +49,18 @@ def main():
         d['kcal'] = d['grams'] * d['cal_per_100g'] / 100
         d['sugar_g'] = d['grams'] * d['sugar_per_100g'] / 100
         d['addsug_g'] = d['grams'] * d['addsugar_per_100g'] / 100
+        d['satfat_g'] = d['grams'] * d['satfat_per_100g'] / 100
         own = d['cal_tier'] == 1
         d['kcal_lab'] = d['kcal'].where(own)
         d['sugar_lab'] = d['sugar_g'].where(own)
         d['soda_reg_g'] = d['grams'].where(d['product_module_code'] == SODA_REG, 0.0)
         d['soda_diet_g'] = d['grams'].where(d['product_module_code'] == SODA_DIET, 0.0)
-        h = d.groupby('household_code').agg(grams=('grams', 'sum'), kcal=('kcal', 'sum'), sugar_g=('sugar_g', 'sum'), addsug_g=('addsug_g', 'sum'),
+        h = d.groupby('household_code').agg(grams=('grams', 'sum'), kcal=('kcal', 'sum'), sugar_g=('sugar_g', 'sum'), addsug_g=('addsug_g', 'sum'), satfat_g=('satfat_g', 'sum'),
                                             kcal_lab=('kcal_lab', 'sum'), sugar_lab=('sugar_lab', 'sum'), spend=('total_price_paid', 'sum'),
                                             soda_reg_g=('soda_reg_g', 'sum'), soda_diet_g=('soda_diet_g', 'sum')).reset_index()
         h['panel_year'] = y
         hhs.append(h)
-        vals = ['grams', 'kcal', 'sugar_g', 'addsug_g', 'kcal_lab', 'sugar_lab']
+        vals = ['grams', 'kcal', 'sugar_g', 'addsug_g', 'satfat_g', 'kcal_lab', 'sugar_lab']
         for c in vals:
             d[c] = d[c] * w
         d['spend'] = d['total_price_paid'] * w

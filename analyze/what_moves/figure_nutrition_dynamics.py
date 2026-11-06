@@ -24,7 +24,7 @@ included:
 Exhibits 2 and 3 are drawn for HEI, sugar per 1,000 kcal (Syndigo and USDA labels) and the soda share of grocery
 spending (coordinator's addition, 2026-11-05); exhibit 4 also for sugar-defined movers (20+ g). Outcomes: full HEI (hei_usda), the Allcott index (hi_allcott, standardized, winsorized at the
 0.5th/99.5th percentiles), sugar (g) and sodium (mg) per 1,000 kcal, produce share of calories and
-ultra-processed share of labelled calories (both from the calorie panel, %), calories per adult
+ultra-processed share of calories (both from the calorie panel, %), calories per adult
 equivalent per day (dictionary densities, complete rosters, winsorized at p1/p99).
 Inputs: interim/panel_dataset/panel_hh_year.parquet, hei_usda_panel.parquet,
 interim/health/nova_calorie_panel.parquet, final/labor_supply_reg_data.dta (kids, heads,

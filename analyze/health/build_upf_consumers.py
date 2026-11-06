@@ -9,11 +9,11 @@ Data and sample as in figure_nutrition_over_time.py: interim/health/nova_calorie
 hei_usda_panel.parquet and interim/panelists/panelists_all_years.parquet; household-years
 2004-2020 with a complete roster, real income trimmed at the pooled 1st/99th percentiles,
 calories per adult equivalent trimmed at the 1st/99th percentiles. The ultra-processed share is
-the household's share of labelled calories (calories of products with a USDA ingredient list) in
-NOVA group 4; household-years with fewer than 10% of their calories labelled are dropped.
+the household's share of calories in NOVA group 4 (products without a USDA ingredient list take the group of
+their relatives, build/health/build_upc_dictionary.py); household-years with fewer than 10% of calories in a group are dropped.
 
 Figure figs/health/diet/upf_consumers.png:
-  left   binscatter (20 bins) of daily calories per adult equivalent (labelled + imputed) on the
+  left   binscatter (20 bins) of daily calories per adult equivalent on the
          ultra-processed share, both residualized on year dummies (means added back), projection-weighted;
          slope from the household-level WLS, SE clustered on household
   middle the same for HEI (USDA labels)
@@ -203,7 +203,7 @@ def variance_shares(df):
 
 def main():
     df = load()
-    print('ultra-processed share of labelled calories: weighted mean %.1f, sd %.1f; p10 %.1f p90 %.1f' % (
+    print('ultra-processed share of calories: weighted mean %.1f, sd %.1f; p10 %.1f p90 %.1f' % (
         wmean(df.share_nova4, df.projection_factor), np.sqrt(np.average((df.share_nova4 - wmean(df.share_nova4, df.projection_factor)) ** 2, weights=df.projection_factor)),
         df.share_nova4.quantile(0.1), df.share_nova4.quantile(0.9)))
 
@@ -213,7 +213,7 @@ def main():
         pts, b, se, a, n = binscatter_fit(df, ycol)
         ax.scatter(pts['x'], pts['y'], s=55, color=RED, zorder=4, edgecolors='white', linewidth=0.5)
         xx = np.linspace(pts['x'].min(), pts['x'].max(), 10); ax.plot(xx, a + b * xx, color=GREY, lw=1.5)
-        ax.set_xlabel('Ultra-processed share of labelled calories (%), net of year'); ax.set_ylabel(ylab)
+        ax.set_xlabel('Ultra-processed share of calories (%), net of year'); ax.set_ylabel(ylab)
         ax.set_title(f'{title}: {10 * b:+.2f} per 10 points of ultra-processed share (SE {10 * se:.2f})')
         print(f'{ycol} on ultra-processed share: slope per 10 pts {10 * b:.3f} (SE {10 * se:.3f}), n = {n:,}; bins {pts.y.iloc[0]:.1f} -> {pts.y.iloc[-1]:.1f}')
     tab = who(df)

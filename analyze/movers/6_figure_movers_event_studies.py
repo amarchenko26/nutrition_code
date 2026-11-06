@@ -227,7 +227,7 @@ def fig_income_levels(lc, ls_):
 
 
 SUB_OUTCOMES = [('cals_ae_day', 'Calories per adult equivalent per day', 'kcal'),
-                ('upf_share', 'Ultra-processed share of labelled calories', 'pct. points'),
+                ('upf_share', 'Ultra-processed share of calories', 'pct. points'),
                 ('produce_share', 'Produce share of calories', 'pct. points'),
                 ('produce_spend_share', 'Produce share of grocery spending', 'pct. points'),
                 ('sugar_1000', 'Sugar per 1,000 kcal', 'grams'),

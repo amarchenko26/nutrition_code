@@ -83,15 +83,15 @@ def fig_series(mod, d):
         ax.plot(ser.index, ser.values, color=c, lw=2.5, ls=ls, marker='o', ms=4, label=f'{lab_}: {ser.iloc[0]:.0f} to {ser.iloc[-1]:.0f} g')
     ax.plot(nh['year_mid'], nh['store_sugar_1000'], color=DGREY, lw=2.5, ls='-', marker='D', ms=6, label=f"NHANES recalls, store-bought food: {nh.store_sugar_1000.iloc[0]:.0f} to {nh.store_sugar_1000.iloc[-1]:.0f} g")
     ax.set_title('Sugar per 1,000 kcal')
-    ax.set_ylabel('grams per 1,000 kcal (household mean, projection-weighted)')
-    ax.legend(frameon=False, fontsize=10, loc='lower left')
+    ax.set_ylabel('grams per 1,000 kcal')
+    ax.legend(frameon=False, fontsize=10, loc='upper center', bbox_to_anchor=(0.5, -0.14))
     ax = axes[1]
     ax.plot(reg_share.index, reg_share.values, color=RED, lw=2.5, marker='o', ms=4, label=f'regular soda, share of all calories: {reg_share.iloc[0]:.1f}% to {reg_share.iloc[-1]:.1f}%')
     ax.plot(diet_share.index, diet_share.values, color=BLUE, lw=2.5, marker='o', ms=4, label=f'diet soda, share of all calories: {diet_share.iloc[0]:.2f}% to {diet_share.iloc[-1]:.2f}%')
     ax.plot(soda_spend.index, soda_spend.values, color=DGREY, lw=2.5, ls='--', marker='s', ms=4, label=f'soda, share of grocery spending: {soda_spend.iloc[0]:.1f}% to {soda_spend.iloc[-1]:.1f}%')
     ax.set_title('Soda')
     ax.set_ylabel('percent')
-    ax.legend(frameon=False, fontsize=10, loc='center left')
+    ax.legend(frameon=False, fontsize=10, loc='upper center', bbox_to_anchor=(0.5, -0.14))
     ax = axes[2]
     ax.plot(lab.index, 100 * lab.values, color=DGREY, lw=2.5, marker='o', ms=4, label='share of calories from products with their own USDA label')
     addsug = by_year(d, 'addsugar_per_1000cal_usda'); hc = by_year(d, 'hei_c_addsugar')
@@ -103,7 +103,7 @@ def fig_series(mod, d):
     ax.set_ylabel('percent of calories')
     ax.set_title('Label coverage and the added-sugar measures')
     h1, l1 = ax.get_legend_handles_labels(); h2, l2 = ax2.get_legend_handles_labels()
-    ax.legend(h1 + h2, l1 + l2, frameon=False, fontsize=10, loc='lower left')
+    ax.legend(h1 + h2, l1 + l2, frameon=False, fontsize=10, loc='upper center', bbox_to_anchor=(0.5, -0.14))
     for a in axes:
         a.set_xticks(range(2004, 2021, 2)); a.set_xlabel('Panel year')
     FIG.mkdir(parents=True, exist_ok=True)
@@ -112,12 +112,12 @@ def fig_series(mod, d):
     return s, nat, reg_share, diet_share, soda_spend, lab
 
 
-def decompose(mod, y0, y1):
-    a = mod[mod['panel_year'] == y0].groupby(['product_module_code', 'product_module'])[['kcal', 'sugar_g']].sum()
-    b = mod[mod['panel_year'] == y1].groupby(['product_module_code', 'product_module'])[['kcal', 'sugar_g']].sum()
+def decompose(mod, y0, y1, col='sugar_g'):
+    a = mod[mod['panel_year'] == y0].groupby(['product_module_code', 'product_module'])[['kcal', col]].sum()
+    b = mod[mod['panel_year'] == y1].groupby(['product_module_code', 'product_module'])[['kcal', col]].sum()
     m = a.join(b, lsuffix='0', rsuffix='1', how='outer').fillna(0)
     m['k0'] = m['kcal0'] / m['kcal0'].sum(); m['k1'] = m['kcal1'] / m['kcal1'].sum()
-    m['s0'] = 1000 * m['sugar_g0'] / m['kcal0'].replace(0, np.nan); m['s1'] = 1000 * m['sugar_g1'] / m['kcal1'].replace(0, np.nan)
+    m['s0'] = 1000 * m[col + '0'] / m['kcal0'].replace(0, np.nan); m['s1'] = 1000 * m[col + '1'] / m['kcal1'].replace(0, np.nan)
     for c in ['s0', 's1']:
         m[c] = m[c].fillna(m[['s0', 's1']].mean(axis=1)).fillna(0)
     S_avg = ((m['k0'] * m['s0']).sum() + (m['k1'] * m['s1']).sum()) / 2
@@ -193,12 +193,34 @@ def fig_groups(d):
     print(pd.DataFrame(table, columns=['group', 'level', '2004', '2012', '2020']).round(1).to_string(index=False))
 
 
+def table_satfat(mod):
+    """The same decomposition for saturated fat, with the NHANES store-bought series: tabs/what_moves/satfat_decomposition.tex."""
+    m, S0, S1 = decompose(mod, 2004, 2020, 'satfat_g')
+    tot_b, tot_w = m['between'].sum(), m['within'].sum()
+    nat = mod.groupby('panel_year')[['satfat_g', 'kcal']].sum()
+    nat = 1000 * nat['satfat_g'] / nat['kcal']
+    nh = pd.read_parquet(idir / 'what_moves' / 'nhanes_sugar.parquet')
+    print(f'saturated fat per 1,000 kcal (fixed values): {S0:.1f} (2004) -> {S1:.1f} (2020), change {S1 - S0:+.1f}; between {tot_b:+.1f}, within {tot_w:+.1f}')
+    print(nat.round(2).to_dict())
+    print(nh[['cycle', 'store_satfat_1000']].round(2).to_string(index=False))
+    m = m.reset_index()
+    rows = ['\\begin{tabular}{lrrrr}', '\\toprule', 'Module & kcal share 2004 & kcal share 2020 & g sat.\\ fat / 1,000 kcal 2004 & contribution (g) \\\\', '\\midrule',
+            f'\\multicolumn{{5}}{{l}}{{\\textit{{Substitution between modules (total {tot_b:+.1f} g)}}}} \\\\']
+    for r in m.reindex(m['between'].abs().sort_values(ascending=False).index).head(10).itertuples():
+        rows.append(f'{r.product_module.title()} & {100*r.k0:.2f}\\% & {100*r.k1:.2f}\\% & {r.s0:.0f} & {r.between:+.2f} \\\\')
+    rows += [f'\\midrule \\multicolumn{{5}}{{l}}{{\\textit{{Change within modules (total {tot_w:+.1f} g)}}}} \\\\', '\\midrule',
+             f'Total & & & {S0:.1f} $\\to$ {S1:.1f} & {S1 - S0:+.1f} \\\\', '\\bottomrule', '\\end{tabular}']
+    (TAB / 'satfat_decomposition.tex').write_text('\n'.join(rows) + '\n')
+    print('saved satfat_decomposition.tex')
+
+
 def main():
     mod, d = load()
     s, nat, reg_share, diet_share, soda_spend, lab = fig_series(mod, d)
     print(pd.concat([s.round(1), pd.DataFrame({'regular soda kcal %': reg_share.round(2), 'diet soda kcal %': diet_share.round(2), 'soda spend %': soda_spend.round(2), 'labelled kcal share': lab.round(2)})], axis=1).to_string())
     fig_decomposition(mod)
     fig_groups(d)
+    table_satfat(mod)
 
 
 if __name__ == '__main__':

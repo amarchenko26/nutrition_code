@@ -85,7 +85,7 @@ def main():
     ax.scatter(late['upf_share'], late['price_kcal'], s=4 + 400 * late['spend'] / late['spend'].max(), color=RED, alpha=0.5, edgecolors='white', linewidth=0.4)
     ax.plot(bydec['share'], bydec['price'], color='black', marker='D', ms=7, lw=1.5, label='Spending-weighted mean by decile of the share')
     ax.set_yscale('log')
-    ax.set_xlabel('Ultra-processed share of the module (% of labelled spending in NOVA 4)')
+    ax.set_xlabel('Ultra-processed share of the module (% of spending in NOVA 4)')
     ax.set_ylabel('Real price per 1,000 kcal (2013\\$, log scale)')
     ax.set_title(f'Product modules, 2016-2020: spending-weighted correlation = {r:.2f}')
     ax.legend(frameon=False, loc='upper right')

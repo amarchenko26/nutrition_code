@@ -15,7 +15,7 @@ Controls (grp_<cond> = 0): households that answered the survey in 2+ years and n
 Outcomes: HEI, sugar g and sodium mg per 1,000 kcal, soda share of grocery spending %, trips and grocery spending from
 final/labor_supply_reg_data.dta (on 2026-11-05 its HEI is still the version from before the 2026-11-04 fatty-acid fix; the
 outcome rebuild must refresh it, or the pre-2009 years are wrong); calories per adult equivalent per day at
-the UPC-dictionary densities (complete rosters, winsorized p1/p99), ultra-processed share of labelled calories %, produce
+the UPC-dictionary densities (complete rosters, winsorized p1/p99), ultra-processed share of calories %, produce
 share of calories % from interim/health/nova_calorie_panel.parquet; products a diabetes diagnosis should move, from
 interim/purchases_food: regular soda ounces per week (module 1484, winsorized p99), diet share of soda ounces % among soda
 buyers (1553 / (1484 + 1553)), any sugar substitute bought % (1535), any dietetic candy bought % (1533, 1536).

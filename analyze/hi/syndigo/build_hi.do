@@ -1,5 +1,6 @@
 
 
+do "/Users/anyamarchenko/Documents/GitHub/nutrition_code/paths.do"
 clear all
 set graphics on 
 
@@ -29,24 +30,24 @@ set graphics on
 // PATHS
 // ============================================================================
 
-// pq use using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panelists/panelists_all_years.parquet", clear
+// pq use using "$idir/panelists/panelists_all_years.parquet", clear
 // //
 // //
-// use "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/ssiv_zip_year.dta", clear
+// use "$idir/panel_dataset/ssiv_zip_year.dta", clear
 
 
 // ============================================================================
 // Load HH panel
 // ============================================================================
 
-pq use using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/panel_hh_year.parquet", clear
+pq use using "$idir/panel_dataset/panel_hh_year.parquet", clear
 
 tostring zip_code, replace format(%05.0f)
 
 egen zip_by_year = group(zip_code panel_year)
 
 // N = 289k
-merge 1:1 household_code panel_year using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panelists/panelists_all_years.dta", ///
+merge 1:1 household_code panel_year using "$idir/panelists/panelists_all_years.dta", ///
 	keepusing(hh_avg_yrsofschool hh_avg_workhours hh_avg_workhours_if_employed hh_employed ///
 	          male_head_occupation fips_county_code fips_state_code age_and_presence_of_children ///
 	          household_composition hispanic_origin race obesity n_dietary_conditions hypertension ///
@@ -59,27 +60,27 @@ merge 1:1 household_code panel_year using "/Users/anyamarchenko/CEGA Dropbox/Any
 drop _merge
 
 
-merge 1:1 household_code panel_year using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/iv_income.dta", ///
+merge 1:1 household_code panel_year using "$idir/panel_dataset/iv_income.dta", ///
 	keepusing(iv_income_zip iv_income_fips iv_cell_n_lo_fips iv_cell_n_lo_zip cell_zip_share) ///
 	keep(master match)
 
 drop _merge
 
 
-merge 1:1 household_code panel_year using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/expenditure_hh_year.dta", ///
+merge 1:1 household_code panel_year using "$idir/panel_dataset/expenditure_hh_year.dta", ///
 	keepusing(spend_total spend_produce spend_high_sugar  spend_soft_drinks___carbonated spend_cookies spend_ice_cream___bulk spend_share_produce) ///
 	keep(master match)
 	
 drop _merge 
 
 
-merge 1:1 household_code panel_year using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/trips_hh_year.dta", ///
+merge 1:1 household_code panel_year using "$idir/panel_dataset/trips_hh_year.dta", ///
 	keepusing(n_trips avg_spend_trip) ///
 	keep(master match)
 	
 drop _merge
 
-merge 1:1 household_code panel_year using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/panel_prep_time.dta", ///
+merge 1:1 household_code panel_year using "$idir/panel_dataset/panel_prep_time.dta", ///
 	keepusing(prep_time_raw prep_time) keep(master match)
 	
 drop _merge
@@ -88,7 +89,7 @@ drop _merge
 // USDA-based Health Index + component outcomes (built by build_hi_usda_panel.py;
 // hi_usda standardized identically to hi; components: added sugar is USDA-only,
 // addsugar_cal_share_usda = share of matched calories carrying an added-sugar value)
-merge 1:1 household_code panel_year using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/hi_usda_panel.dta", ///
+merge 1:1 household_code panel_year using "$idir/panel_dataset/hi_usda_panel.dta", ///
 	keepusing(hi_usda hi_usda_allcott rHI_usda total_cals_usda ///
 	sugar_per_1000cal_usda sodium_per_1000cal_usda addsugar_per_1000cal_usda ///
 	addsugar_cal_share_usda produce_usda whole_usda) keep(master match)
@@ -96,7 +97,7 @@ drop _merge
 
 // Full HEI-2020 (USDA scoring, 0-100; built by build_hei_panel.py).
 // hei_usda_90 excludes the fatty-acid component (module-median imputed) and rescales.
-cap merge 1:1 household_code panel_year using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/hei_usda_panel.dta", ///
+cap merge 1:1 household_code panel_year using "$idir/panel_dataset/hei_usda_panel.dta", ///
 	keepusing(hei_usda hei_usda_90) keep(master match)
 cap drop _merge
 
@@ -182,10 +183,10 @@ gen f_n_trips = F.n_trips - n_trips
 
 // ============================================================================
 // Save final dataset
-save "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/final/final_reg_data.dta", replace
+save "$gdir/final_reg_data.dta", replace
 
 
-use "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/final/final_reg_data.dta", replace
+use "$gdir/final_reg_data.dta", replace
 
 // ============================================================================
 
@@ -257,7 +258,7 @@ esttab m7 m7_usda m8 m8_usda, ///
 	stats(N, fmt(%9.0fc) labels("N"))
 
 // Export to LaTeX
-esttab m1 m2 m6 m7 m8 using "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/tabs/results.tex", ///
+esttab m1 m2 m6 m7 m8 using "$tdir/results.tex", ///
 	replace booktabs label ///
 	b(3) se(3) ///
 	star(* 0.10 ** 0.05 *** 0.01) ///
@@ -268,7 +269,7 @@ esttab m1 m2 m6 m7 m8 using "/Users/anyamarchenko/Documents/GitHub/nutrition_ove
 	nonotes
 	
 	
-esttab m4 m5 using "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/tabs/results_robust.tex", ///
+esttab m4 m5 using "$tdir/results_robust.tex", ///
 	replace booktabs label ///
 	b(3) se(3) ///
 	star(* 0.10 ** 0.05 *** 0.01) ///
@@ -305,12 +306,16 @@ coefplot iv_q*, keep(real_income) ///
     xtitle("Income quartile", size(medlarge)) ytitle("IV effect on Nutrition (std. dev. per $10k)", size(medlarge)) ///
     title("Effect of Income on Nutrition by Baseline Income") ///
     vertical yline(0, lcolor(gray) lpattern(solid)) ciopts(recast(rcap) lwidth(medthick)) ///
-    yline(0.02, lcolor(blue) lpattern(shortdash) lwidth(medthick)) legend(off) ///
-    text(.025 .57 "Overall", color(blue) size(medlarge)) ///
+    p1(mcolor(navy) ciopts(recast(rcap) lwidth(medthick) lcolor(navy))) ///   // project palette, no yellow (2026-11-05)
+    p2(mcolor(maroon) ciopts(recast(rcap) lwidth(medthick) lcolor(maroon))) ///
+    p3(mcolor("252 141 89") ciopts(recast(rcap) lwidth(medthick) lcolor("252 141 89"))) ///
+    p4(mcolor(gs8) ciopts(recast(rcap) lwidth(medthick) lcolor(gs8))) ///
+    yline(0.02, lcolor(black) lpattern(shortdash) lwidth(medthick)) legend(off) ///
+    text(.025 .57 "Overall", color(black) size(medlarge)) ///
     xlabel(.7 "Q1 (Lowest)" .9 "Q2" 1.1 "Q3" 1.3 "Q4 (Highest)", labsize(medlarge)) ///
     ylabel(, labsize(medlarge))
 
-graph export "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/baseline_inc.png", replace 
+graph export "$fdir/baseline_inc.png", replace width(2400)
 
 // Export one blank one 
 coefplot iv_q*, keep(real_income) ///
@@ -318,13 +323,13 @@ coefplot iv_q*, keep(real_income) ///
     xtitle("Income quartile", size(medlarge)) ytitle("IV effect on Nutrition (std. dev. per $10k)", size(medlarge)) ///
     title("Effect of Income on Nutrition by Baseline Income") ///
     vertical yline(0, lcolor(gray) lpattern(solid)) ///
-    yline(0.02, lcolor(blue) lpattern(shortdash) lwidth(medthick)) legend(off) ///
-    text(.025 .57 "Overall", color(blue) size(medlarge)) ///
+    yline(0.02, lcolor(black) lpattern(shortdash) lwidth(medthick)) legend(off) ///
+    text(.025 .57 "Overall", color(black) size(medlarge)) ///
     xlabel(.7 "Q1 (Lowest)" .9 "Q2" 1.1 "Q3" 1.3 "Q4 (Highest)", labsize(medlarge)) ///
     ylabel(, labsize(medlarge)) ///
     mcolor(white) mlcolor(white) ciopts(recast(rcap) lwidth(medthick) lcolor(white))
 	
-graph export "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/baseline_inc_blank.png", replace 
+graph export "$fdir/baseline_inc_blank.png", replace width(2400)
 
 	
 // 2SLS by quintile
@@ -419,7 +424,7 @@ graph combine g1 g2, ///
     cols(2) ///
     ycommon xsize(7) ysize(3.5)
 
-graph export "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/iv_binscatter.png", replace width(2400)
+graph export "$fdir/iv_binscatter.png", replace width(2400)
 
 
 
@@ -457,12 +462,12 @@ foreach var in `spend_vars' {
 
 
 esttab f_spend_total f_spend_high_sugar f_spend_share_produce f_total_cals f_sugar_per_1000cal  ///
-    using "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/tabs/expenditure.tex", replace ///
-    keep(D.real_income) varlabels(D1.real_income "$m_t$") ///
+    using "$tdir/expenditure.tex", replace ///
+    keep(D.real_income) varlabels(D.real_income " ") ///
     b(3) se(3) ///
     star(* 0.10 ** 0.05 *** 0.01) ///
 	mlabels("Total" "High sugar" "Produce share" "Calories" "Sugar density") ///
-    mgroups("Expenditure (\\$s per year)" "Nutrition Components", pattern(1 0 0 1 0) ///
+    mgroups("Expenditure (\\\$s per year)" "Nutrition Components", pattern(1 0 0 1 0) ///
         prefix(\multicolumn{@span}{c}{) suffix(}) ///
         span erepeat(\cmidrule(lr){@span})) ///
     collabels(none) ///
@@ -483,8 +488,8 @@ foreach var in `health_vars' {
 }
 
 esttab any_metabolic_disease hypertension obesity cholesterol  ///
-    using "/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/tabs/health.tex", replace ///
-    keep(D.real_income) varlabels(D.real_income "$m_t$") ///
+    using "$tdir/health.tex", replace ///
+    keep(D.real_income) varlabels(D.real_income " ") ///
     b(3) se(3) ///
     star(* 0.10 ** 0.05 *** 0.01) ///
 	mlabels("Any Metabolic Disease" "Hypertension" "Obesity" "High Cholesterol") ///
@@ -581,20 +586,22 @@ esttab any_diabetes any_metabolic_disease cholesterol diabetes_type1 diabetes_ty
 	
 // ============================================================================
 
-// Construct an SSIV at zip-code level 
+// Construct an SSIV at zip-code level (ssiv_zip_year.dta is not on this machine: skipped instead of stopping the do-file)
 
-preserve 
-collapse (mean) hi real_income [aw=projection_factor], by(zip_code year)
+capture confirm file "$idir/panel_dataset/ssiv_zip_year.dta"
+if _rc == 0 {
+	preserve 
+	collapse (mean) hi real_income [aw=projection_factor], by(zip_code year)
 
-merge 1:1 zip_code year using "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data/interim/panel_dataset/ssiv_zip_year.dta", ///
-	keepusing(ssiv_income) ///
-	keep(master match)
+	merge 1:1 zip_code year using "$idir/panel_dataset/ssiv_zip_year.dta", ///
+		keepusing(ssiv_income) ///
+		keep(master match)
 
+	ivreghdfe hi (real_income=ssiv_income), ///
+		absorb(year zip_code) robust
 
-ivreghdfe hi (real_income=ssiv_income), ///
-	absorb(year zip_code) robust
-
-restore 
+	restore 
+}
 
 	
 	
@@ -612,7 +619,7 @@ binscatter diabetes_type2 hi,
     linetype(lfit)
     xtitle("Nutrition")
     ytitle("Type 2 Diabetes (any HH member)")
-    savegraph("/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/corr_diab_hi.png")
+    savegraph("$fdir/corr_diab_hi.png")
     replace
 ;
 
@@ -622,7 +629,7 @@ binscatter obesity hi,
     linetype(lfit)
     xtitle("Nutrition")
     ytitle("Obesity (any HH member)")
-    savegraph("/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/corr_ob_hi.png")
+    savegraph("$fdir/corr_ob_hi.png")
     replace;
 	
 binscatter cholesterol hi, 
@@ -631,7 +638,7 @@ binscatter cholesterol hi,
     linetype(lfit)
     xtitle("Nutrition")
     ytitle("Cholesterol (any HH member)")
-    savegraph("/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/corr_chol_hi.png")
+    savegraph("$fdir/corr_chol_hi.png")
     replace;
 
 binscatter any_metabolic_disease hi, 
@@ -640,7 +647,7 @@ binscatter any_metabolic_disease hi,
     linetype(lfit)
     xtitle("Nutrition")
     ytitle("Any Metabolic Disease (any HH member)")
-    savegraph("/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/corr_any_hi.png")
+    savegraph("$fdir/corr_any_hi.png")
     replace;
 	
 	
@@ -650,7 +657,7 @@ binscatter obesity real_income,
     linetype(qfit)
     xtitle("HH income $1000s")
     ytitle("Obesity (any HH member)")
-    savegraph("/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/corr_ob_inc.png")
+    savegraph("$fdir/corr_ob_inc.png")
     replace;
 	
 	
@@ -661,7 +668,7 @@ binscatter diabetes_type2 real_income,
     linetype(qfit)
     xtitle("HH income $1000s")
     ytitle("Type 2 Diabetes (any HH member)")
-    savegraph("/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/corr_diab_inc.png")
+    savegraph("$fdir/corr_diab_inc.png")
     replace;
 	
 	
@@ -672,7 +679,7 @@ binscatter diabetes_type2 real_income,
     linetype(qfit)
     xtitle("HH income $1000s (CONTROLLING FOR HI)")
     ytitle("Type 2 Diabetes (any HH member)")
-    savegraph("/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/corr_diab_inc2.png")
+    savegraph("$fdir/corr_diab_inc2.png")
     replace;
 	
 binscatter diabetes_type2 hi, 
@@ -682,7 +689,7 @@ binscatter diabetes_type2 hi,
     linetype(qfit)
     xtitle("HH Nutrition (controlling for income)")
     ytitle("Type 2 Diabetes (any HH member)")
-    savegraph("/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/corr_diab_hi2.png")
+    savegraph("$fdir/corr_diab_hi2.png")
     replace;
 
 	
@@ -692,7 +699,7 @@ binscatter hi real_income,
     linetype(qfit)
     xtitle("HH income $1000s")
     ytitle("HH Nutrition")
-    savegraph("/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs/corr_inc_hi.png")
+    savegraph("$fdir/corr_inc_hi.png")
     replace;
 
 #delimit cr

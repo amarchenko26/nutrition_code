@@ -1,9 +1,9 @@
-"""Sugar and calories from store-bought food in NHANES, a benchmark that uses no package labels (2026-11-05).
+"""Sugar, saturated fat and calories from store-bought food in NHANES, a benchmark that uses no package labels (2026-11-05).
 
 Day-1 dietary recalls, 2003-04 to 2017-March 2020 cycles (raw/nhanes, DR1TOT, DR1IFF, DEMO), people aged 2 and over
 with a complete recall. Store-sourced items are DR1FS in {1, 27, 28}. Per cycle, weighted by the day-1 dietary weight:
-sugar per 1,000 kcal of store-bought food (all sugar over all kcal), and store-bought kcal per person per day.
-Output: interim/what_moves/nhanes_sugar.parquet (cycle, year_mid, store_sugar_1000, store_kcal, n)
+sugar and saturated fat per 1,000 kcal of store-bought food (all grams over all kcal), and store-bought kcal per person per day.
+Output: interim/what_moves/nhanes_sugar.parquet (cycle, year_mid, store_sugar_1000, store_satfat_1000, store_kcal, n)
 """
 import sys
 from pathlib import Path
@@ -31,10 +31,11 @@ def main():
         D = pd.read_sas(f('DEMO'), format='xport')
         T = T[(T['DR1DRSTZ'] == 1) & (T[wv] > 0)].merge(D[['SEQN', 'RIDAGEYR']], on='SEQN')
         T = T[T['RIDAGEYR'] >= 2]
-        st = I[I['DR1FS'].isin(STORE)].groupby('SEQN')[['DR1IKCAL', 'DR1ISUGR']].sum()
-        T = T.merge(st, left_on='SEQN', right_index=True, how='left').fillna({'DR1IKCAL': 0, 'DR1ISUGR': 0})
+        st = I[I['DR1FS'].isin(STORE)].groupby('SEQN')[['DR1IKCAL', 'DR1ISUGR', 'DR1ISFAT']].sum()
+        T = T.merge(st, left_on='SEQN', right_index=True, how='left').fillna({'DR1IKCAL': 0, 'DR1ISUGR': 0, 'DR1ISFAT': 0})
         w = T[wv]
         rows.append({'cycle': lab, 'year_mid': mid, 'store_sugar_1000': 1000 * (w * T['DR1ISUGR']).sum() / (w * T['DR1IKCAL']).sum(),
+                     'store_satfat_1000': 1000 * (w * T['DR1ISFAT']).sum() / (w * T['DR1IKCAL']).sum(),
                      'store_kcal': np.average(T['DR1IKCAL'], weights=w), 'n': len(T)})
         print(rows[-1], flush=True)
     (idir / 'what_moves').mkdir(parents=True, exist_ok=True)
