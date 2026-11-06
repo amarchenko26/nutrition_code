@@ -1,14 +1,16 @@
 """National path of the nutrition measures, 2004-2020, for 0_main.tex (2026-11-05).
 
-Projection-weighted means over the household-year panel: full HEI and its added-sugar, sodium, saturated-fat,
-whole-grain and vegetable components (interim/panel_dataset/hei_usda_panel.parquet), sugar per 1,000 kcal from the
-Syndigo labels (panel_hh_year.sugar_per_1000cal) and from the USDA labels (final/labor_supply_reg_data.dta
-sugar_per_1000cal_usda), the soda share of grocery spending (spend_soda / spend_total, reg data), the
+Projection-weighted means over the household-year panel: full HEI, in points and in the standard deviations of
+analyze/labor_supply/12_ (from the mean and standard deviation over non-mover household-years); its added-sugar, sodium,
+saturated-fat, whole-grain and vegetable components (interim/panel_dataset/hei_usda_panel.parquet), with the amounts of the three
+nutrients whose component is reverse-scored (added sugar and sodium from the reg data, saturated fat from
+interim/what_moves/sugar_hh_year.parquet); sugar per 1,000 kcal from the Syndigo labels (panel_hh_year.sugar_per_1000cal) and from
+the USDA labels (final/labor_supply_reg_data.dta sugar_per_1000cal_usda), the soda share of grocery spending (spend_soda / spend_total, reg data), the
 ultra-processed share of calories, the produce share of calories and calories per adult equivalent per day
 (interim/health/nova_calorie_panel.parquet, complete rosters, calories winsorized at 4,000), and real household
 income (thousands of 2013 dollars, the panel's real_income). Output: tabs/what_moves/national_series.tex (every fourth year and the 2004-2020
-change); the full year-by-year table is printed. Also tabs/what_moves/gaps_by_group.tex: HEI and sugar gaps between within-year income
-quartiles and between education groups by year, and the within-year slope of HEI on income (final/labor_supply_reg_data.dta).
+change); the full year-by-year table and the NHANES saturated-fat benchmark are printed. Also tabs/what_moves/gaps_by_group.tex: HEI by
+within-year income quartile and by education group by year, in points and in standard deviations, and the sugar gaps (final/labor_supply_reg_data.dta).
 """
 import sys
 from pathlib import Path
@@ -30,7 +32,17 @@ def wmean(g, c):
     return np.average(g.loc[ok, c], weights=g.loc[ok, 'projection_factor']) if ok.any() else np.nan
 
 
+def hei_scale():
+    """Mean and standard deviation that 12_ standardizes HEI with: non-mover household-years, projection-weighted."""
+    r, _ = pyreadstat.read_dta(str(gdir / 'labor_supply_reg_data.dta'), usecols=['hei_usda', 'projection_factor', 'movers_f'])
+    r = r[(r['movers_f'] == 0) & r['hei_usda'].notna() & r['projection_factor'].notna()]
+    mu = np.average(r['hei_usda'], weights=r['projection_factor'])
+    return mu, np.sqrt(np.average((r['hei_usda'] - mu) ** 2, weights=r['projection_factor']))
+
+
 def main():
+    mu, sd = hei_scale()
+    print(f'HEI mean {mu:.3f}, standard deviation {sd:.3f}')
     p = pd.read_parquet(idir / 'panel_dataset' / 'panel_hh_year.parquet',
                         columns=['household_code', 'panel_year', 'sugar_per_1000cal', 'real_income', 'projection_factor'])
     h = pd.read_parquet(idir / 'panel_dataset' / 'hei_usda_panel.parquet',
@@ -44,16 +56,24 @@ def main():
     n['upf_share'] = 100 * n['cals_nova4'] / n[['cals_nova1', 'cals_nova2', 'cals_nova3', 'cals_nova4']].sum(axis=1)
     n['produce_share'] = 100 * n['produce_cals_all'] / n['cals_all']
     r, _ = pyreadstat.read_dta(str(gdir / 'labor_supply_reg_data.dta'),
-                               usecols=['hhid', 'year', 'sugar_per_1000cal_usda', 'spend_soda', 'spend_total'])
+                               usecols=['hhid', 'year', 'sugar_per_1000cal_usda', 'addsugar_per_1000cal_usda', 'sodium_per_1000cal_usda', 'spend_soda', 'spend_total'])
     r = r.rename(columns={'hhid': 'household_code', 'year': 'panel_year'})
     r['household_code'] = r['household_code'].astype('int64'); r['panel_year'] = r['panel_year'].astype(int)
     r['soda_share'] = 100 * r['spend_soda'] / r['spend_total']
+    r['sodium_mg'] = 1000 * r['sodium_per_1000cal_usda']
+    sf = pd.read_parquet(idir / 'what_moves' / 'sugar_hh_year.parquet', columns=['household_code', 'panel_year', 'satfat_g', 'kcal'])
+    sf['satfat_1000'] = 1000 * sf['satfat_g'] / sf['kcal']
     d = p.merge(h, on=['household_code', 'panel_year']).merge(n, on=['household_code', 'panel_year'], how='left') \
-         .merge(r, on=['household_code', 'panel_year'], how='left')
+         .merge(r, on=['household_code', 'panel_year'], how='left').merge(sf[['household_code', 'panel_year', 'satfat_1000']], on=['household_code', 'panel_year'], how='left')
+    lo, hi = d['satfat_1000'].quantile([0.005, 0.995])
+    d['satfat_1000'] = d['satfat_1000'].clip(lo, hi)     # the same trim as sugar at fixed values in figure_sugar_decline.py
     d['income_k'] = d['real_income']          # real_income is already in thousands of 2013 dollars
-    cols = [('hei_usda', 'HEI (0--100)', 1), ('hei_c_addsugar', 'HEI added-sugar component (0--10)', 2),
-            ('hei_c_sodium', 'HEI sodium component', 2), ('hei_c_satfat', 'HEI saturated-fat component', 2),
-            ('hei_c_wholegrain', 'HEI whole-grain component', 2), ('hei_c_totveg', 'HEI vegetable component', 2),
+    d['hei_z'] = (d['hei_usda'] - mu) / sd
+    cols = [('hei_usda', 'HEI (0--100)', 1), ('hei_z', 'HEI, standard deviations from its 2004--2020 mean', 2),
+            ('hei_c_addsugar', 'HEI added-sugar component (0--10; higher means less)', 2), ('addsugar_per_1000cal_usda', '\\quad Added sugar, g per 1,000 kcal', 1),
+            ('hei_c_sodium', 'HEI sodium component (0--10; higher means less)', 2), ('sodium_mg', '\\quad Sodium, mg per 1,000 kcal', 0),
+            ('hei_c_satfat', 'HEI saturated-fat component (0--10; higher means less)', 2), ('satfat_1000', '\\quad Saturated fat, g per 1,000 kcal', 1),
+            ('hei_c_wholegrain', 'HEI whole-grain component (0--10; higher means more)', 2), ('hei_c_totveg', 'HEI vegetable component (0--5; higher means more)', 2),
             ('sugar_per_1000cal', 'Sugar, g per 1,000 kcal (Syndigo labels)', 1),
             ('sugar_per_1000cal_usda', 'Sugar, g per 1,000 kcal (USDA labels)', 1),
             ('soda_share', 'Soda, \\% of grocery spending', 2), ('upf_share', 'Ultra-processed, \\% of calories', 1),
@@ -64,6 +84,8 @@ def main():
         rows[y] = {c: wmean(g, c) for c, _, _ in cols}
     t = pd.DataFrame(rows).T
     print(t.round(2).to_string())
+    nh = pd.read_parquet(idir / 'what_moves' / 'nhanes_sugar.parquet')
+    print(nh[['cycle', 'store_satfat_1000']].round(2).to_string(index=False))
     years = [2004, 2008, 2012, 2016, 2020]
     lines = ['\\begin{tabular}{l' + 'r' * len(years) + 'r}', '\\toprule',
              ' & ' + ' & '.join(str(y) for y in years) + ' & 2004--2020 \\\\', '\\midrule']
@@ -78,6 +100,7 @@ def main():
 
 
 def gaps_table():
+    mu, sd = hei_scale()
     d, _ = pyreadstat.read_dta(str(gdir / 'labor_supply_reg_data.dta'), usecols=['year', 'hei_usda', 'sugar_per_1000cal_usda', 'hh_avg_yrsofschool', 'real_income', 'projection_factor'])
     d = d.dropna(subset=['hei_usda', 'sugar_per_1000cal_usda', 'real_income', 'projection_factor', 'hh_avg_yrsofschool'])
     rng = np.random.default_rng(0)
@@ -90,18 +113,25 @@ def gaps_table():
         g = d[d['year'] == y]
         low, high = g[g['hh_avg_yrsofschool'] < 13], g[g['hh_avg_yrsofschool'] >= 16]
         bot, top = g[g['q'] == 0], g[g['q'] == 3]
-        rows[y] = {'hei_q': wmean(top, 'hei_usda') - wmean(bot, 'hei_usda'),
-                   'slope': np.polyfit(g['real_income'], g['hei_usda'], 1, w=np.sqrt(g['projection_factor']))[0],
+        rows[y] = {'hei_bot': wmean(bot, 'hei_usda'), 'hei_top': wmean(top, 'hei_usda'), 'hei_q': wmean(top, 'hei_usda') - wmean(bot, 'hei_usda'),
                    'hei_low': wmean(low, 'hei_usda'), 'hei_high': wmean(high, 'hei_usda'), 'hei_e': wmean(high, 'hei_usda') - wmean(low, 'hei_usda'),
                    'sug_q': wmean(bot, 'sugar_per_1000cal_usda') - wmean(top, 'sugar_per_1000cal_usda'),
                    'sug_e': wmean(low, 'sugar_per_1000cal_usda') - wmean(high, 'sugar_per_1000cal_usda')}
     t = pd.DataFrame(rows)
     print(t.round(2).to_string())
-    labs = [('hei_q', 'HEI, top minus bottom income quartile'), ('slope', 'HEI on income within the year, points per \\$10,000'), ('hei_low', 'HEI, 12 or fewer years of schooling'),
-            ('hei_high', 'HEI, 16 or more years of schooling'), ('hei_e', 'HEI, 16 or more minus 12 or fewer'), ('sug_q', 'Sugar per 1,000 kcal, bottom minus top income quartile'),
-            ('sug_e', 'Sugar per 1,000 kcal, 12 or fewer minus 16 or more')]
-    lines = ['\\begin{tabular}{l' + 'r' * len(years) + '}', '\\toprule', ' & ' + ' & '.join(str(y) for y in years) + ' \\\\', '\\midrule']
-    for k, lab in labs:
+    hei = [('hei_bot', 'Bottom income quartile', True), ('hei_top', 'Top income quartile', True), ('hei_q', 'Top minus bottom income quartile', False),
+           ('hei_low', '12 or fewer years of schooling', True), ('hei_high', '16 or more years of schooling', True), ('hei_e', '16 or more minus 12 or fewer', False)]
+    sug = [('sug_q', 'Bottom minus top income quartile'), ('sug_e', '12 or fewer minus 16 or more')]
+    lines = ['\\begin{tabular}{l' + 'r' * len(years) + '}', '\\toprule', ' & ' + ' & '.join(str(y) for y in years) + ' \\\\']
+    panel = lambda lab: ['\\midrule', f'\\multicolumn{{{len(years) + 1}}}{{l}}{{\\textit{{{lab}}}}} \\\\']
+    lines += panel('A. HEI, points')
+    for k, lab, _ in hei:
+        lines.append(f'{lab} & ' + ' & '.join(f'{t.loc[k, y]:.2f}' for y in years) + ' \\\\')
+    lines += panel('B. HEI, standard deviations (levels from the 2004--2020 mean)')
+    for k, lab, level in hei:
+        lines.append(f'{lab} & ' + ' & '.join(f'{(t.loc[k, y] - (mu if level else 0)) / sd:.2f}' for y in years) + ' \\\\')
+    lines += panel('C. Sugar, g per 1,000 kcal')
+    for k, lab in sug:
         lines.append(f'{lab} & ' + ' & '.join(f'{t.loc[k, y]:.2f}' for y in years) + ' \\\\')
     lines += ['\\bottomrule', '\\end{tabular}']
     out = tdir / 'what_moves' / 'gaps_by_group.tex'

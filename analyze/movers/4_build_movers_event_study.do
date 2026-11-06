@@ -36,12 +36,16 @@ set more off
 // `do 4_build_movers_event_study.do income` runs the INCOME-MOVERS version (1_ --places income,
 // within-year income quintiles as the places, Anya 2026-11-05): same programs, the income
 // events panel, outputs income_event_study_coefs.csv / income_event_study_summary.csv.
+// `do 4_build_movers_event_study.do income_matched` runs income movers against matched non-movers
+// (build_income_matched_panel.py subtracts the matched mean from the outcome, 2026-11-06): no year fixed effects, and
+// rho_r (the path of a mover with no gap) is identified, so it is written too. Outputs income_matched_event_study_*.csv.
 local places "`1'"
 if "`places'" == "" local places occupation
 
-global data     "/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data"
-global out      "$data/interim/movers"
-global prefix = cond("`places'" == "income", "income_", cond("`places'" == "county", "county_", cond("`places'" == "retailer", "retailer_", "")))
+do "/Users/anyamarchenko/Documents/GitHub/nutrition_code/paths.do"
+global out      "$idir/movers"
+global prefix = cond("`places'" == "income", "income_", cond("`places'" == "income_matched", "income_matched_", cond("`places'" == "county", "county_", cond("`places'" == "retailer", "retailer_", ""))))
+global yearfe = cond("`places'" == "income_matched", "", "year")
 global coefs "$out/${prefix}event_study_coefs.csv"
 global summ  "$out/${prefix}event_study_summary.csv"
 
@@ -83,7 +87,7 @@ program define es_run
 	}
 	di _n "==== `spec' / `outcome' : `cond'"
 	reghdfe `outcome' `ddlist' `dlist' [pw = projection_factor] if `cond', ///
-		absorb(event_id year `fe') cluster(hhid)
+		absorb(event_id $yearfe `fe') cluster(hhid)
 	local N = e(N)
 	quietly egen byte _te = tag(event_id) if e(sample)
 	quietly count if _te == 1
@@ -100,6 +104,7 @@ program define es_run
 		}
 		local s = cond(`k' < 0, "m" + string(-`k'), "p" + string(`k'))
 		file write fh "`spec',`outcome',`k',`=_b[dd_`s']',`=_se[dd_`s']',`N',`nev',`nhh'" _n
+		if "$yearfe" == "" file write fh "`spec'_rho,`outcome',`k',`=_b[d_`s']',`=_se[d_`s']',`N',`nev',`nhh'" _n
 	}
 	file close fh
 	quietly lincom (dd_p1 + dd_p2 + dd_p3) / 3
@@ -130,6 +135,43 @@ if inlist("`places'", "county", "retailer") {
 	}
 	es_run "income_all" "real_income" "1"
 	di "4_build_movers_event_study.do (`places' movers) complete"
+	exit
+}
+
+// ---------------------------------------------------------------- income movers against matched non-movers
+if "`places'" == "income_matched" {
+	es_run "all"             "hei_usda"    "1"
+	es_run "income_all"      "real_income" "1"
+	es_run "hei_per_inc_all" "hei_usda"    "1" "delta_real_income"
+	es_run "all_levelcell"   "hei_lev"     "1" "delta_hei_usda"
+	// a move up and a move down, each against its matched non-movers, in HEI points and $10k
+	foreach dir in up down {
+		local c = cond("`dir'" == "up", "up_income == 1", "up_income == 0")
+		local dlist
+		foreach s of global rlist {
+			local dlist `dlist' d_`s'
+		}
+		foreach o in hei_usda real_income {
+			reghdfe `o' `dlist' [pw = projection_factor] if `c', absorb(event_id age5 kids hh_comp) cluster(hhid)
+			local N = e(N)
+			quietly lincom (d_p1 + d_p2 + d_p3) / 3
+			local j = r(estimate)
+			local js = r(se)
+			quietly lincom (d_p4 + d_p5 + d_p6) / 3
+			local l = r(estimate)
+			local ls = r(se)
+			quietly lincom (d_m4 + d_m3 + d_m2) / 3
+			local pr = r(estimate)
+			local prs = r(se)
+			quietly test d_m4 d_m3 d_m2
+			local pp = r(p)
+			file open fh using "$summ", write append
+			file write fh "dir_`dir',`o',`j',`js',`l',`ls',`pr',`prs',`pp',`N',," _n
+			file close fh
+			di "`dir' `o': years 1-3 = `j' (`js'); years 4-6 = `l' (`ls'); before = `pr' (`prs'), p = `pp'"
+		}
+	}
+	di "4_build_movers_event_study.do (income movers, matched) complete"
 	exit
 }
 

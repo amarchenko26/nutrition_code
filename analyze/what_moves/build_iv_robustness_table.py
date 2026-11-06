@@ -1,5 +1,5 @@
 """Tables for build_iv_robustness.do (2026-11-06): tabs/what_moves/iv_robustness.tex, the income IV on HEI, the ultra-processed share,
-the produce share and calories under other fixed effects, timing, samples, instruments and windows. Prints where the estimate comes from
+the produce share and calories under other fixed effects, timing, samples, instruments and windows, with stars at 10, 5 and 1 percent. Prints where the estimate comes from
 (iv_unpack.csv, iv_zero_first_stage.csv) and how the price paid per calorie varies with income. Reads interim/what_moves/iv_robustness_<outcome>.csv.
 """
 import sys
@@ -16,7 +16,6 @@ import pyreadstat
 from scipy.stats import norm
 
 WM = idir / 'what_moves'
-DAGGER = r'$^{\dagger}$'
 OUTS = [('hei_usda', 2), ('upf_share', 2), ('produce_share', 2), ('cals_ae_day', 1)]
 ROWS = [
     (r'A. Fixed effects', [('main', r'Main: household and state-by-year'), ('hh_year', 'Household and year'), ('no_hhfe', 'State-by-year, no household'),
@@ -34,6 +33,13 @@ ROWS = [
 ]
 
 
+def est(x, dec):
+    """Estimate with its stars, then the standard error."""
+    p = 2 * (1 - norm.cdf(abs(x['b'] / x['se'])))
+    st = '***' if p < 0.01 else '**' if p < 0.05 else '*' if p < 0.10 else ''
+    return f"{x['b']:.{dec}f}" + (f'$^{{{st}}}$' if st else '') + f" ({x['se']:.{dec}f})"
+
+
 def main():
     d = pd.concat([pd.read_csv(WM / f'iv_robustness_{o}.csv') for o, _ in OUTS], ignore_index=True)
 
@@ -42,7 +48,7 @@ def main():
         return x.iloc[0] if len(x) else None
 
     def cell(o, spec, dec):
-        x, b = get(o, spec), get(o, spec, 'before')
+        x = get(o, spec)
         # calories in levels compare years across which household size changes
         if o == 'cals_ae_day' and spec == 'levels':
             return ''
@@ -54,10 +60,7 @@ def main():
         # no estimate when the first stage is zero
         if not np.isnan(x['f']) and x['f'] < 1:
             return 'no first stage'
-        dag = ''
-        if b is not None and b['f'] >= 1 and 2 * (1 - norm.cdf(abs(b['b'] / b['se']))) < 0.05:
-            dag = DAGGER
-        return f"{x['b']:.{dec}f} ({x['se']:.{dec}f}){dag}"
+        return est(x, dec)
 
     tex = [r'\begin{tabular}{lccccccc}', r'\toprule', r' & HEI & HEI, purchases & Ultra-processed & Produce & Calories per & First- & Household- \\',
            r'Specification & (points) & before ($t-3$ to $t-2$) & (\% of calories) & (\% of calories) & adult eq. per day & stage F & years \\']
@@ -66,7 +69,7 @@ def main():
         for spec, lab in rows:
             cells = [cell('hei_usda', spec, 2)]
             b = get('hei_usda', spec, 'before')
-            cells.append('' if b is None or b['f'] < 1 else f"{b['b']:.2f} ({b['se']:.2f})")
+            cells.append('' if b is None or b['f'] < 1 else est(b, 2))
             for o, dec in OUTS[1:]:
                 cells.append(cell(o, spec, dec))
             x = get('hei_usda', spec)
@@ -76,6 +79,10 @@ def main():
     tex += [r'\bottomrule', r'\end{tabular}']
     (tdir / 'what_moves' / 'iv_robustness.tex').write_text('\n'.join(tex) + '\n')
     print('\n'.join(tex))
+    # purchases before the income change, any outcome, any row with a first stage
+    bf = d[(d['window'] == 'before') & (d['f'] >= 1)].copy()
+    bf['p'] = 2 * (1 - norm.cdf((bf['b'] / bf['se']).abs()))
+    print('tests on purchases from t-3 to t-2 with p < 0.05:', bf.loc[bf['p'] < 0.05, ['outcome', 'spec', 'b', 'se', 'p']].round(3).to_dict('records'), 'of', len(bf))
     # without the instrument, long changes
     print(d[(d['window'] == 'ols')].round(3).to_string(index=False))
 

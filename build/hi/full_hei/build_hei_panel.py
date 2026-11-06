@@ -43,7 +43,7 @@ Conventions before 2026-11-05 (superseded where they conflict with the paragraph
   * Sample rule matches build_hi_usda_panel.py: MIN_ANNUAL_CALS on matched cals.
 
 Outputs: interim/panel_dataset/hei_usda_panel.parquet + .dta
-         (hei_usda 0-100, hei_usda_90, 13 component scores hei_c_*)
+         (hei_usda 0-100, hei_usda_90, 13 component scores hei_c_*, lhei_usda = the uncapped linear HEI of Allcott et al.)
 """
 import sys
 from pathlib import Path
@@ -185,6 +185,11 @@ d['hei_usda'] = d[comp].sum(axis=1)
 d['hei_usda_90'] = d[[c for c in comp if c != 'hei_c_fattyacid']].sum(axis=1) * 100 / 90
 d['addsug_energy_share'] = asE
 d['fa_ratio'] = fa
+# Linear HEI: the primary measure of Allcott et al. (2019) ($HealthVar = lHEI_per1000Cal, GetlinearHEI.do), which they call the
+# Health Index: the same standards without the caps and without the fatty-acid ratio. Saturated fat stands in for their solid
+# fats, which labels do not report; the HEI-2015 standards for the two are the same 8 and 16 percent of energy.
+d['lhei_usda'] = (5 * tf / 0.8 + 5 * wf / 0.4 + 5 * tv / 1.1 + 5 * gb / 0.2 + 10 * wg / 1.5 + 10 * dy / 1.3 + 5 * pr / 2.5 + 5 * sp / 0.8
+                  + 10 * (4.3 - rg) / (4.3 - 1.8) + 10 * (2.0 - sod) / (2.0 - 1.1) + 10 * (26.0 - asE) / (26.0 - 6.5) + 10 * (16.0 - satE) / (16.0 - 8.0))
 
 # panelists inner-merge (mirrors the other HI builders)
 pan = pd.read_parquet(PANELISTS, columns=['household_code','panel_year','projection_factor'])

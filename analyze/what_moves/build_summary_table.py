@@ -103,6 +103,11 @@ def main():
         se = np.sqrt((x['jump_se'] / fs['jump']) ** 2 + (x['jump'] * fs['jump_se'] / fs['jump'] ** 2) ** 2)
         vals[k] = (b, se, x['p_pretrend'])
     add(P, r'Every change of income quintile, per \$10,000 of own income, no instrument', vals)
+    m = pd.read_csv(MV / 'income_matched_event_study_summary.csv')
+    x = m[(m['spec'] == 'hei_per_inc_all') & (m['outcome'] == 'hei_usda')].iloc[0]
+    fm = m[(m['spec'] == 'income_all') & (m['outcome'] == 'real_income')].iloc[0]
+    add(P, r'Every change of income quintile against matched non-movers, per \$10,000 of own income, no instrument',
+        {'hei': (x['jump'] / fm['jump'], np.sqrt((x['jump_se'] / fm['jump']) ** 2 + (x['jump'] * fm['jump_se'] / fm['jump'] ** 2) ** 2), x['p_pretrend'])})
 
     # ---- prices
     P = 'B. Prices'
@@ -177,25 +182,31 @@ def main():
 
 
 def iv_table():
-    """The income IV on the parts of the diet: tabs/what_moves/iv_suboutcomes.tex."""
+    """Column 3 of tabs/labor_supply/hi_clean.tex for the parts of the diet: tabs/what_moves/iv_suboutcomes.tex. Standard deviations are the ones 12_ standardizes with."""
     a = pd.read_csv(WM / 'iv_suboutcomes.csv')
     b = pd.read_csv(WM / 'iv_suboutcomes_same_size.csv')
-    labs = [('hei_usda', 'HEI (points)', 2), ('sugar_1000', 'Sugar (g per 1,000 kcal)', 2), ('sodium_1000', 'Sodium (mg per 1,000 kcal)', 1), ('upf_share', r'Ultra-processed share of calories (\%)', 2),
-            ('produce_share', r'Produce share of calories (\%)', 2), ('produce_spend_share', r'Produce share of spending (\%)', 2), ('soda_spend_share', r'Soda share of spending (\%)', 2),
-            ('whole_share', r'Whole-grain share (\%)', 2), ('cals_ae_day', 'Calories per adult equivalent per day', 1)]
-    def c(df, o, w, d):
-        x = df[(df['outcome'] == o) & (df['window'] == w)].iloc[0]
-        return f"{x['b']:.{d}f} ({x['se']:.{d}f})"
-    tex = [r'\begin{tabular}{lrcccccc}', r'\toprule', r' & & \multicolumn{3}{c}{All households} & \multicolumn{3}{c}{Size unchanged} \\', r'\cmidrule(lr){3-5} \cmidrule(lr){6-8}',
-           r'Outcome & Mean & $t$ to $t+1$ & $t-1$ to $t+1$ & Before & $t$ to $t+1$ & $t-1$ to $t+1$ & Before \\', r'\midrule']
-    for o, lab, d in labs:
-        m = a[a['outcome'] == o].iloc[0]['mean']
-        mean = f'{m:,.0f}' if d == 1 else f'{m:.1f}'
-        cells = [c(df, o, w, d) for df in (a, b) for w in ('main', 'level', 'placebo')]
-        tex.append(f'{lab} & {mean} & ' + ' & '.join(cells) + r' \\')
-    hei_a, hei_b = a[(a['outcome'] == 'hei_usda') & (a['window'] == 'main')].iloc[0], b[(b['outcome'] == 'hei_usda') & (b['window'] == 'main')].iloc[0]
-    tex += [r'\midrule', rf"First-stage F & & \multicolumn{{3}}{{c}}{{{hei_a['f']:.0f}}} & \multicolumn{{3}}{{c}}{{{hei_b['f']:.0f}}} \\",
-            rf"Household-years & & \multicolumn{{3}}{{c}}{{{int(hei_a['n']):,}}} & \multicolumn{{3}}{{c}}{{{int(hei_b['n']):,}}} \\", r'\bottomrule', r'\end{tabular}']
+    a, b = a[a['window'] == 'main'].set_index('outcome'), b[b['window'] == 'main'].set_index('outcome')
+    x = a.loc['hei_usda']
+    print(f"HEI, all households: {x['b'] / x['sd_z']:.4f} ({x['se'] / x['sd_z']:.4f}) SD per $10k, {x['b']:.3f} ({x['se']:.3f}) points, F {x['f']:.0f}, N {int(x['n']):,}, SD {x['sd_z']:.3f}")
+    x = a.loc['lhei_usda']
+    print(f"Linear HEI, all households: {x['b'] / x['sd_z']:.4f} ({x['se'] / x['sd_z']:.4f}) SD per $10k, {x['b']:.3f} ({x['se']:.3f}) points, F {x['f']:.0f}, N {int(x['n']):,}, SD {x['sd_z']:.3f}")
+    cols = [(a, 'sugar_1000', 'Sugar', r'(g per 1,000 kcal)', 1), (a, 'sodium_1000', 'Sodium', r'(mg per 1,000 kcal)', 0), (a, 'upf_share', 'Ultra-processed', r'(\% of calories)', 1),
+            (a, 'produce_share', 'Produce', r'(\% of calories)', 1), (a, 'produce_spend_share', 'Produce', r'(\% of spending)', 1), (a, 'soda_spend_share', 'Soda', r'(\% of spending)', 1),
+            (a, 'whole_share', 'Whole-grain', r'(\% of bread)', 1), (a, 'cals_ae_day', 'Calories', r'(per adult eq.)', 0), (b, 'cals_ae_day', 'Calories, same size', r'(per adult eq.)', 0)]
+    rows = [df.loc[o] for df, o, *_ in cols]
+    def star(r):
+        pv = two_sided(r['b'], r['se'])
+        return '***' if pv < 0.01 else '**' if pv < 0.05 else '*' if pv < 0.10 else ''
+    tex = [r'\begin{tabular}{l' + 'c' * len(cols) + '}', r'\toprule',
+           ' & ' + ' & '.join(f'({i + 1})' for i in range(len(cols))) + r' \\',
+           ' & ' + ' & '.join(c[2] for c in cols) + r' \\',
+           ' & ' + ' & '.join(c[3] for c in cols) + r' \\', r'\midrule',
+           r'$\Delta$ Income (\$10k) & ' + ' & '.join(f"{r['b'] / r['sd_z']:.3f}" + (f'$^{{{star(r)}}}$' if star(r) else '') for r in rows) + r' \\',
+           ' & ' + ' & '.join(f"({r['se'] / r['sd_z']:.3f})" for r in rows) + r' \\', r'\midrule',
+           'First-stage F & ' + ' & '.join(f"{r['f']:.0f}" for r in rows) + r' \\',
+           'N & ' + ' & '.join(f"{int(r['n']):,}" for r in rows) + r' \\',
+           'Mean of the outcome & ' + ' & '.join(f"{r['mean']:,.{c[4]}f}" for r, c in zip(rows, cols)) + r' \\',
+           'SD of the outcome & ' + ' & '.join(f"{r['sd_z']:,.{c[4]}f}" for r, c in zip(rows, cols)) + r' \\', r'\bottomrule', r'\end{tabular}']
     out = tdir / 'what_moves' / 'iv_suboutcomes.tex'
     out.write_text('\n'.join(tex) + '\n')
     print('\n'.join(tex))

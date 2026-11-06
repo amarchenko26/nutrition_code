@@ -26,7 +26,8 @@ Outputs (figs/movers/):
                                   origin-destination county gap closed, HEI / simple index / UPF share / produce share /
                                   sugar / soda spending / income (place effects, 2026-11-05)
   event_study_income_movers.png   income-quintile movers (1_ --places income, 4_ income): HEI on the quintile HEI gap,
-                                  income on the quintile income gap, HEI per $10k of it vs the IV-implied path
+                                  income on the quintile income gap, HEI per $10k of it vs the IV-implied path; orange since 2026-11-06:
+                                  the same against matched non-movers (build_income_matched_panel.py, 4_ income_matched)
   event_study_samples.png    theta_r for HEI: all moves, moves not later reversed, first moves, single-change households
 """
 
@@ -47,7 +48,7 @@ import matplotlib.pyplot as plt
 BASE = idir / 'movers'
 FIG = fdir / 'movers'
 TAB = tdir / 'movers'
-BLUE, RED, GREY = '#3b6b9a', '#a63d40', '#7a7a7a'
+BLUE, RED, GREY, ORANGE = '#3b6b9a', '#a63d40', '#7a7a7a', '#fc8d59'
 # income IV, full HEI, clean sample: SD per $10k, from analyze/labor_supply/12_ (tabs/labor_supply/hi_clean.tex)
 _iv = pd.read_csv(idir / 'labor_supply' / 'iv_main_estimates.csv').set_index('outcome')
 IV_BETA_SD, IV_SE_SD = float(_iv.loc['hei_usda', 'b']), float(_iv.loc['hei_usda', 'se'])
@@ -180,25 +181,33 @@ def fig_reduced_form(coefs, summ, hei_sd):
     save(fig, 'event_study_reduced_form.png')
 
 
-def table_income_results(isum, hei_sd):
-    """tabs/movers/income_movers_results.tex: the income-quintile movers only (labor_supply.tex "Income movers")."""
-    beta_pts = IV_BETA_SD * hei_sd
-    g = lambda spec, outcome: (lambda r: None if r.empty else r.iloc[0])(isum[(isum['spec'] == spec) & (isum['outcome'] == outcome)])
+def iv_points():
+    """The income IV on HEI in points per $10k, from the regression in points (analyze/what_moves/build_iv_suboutcomes.do)."""
+    v = pd.read_csv(idir / 'what_moves' / 'iv_suboutcomes.csv')
+    x = v[(v['outcome'] == 'hei_usda') & (v['window'] == 'main')].iloc[0]
+    return float(x['b']), float(x['se'])
+
+
+def table_income_results(isum, msum=None):
+    """tabs/movers/income_movers_results.tex: the income-quintile movers, and against matched non-movers."""
+    b_iv, se_iv = iv_points()
     out = ['\\begin{tabular}{lrcccccc}', '\\toprule',
            ' & & \\multicolumn{2}{c}{HEI on the quintile HEI gap} & \\multicolumn{2}{c}{Income on the quintile income gap} & \\multicolumn{2}{c}{HEI per \\$10k} \\\\',
            '\\cmidrule(lr){3-4} \\cmidrule(lr){5-6} \\cmidrule(lr){7-8}',
-           'Controls & Moves & share of gap & pre $p$ & share of gap & pre $p$ & of the quintile gap & of own income \\\\', '\\midrule']
-    for ctl, suf in [('age, kids, composition', ''), ('none', '_nox')]:
-        h, i, pr = g('all' + suf, 'hei_usda'), g('income_all' + suf, 'real_income'), g('hei_per_inc_all' + suf, 'hei_usda')
-        if h is None or i is None or pr is None:
+           'Comparison & Moves & share of gap & pre $p$ & share of gap & pre $p$ & of the quintile gap & of own income \\\\', '\\midrule']
+    for lab, tab, suf in [('Movers only, age, children, composition', isum, ''), ('Movers only, no controls', isum, '_nox'), ('Against matched non-movers', msum, '')]:
+        if tab is None:
             continue
+        g = lambda spec, outcome: tab[(tab['spec'] == spec) & (tab['outcome'] == outcome)].iloc[0]
+        h, i, pr = g('all' + suf, 'hei_usda'), g('income_all' + suf, 'real_income'), g('hei_per_inc_all' + suf, 'hei_usda')
         wald = pr['jump'] / i['jump']
         wald_se = np.sqrt((pr['jump_se'] / i['jump']) ** 2 + (pr['jump'] * i['jump_se'] / i['jump'] ** 2) ** 2)
-        out.append(f'{ctl} & {int(h["n_events"]):,} & {h["jump"]:.3f} ({h["jump_se"]:.3f}) & {h["p_pretrend"]:.2f} & '
+        out.append(f'{lab} & {int(h["n_events"]):,} & {h["jump"]:.3f} ({h["jump_se"]:.3f}) & {h["p_pretrend"]:.2f} & '
                    f'{i["jump"]:.3f} ({i["jump_se"]:.3f}) & {i["p_pretrend"]:.2f} & {pr["jump"]:.3f} ({pr["jump_se"]:.3f}) & {wald:.3f} ({wald_se:.3f}) \\\\')
-    out += ['\\midrule', f'\\multicolumn{{7}}{{l}}{{Income IV, Table~\\ref{{tab:hi_clean}}, full HEI ({IV_BETA_SD:.3f} SD per \\$10k of own income)}} & {beta_pts:.2f} ({IV_SE_SD * hei_sd:.2f}) \\\\',
+    out += ['\\midrule', f'\\multicolumn{{7}}{{l}}{{Income IV, Table~\\ref{{tab:hi_clean}}, column 3, in HEI points per \\$10k of own income}} & {b_iv:.2f} ({se_iv:.2f}) \\\\',
             '\\bottomrule', '\\end{tabular}']
     (TAB / 'income_movers_results.tex').write_text('\n'.join(out) + '\n')
+    print('\n'.join(out))
     print(f'saved {TAB / "income_movers_results.tex"}')
 
 
@@ -325,38 +334,38 @@ def table_results(summ, hei_sd, isum=None):
     print(f'saved {TAB / "movers_results.tex"}')
 
 
-def fig_income_movers(ic, isum, hei_sd):
+def fig_income_movers(ic, mc=None):
     """Income-quintile movers (1_ --places income, 4_ income): theta_r for HEI on the quintile HEI gap, income on the
-    quintile income gap, HEI per $10k of the quintile income gap against the IV-implied path."""
-    beta_pts = IV_BETA_SD * hei_sd
-    fig, axes = plt.subplots(1, 3, figsize=(19, 5.8))
-    fig.subplots_adjust(wspace=0.3)
+    quintile income gap, HEI per $10k of the quintile income gap against the IV-implied path; orange against matched non-movers."""
+    b_iv, _ = iv_points()
+    fig, axes = plt.subplots(1, 3, figsize=(16.5, 6))
+    fig.subplots_adjust(wspace=0.34, bottom=0.27)
     specs = [('all', 'hei_usda', 'HEI on the quintile HEI gap', '$\\theta_r$: share of the HEI gap', (-0.6, 1.2)),
              ('income_all', 'real_income', 'Income on the quintile income gap', '$\\theta_r$: share of the income gap', (-0.4, 1.1)),
-             ('hei_per_inc_all', 'hei_usda', 'HEI per \\$10k of the quintile income gap', 'HEI points per \\$10k of income gap', None)]
+             ('hei_per_inc_all', 'hei_usda', 'HEI per \\$10k of the quintile income gap', 'HEI points per \\$10k of the gap', None)]
     inc = ic[(ic['spec'] == 'income_all') & (ic['outcome'] == 'real_income')].sort_values('r')
     for ax, (spec, outcome, title, ylab, ylim) in zip(axes, specs):
-        d = ic[(ic['spec'] == spec) & (ic['outcome'] == outcome)].sort_values('r')
-        s = isum[(isum['spec'] == spec) & (isum['outcome'] == outcome)].iloc[0]
-        d = d[(d['r'] >= -6) & (d['r'] <= 6)]
-        ax.plot(d['r'], d['b'], color=BLUE, lw=2.5, marker='o', ms=6, label='movers, estimated')
-        ax.fill_between(d['r'], d['b'] - 1.96 * d['se'], d['b'] + 1.96 * d['se'], color=BLUE, alpha=0.15, lw=0)
+        for tab, col, lab, mark in [(ic, BLUE, 'Movers only', 'o'), (mc, ORANGE, 'Against matched non-movers', 'D')]:
+            if tab is None:
+                continue
+            d = tab[(tab['spec'] == spec) & (tab['outcome'] == outcome)].sort_values('r')
+            d = d[(d['r'] >= -6) & (d['r'] <= 6)]
+            ax.plot(d['r'], d['b'], color=col, lw=2.5, marker=mark, ms=6, label=lab)
+            ax.fill_between(d['r'], d['b'] - 1.96 * d['se'], d['b'] + 1.96 * d['se'], color=col, alpha=0.15, lw=0)
         ax.axhline(0, color=GREY, lw=1, ls='--'); ax.axvline(-0.5, color=GREY, lw=1, ls=':')
-        extra = ''
         if ylim is not None:
             ax.axhline(1, color=GREY, lw=1, ls='--'); ax.set_ylim(*ylim)
         else:
-            si = isum[(isum['spec'] == 'income_all') & (isum['outcome'] == 'real_income')].iloc[0]
-            implied = inc.set_index('r')['b'] * beta_pts
+            implied = inc.set_index('r')['b'] * b_iv
             implied = implied[(implied.index >= -6) & (implied.index <= 6)]
-            ax.plot(implied.index, implied.values, color=RED, lw=2.5, ls='--', marker='s', ms=5,
-                    label=f'implied by the income IV: {beta_pts:.2f} HEI points per \\$10k times the income path')
-            ax.legend(loc='upper left', frameon=False, fontsize=9.5)
-            extra = f' · IV-implied {beta_pts * si["jump"]:.3f}'
-        ax.set_xticks(range(-6, 7))
-        ax.set_title(f'{title}\n{int(s["n_events"]):,} moves · post {s["jump"]:.3f} (SE {s["jump_se"]:.3f}){extra} · pre-trend p = {s["p_pretrend"]:.2f}', fontsize=11)
-        ax.set_xlabel('Year relative to the move')
-        ax.set_ylabel(ylab)
+            ax.plot(implied.index, implied.values, color=RED, lw=2.5, ls='--', marker='s', ms=5, label='Implied by the income IV')
+        ax.set_xticks(range(-6, 7, 2))
+        ax.tick_params(labelsize=15)
+        ax.set_title(title, fontsize=16)
+        ax.set_xlabel('Year relative to the move', fontsize=16)
+        ax.set_ylabel(ylab, fontsize=16)
+    h, l = axes[2].get_legend_handles_labels()
+    fig.legend(h, l, loc='lower center', ncol=3, frameon=False, fontsize=16, bbox_to_anchor=(0.5, 0.02))
     save(fig, 'event_study_income_movers.png')
 
 
@@ -419,8 +428,11 @@ def main():
     isum = None
     if (BASE / 'income_event_study_summary.csv').exists():
         ic, isum = pd.read_csv(BASE / 'income_event_study_coefs.csv'), pd.read_csv(BASE / 'income_event_study_summary.csv')
-        fig_income_movers(ic, isum, hei_sd)
-        table_income_results(isum, hei_sd)
+        mc, msum = None, None
+        if (BASE / 'income_matched_event_study_summary.csv').exists():
+            mc, msum = pd.read_csv(BASE / 'income_matched_event_study_coefs.csv'), pd.read_csv(BASE / 'income_matched_event_study_summary.csv')
+        fig_income_movers(ic, mc)
+        table_income_results(isum, msum)
     if (BASE / 'income_levels_summary.csv').exists():
         lc, ls_ = pd.read_csv(BASE / 'income_levels_coefs.csv'), pd.read_csv(BASE / 'income_levels_summary.csv')
         fig_income_levels(lc, ls_)

@@ -6,8 +6,8 @@ fixed per-UPC values, so these series move only through the mix of products boug
 final/labor_supply_reg_data.dta (USDA-label series, soda spending share, education, kids) and
 interim/what_moves/nhanes_sugar.parquet (store-bought sugar per 1,000 kcal from NHANES recalls, no package labels).
 
-Figures (figs/what_moves/sugar/): sugar_series_check.png, sugar_decomposition.png, sugar_by_group.png
-Table (tabs/what_moves/): sugar_decomposition.tex
+Figures (figs/what_moves/sugar/): sugar_series_check.png, sugar_by_group.png
+Prints the decomposition of the 2004-2020 change by module that the text of 0_main.tex reports (figure and table deleted 2026-11-06).
 """
 import sys
 from pathlib import Path
@@ -26,7 +26,6 @@ import matplotlib.pyplot as plt
 
 BLUE, RED, ORANGE, GREY, DGREY = '#2c5f8a', '#a63d40', '#fc8d59', '#999999', '#555555'
 FIG = fdir / 'what_moves' / 'sugar'
-TAB = tdir / 'what_moves'
 plt.rcParams.update({'font.size': 14, 'axes.labelsize': 15, 'axes.titlesize': 15, 'xtick.labelsize': 13,
                      'ytick.labelsize': 13, 'legend.fontsize': 12, 'axes.spines.top': False, 'axes.spines.right': False})
 
@@ -112,12 +111,12 @@ def fig_series(mod, d):
     return s, nat, reg_share, diet_share, soda_spend, lab
 
 
-def decompose(mod, y0, y1, col='sugar_g'):
-    a = mod[mod['panel_year'] == y0].groupby(['product_module_code', 'product_module'])[['kcal', col]].sum()
-    b = mod[mod['panel_year'] == y1].groupby(['product_module_code', 'product_module'])[['kcal', col]].sum()
+def decompose(mod, y0, y1):
+    a = mod[mod['panel_year'] == y0].groupby(['product_module_code', 'product_module'])[['kcal', 'sugar_g']].sum()
+    b = mod[mod['panel_year'] == y1].groupby(['product_module_code', 'product_module'])[['kcal', 'sugar_g']].sum()
     m = a.join(b, lsuffix='0', rsuffix='1', how='outer').fillna(0)
     m['k0'] = m['kcal0'] / m['kcal0'].sum(); m['k1'] = m['kcal1'] / m['kcal1'].sum()
-    m['s0'] = 1000 * m[col + '0'] / m['kcal0'].replace(0, np.nan); m['s1'] = 1000 * m[col + '1'] / m['kcal1'].replace(0, np.nan)
+    m['s0'] = 1000 * m['sugar_g0'] / m['kcal0'].replace(0, np.nan); m['s1'] = 1000 * m['sugar_g1'] / m['kcal1'].replace(0, np.nan)
     for c in ['s0', 's1']:
         m[c] = m[c].fillna(m[['s0', 's1']].mean(axis=1)).fillna(0)
     S_avg = ((m['k0'] * m['s0']).sum() + (m['k1'] * m['s1']).sum()) / 2
@@ -129,41 +128,15 @@ def decompose(mod, y0, y1, col='sugar_g'):
     return m, S0, S1
 
 
-def fig_decomposition(mod):
+def print_decomposition(mod):
     m, S0, S1 = decompose(mod, 2004, 2020)
-    tot_b, tot_w = m['between'].sum(), m['within'].sum()
-    print(f'national sugar per 1,000 kcal (fixed densities): {S0:.1f} (2004) -> {S1:.1f} (2020), change {S1 - S0:.1f}; between-module {tot_b:.1f}, within-module {tot_w:.1f}')
+    print(f"national sugar per 1,000 kcal (fixed densities): {S0:.1f} (2004) -> {S1:.1f} (2020), change {S1 - S0:.1f}; between-module {m['between'].sum():.1f}, within-module {m['within'].sum():.1f}")
     m = m.reset_index()
-    m['total'] = m['between'] + m['within']
-    top = m.reindex(m['total'].abs().sort_values(ascending=False).index).head(15)
-    fig, ax = plt.subplots(figsize=(13, 8))
-    y = np.arange(len(top))[::-1]
-    ax.barh(y + 0.2, top['between'], height=0.4, color=BLUE, label='calorie share of the module moved (substitution between modules)')
-    ax.barh(y - 0.2, top['within'], height=0.4, color=ORANGE, label='sugar density inside the module moved (different products within the module)')
-    ax.set_yticks(y); ax.set_yticklabels([f'{r.product_module.title()} ({100*r.k0:.1f}% to {100*r.k1:.1f}% of kcal)' for r in top.itertuples()], fontsize=11)
-    ax.axvline(0, color=GREY, lw=1)
-    ax.set_xlabel('contribution to the 2004 to 2020 change in sugar per 1,000 kcal (grams)')
-    ax.set_title(f'Sugar per 1,000 kcal fell from {S0:.1f} to {S1:.1f} g: {tot_b:+.1f} g from substitution between modules, {tot_w:+.1f} g from within modules\n(top 15 modules by absolute contribution; all purchases at fixed per-UPC densities)', fontsize=13)
-    ax.legend(frameon=False, loc='lower left')
-    fig.savefig(FIG / 'sugar_decomposition.png', bbox_inches='tight', dpi=150); plt.close(fig)
-    print('saved sugar_decomposition.png')
-    # table: top 10 between, top 10 within
-    TAB.mkdir(parents=True, exist_ok=True)
-    rows = ['\\begin{tabular}{lrrrr}', '\\toprule', 'Module & kcal share 2004 & kcal share 2020 & g sugar / 1,000 kcal 2004 & contribution (g) \\\\', '\\midrule',
-            f'\\multicolumn{{5}}{{l}}{{\\textit{{Substitution between modules (total {tot_b:+.1f} g)}}}} \\\\']
-    for r in m.reindex(m['between'].abs().sort_values(ascending=False).index).head(10).itertuples():
-        rows.append(f'{r.product_module.title()} & {100*r.k0:.2f}\\% & {100*r.k1:.2f}\\% & {r.s0:.0f} & {r.between:+.2f} \\\\')
-    rows.append(f'\\midrule \\multicolumn{{5}}{{l}}{{\\textit{{Change within modules (total {tot_w:+.1f} g)}}}} \\\\')
-    for r in m.reindex(m['within'].abs().sort_values(ascending=False).index).head(10).itertuples():
-        rows.append(f'{r.product_module.title()} & {100*r.k0:.2f}\\% & {100*r.k1:.2f}\\% & {r.s0:.0f} $\\to$ {r.s1:.0f} & {r.within:+.2f} \\\\')
-    rows += ['\\midrule', f'Total & & & {S0:.1f} $\\to$ {S1:.1f} & {S1 - S0:+.1f} \\\\', '\\bottomrule', '\\end{tabular}']
-    (TAB / 'sugar_decomposition.tex').write_text('\n'.join(rows) + '\n')
-    print('saved sugar_decomposition.tex')
-    # sub-periods
+    top = m.reindex(m['between'].abs().sort_values(ascending=False).index).head(10)
+    print(top[['product_module', 'k0', 'k1', 's0', 'between']].round(3).to_string(index=False))
     for a, b in [(2004, 2012), (2012, 2020)]:
         mm, s0, s1 = decompose(mod, a, b)
-        print(f'  {a}->{b}: {s0:.1f} -> {s1:.1f}; between {mm.between.sum():+.1f}, within {mm.within.sum():+.1f}; soda regular between {mm.loc[1484, "between"].iloc[0] if 1484 in mm.index.get_level_values(0) else float("nan"):+.2f}')
-    return m, S0, S1
+        print(f"  {a}->{b}: {s0:.1f} -> {s1:.1f}; between {mm['between'].sum():+.1f}, within {mm['within'].sum():+.1f}")
 
 
 def fig_groups(d):
@@ -193,34 +166,12 @@ def fig_groups(d):
     print(pd.DataFrame(table, columns=['group', 'level', '2004', '2012', '2020']).round(1).to_string(index=False))
 
 
-def table_satfat(mod):
-    """The same decomposition for saturated fat, with the NHANES store-bought series: tabs/what_moves/satfat_decomposition.tex."""
-    m, S0, S1 = decompose(mod, 2004, 2020, 'satfat_g')
-    tot_b, tot_w = m['between'].sum(), m['within'].sum()
-    nat = mod.groupby('panel_year')[['satfat_g', 'kcal']].sum()
-    nat = 1000 * nat['satfat_g'] / nat['kcal']
-    nh = pd.read_parquet(idir / 'what_moves' / 'nhanes_sugar.parquet')
-    print(f'saturated fat per 1,000 kcal (fixed values): {S0:.1f} (2004) -> {S1:.1f} (2020), change {S1 - S0:+.1f}; between {tot_b:+.1f}, within {tot_w:+.1f}')
-    print(nat.round(2).to_dict())
-    print(nh[['cycle', 'store_satfat_1000']].round(2).to_string(index=False))
-    m = m.reset_index()
-    rows = ['\\begin{tabular}{lrrrr}', '\\toprule', 'Module & kcal share 2004 & kcal share 2020 & g sat.\\ fat / 1,000 kcal 2004 & contribution (g) \\\\', '\\midrule',
-            f'\\multicolumn{{5}}{{l}}{{\\textit{{Substitution between modules (total {tot_b:+.1f} g)}}}} \\\\']
-    for r in m.reindex(m['between'].abs().sort_values(ascending=False).index).head(10).itertuples():
-        rows.append(f'{r.product_module.title()} & {100*r.k0:.2f}\\% & {100*r.k1:.2f}\\% & {r.s0:.0f} & {r.between:+.2f} \\\\')
-    rows += [f'\\midrule \\multicolumn{{5}}{{l}}{{\\textit{{Change within modules (total {tot_w:+.1f} g)}}}} \\\\', '\\midrule',
-             f'Total & & & {S0:.1f} $\\to$ {S1:.1f} & {S1 - S0:+.1f} \\\\', '\\bottomrule', '\\end{tabular}']
-    (TAB / 'satfat_decomposition.tex').write_text('\n'.join(rows) + '\n')
-    print('saved satfat_decomposition.tex')
-
-
 def main():
     mod, d = load()
     s, nat, reg_share, diet_share, soda_spend, lab = fig_series(mod, d)
     print(pd.concat([s.round(1), pd.DataFrame({'regular soda kcal %': reg_share.round(2), 'diet soda kcal %': diet_share.round(2), 'soda spend %': soda_spend.round(2), 'labelled kcal share': lab.round(2)})], axis=1).to_string())
-    fig_decomposition(mod)
+    print_decomposition(mod)
     fig_groups(d)
-    table_satfat(mod)
 
 
 if __name__ == '__main__':
