@@ -151,7 +151,7 @@ def table_regime(summ):
 def table_products(summ):
     rows = [('diabetes', 'dated', 'Diabetes, dated new diagnosis'), ('diabetes', 'first', 'Diabetes, first report'), ('diabetes', 'first_conf', 'Diabetes, first report repeated next survey'),
             ('hypertension', 'dated', 'Hypertension, dated'), ('cholesterol', 'dated', 'High cholesterol, dated'), ('heart', 'dated', 'Heart disease, dated'), ('obesity', 'dated', 'Obesity, dated')]
-    out = ['\\begin{tabular}{l' + 'c' * len(PROD) + '}', '\\toprule', 'Event (households) & ' + ' & '.join(l for _, l in PROD) + ' \\\\', '\\midrule',
+    out = ['\\begin{tabular}{l' + 'c' * len(PROD) + '}', '\\toprule', 'Event (households) & ' + ' & '.join(l.replace('%', '\\%') for _, l in PROD) + ' \\\\', '\\midrule',
            'Mean, year before a dated diabetes diagnosis & ' + ' & '.join(f'{pick(summ, "diabetes", "dated", o).iloc[0]["mean_m1"]:.1f}' for o, _ in PROD) + ' \\\\']
     for c, reg, lab in rows:
         rr = [pick(summ, c, reg, o).iloc[0] for o, _ in PROD]

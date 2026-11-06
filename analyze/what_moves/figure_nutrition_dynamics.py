@@ -145,7 +145,7 @@ def variance_table(df):
         agg['n'] = gg.size()
         trend_share = (agg['sxy'] ** 2 / agg['sxx']).sum() / agg['syy'].sum()
         noise_bench = (agg['syy'] / (agg['n'] - 1)).sum() / agg['syy'].sum()
-        rows.append({'outcome': label, 'mean': d[y].mean(), 'between': between, 'within': within,
+        rows.append({'outcome': label.replace('%', '\\%'), 'mean': d[y].mean(), 'between': between, 'within': within,
                      'ac1': ac[1], 'ac3': ac[3], 'ac5': ac[5], 'b1': betas[1], 'b2': betas[2], 'b3': betas[3],
                      'perm': perm, 'trend': trend_share, 'bench': noise_bench, 'n_hh': d.household_code.nunique(), 'n_pairs': len(d1)})
         log(f'{label}: mean {d[y].mean():.2f}, between SD {between:.2f}, within SD of annual change {within:.2f}, '
