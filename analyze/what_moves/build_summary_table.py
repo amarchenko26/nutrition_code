@@ -169,15 +169,16 @@ def iv_table():
     def c(df, o, w, d):
         x = df[(df['outcome'] == o) & (df['window'] == w)].iloc[0]
         return f"{x['b']:.{d}f} ({x['se']:.{d}f})"
-    tex = [r'\begin{tabular}{lrccccc}', r'\toprule', r' & & \multicolumn{2}{c}{All households} & \multicolumn{2}{c}{Size unchanged} & Before \\', r'\cmidrule(lr){3-4} \cmidrule(lr){5-6}',
-           r'Outcome & Mean & Change after & Level & Change after & Level & $t-3$ to $t-2$ \\', r'\midrule']
+    tex = [r'\begin{tabular}{lrcccccc}', r'\toprule', r' & & \multicolumn{3}{c}{All households} & \multicolumn{3}{c}{Size unchanged} \\', r'\cmidrule(lr){3-5} \cmidrule(lr){6-8}',
+           r'Outcome & Mean & Change after & Level & Before & Change after & Level & Before \\', r'\midrule']
     for o, lab, d in labs:
         m = a[a['outcome'] == o].iloc[0]['mean']
         mean = f'{m:,.0f}' if d == 1 else f'{m:.1f}'
-        tex.append(f"{lab} & {mean} & {c(a, o, 'main', d)} & {c(a, o, 'level', d)} & {c(b, o, 'main', d)} & {c(b, o, 'level', d)} & {c(a, o, 'placebo', d)} \\\\")
+        cells = [c(df, o, w, d) for df in (a, b) for w in ('main', 'level', 'placebo')]
+        tex.append(f'{lab} & {mean} & ' + ' & '.join(cells) + r' \\')
     hei_a, hei_b = a[(a['outcome'] == 'hei_usda') & (a['window'] == 'main')].iloc[0], b[(b['outcome'] == 'hei_usda') & (b['window'] == 'main')].iloc[0]
-    tex += [r'\midrule', f"First-stage F & & \\multicolumn{{2}}{{c}}{{{hei_a['f']:.0f}}} & \\multicolumn{{2}}{{c}}{{{hei_b['f']:.0f}}} & \\\\",
-            f"Household-years & & \\multicolumn{{2}}{{c}}{{{int(hei_a['n']):,}}} & \\multicolumn{{2}}{{c}}{{{int(hei_b['n']):,}}} & \\\\", r'\bottomrule', r'\end{tabular}']
+    tex += [r'\midrule', rf"First-stage F & & \multicolumn{{3}}{{c}}{{{hei_a['f']:.0f}}} & \multicolumn{{3}}{{c}}{{{hei_b['f']:.0f}}} \\",
+            rf"Household-years & & \multicolumn{{3}}{{c}}{{{int(hei_a['n']):,}}} & \multicolumn{{3}}{{c}}{{{int(hei_b['n']):,}}} \\", r'\bottomrule', r'\end{tabular}']
     out = tdir / 'what_moves' / 'iv_suboutcomes.tex'
     out.write_text('\n'.join(tex) + '\n')
     print('\n'.join(tex))
