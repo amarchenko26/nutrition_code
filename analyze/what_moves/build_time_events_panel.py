@@ -33,8 +33,12 @@ calories ultra-processed), cals_ae_day (calories per adult equivalent per day, c
 winsorized p1/p99), produce_share (% of calories), sugar_1000 (g per 1,000 kcal), n_trips (trips
 with a food item), spend_ae (real 2013$ food spending per adult equivalent per year), real_income
 ($10k 2013$), nonfood_ae (real 2013$ non-food spending on food trips per adult equivalent per
-year), food_share_trip (% of real trip totals that is food).
-Output: interim/what_moves/time_events_panel.dta
+year), food_share_trip (% of real trip totals that is food), price_1000 (real 2013$ paid per 1,000 kcal,
+all food purchases: total spending over total calories, so it moves with the mix of products bought as well as with
+what the household pays for a given product), price_upf_1000 and price_other_1000 (the same within NOVA group 4 and
+within NOVA groups 1-3); winsorized p1/p99 (added 2026-11-06 for Anya's question on the time-price trade-off).
+Output: interim/what_moves/time_events_panel.dta; interim/what_moves/price_per_kcal.dta (the three price measures for
+every household-year, read by build_policy_shocks.do)
 """
 import sys
 from pathlib import Path
@@ -53,6 +57,8 @@ NOVA = idir / 'health' / 'nova_calorie_panel.parquet'
 NONFOOD = idir / 'what_moves' / 'nonfood_on_food_trips.parquet'
 OUT_DIR = idir / 'what_moves'
 EMP = {1, 2, 3}
+CPI = {2004: 188.9, 2005: 195.3, 2006: 201.6, 2007: 207.3, 2008: 215.3, 2009: 214.5, 2010: 218.1, 2011: 224.9,
+       2012: 229.6, 2013: 233.0, 2014: 236.7, 2015: 237.0, 2016: 240.0, 2017: 245.1, 2018: 251.1, 2019: 255.7, 2020: 258.8}
 
 
 def smooth_reversals(hh, yr, state):
@@ -99,7 +105,19 @@ def main():
     print(f'geographic non-movers: {len(df):,} household-years, {df.hhid.nunique():,} households')
 
     nova = pd.read_parquet(NOVA, columns=['household_code', 'panel_year', 'cals_all', 'cals_nova1', 'cals_nova2', 'cals_nova3', 'cals_nova4',
+                                          'spend_all', 'spend_nova1', 'spend_nova2', 'spend_nova3', 'spend_nova4',
                                           'produce_cals_all', 'ae_total', 'ae_complete'])
+    defl = nova['panel_year'].map(lambda y: CPI[2013] / CPI[y])
+    price = pd.DataFrame({'hhid': nova['household_code'].astype('int64'), 'year': nova['panel_year'].astype(int),
+                          'price_1000': 1000 * defl * nova['spend_all'] / nova['cals_all'],
+                          'price_upf_1000': 1000 * defl * nova['spend_nova4'] / nova['cals_nova4'],
+                          'price_other_1000': 1000 * defl * nova[['spend_nova1', 'spend_nova2', 'spend_nova3']].sum(axis=1) / nova[['cals_nova1', 'cals_nova2', 'cals_nova3']].sum(axis=1)})
+    for c in ['price_1000', 'price_upf_1000', 'price_other_1000']:
+        price[c] = price[c].where(np.isfinite(price[c]))
+        l, h = price[c].quantile([0.01, 0.99]); price[c] = price[c].clip(l, h)
+    print('real $ per 1,000 kcal, means:', price[['price_1000', 'price_upf_1000', 'price_other_1000']].mean().round(3).to_dict())
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    price.to_stata(OUT_DIR / 'price_per_kcal.dta', write_index=False, version=118)
     nova = nova[nova['ae_complete'] == 1].copy()
     nova['cals_ae_day'] = nova['cals_all'] / nova['ae_total'] / 365
     lo, hi = nova['cals_ae_day'].quantile([0.01, 0.99]); nova['cals_ae_day'] = nova['cals_ae_day'].clip(lo, hi)
@@ -108,6 +126,7 @@ def main():
     nova = nova.rename(columns={'household_code': 'hhid', 'panel_year': 'year'})[['hhid', 'year', 'cals_ae_day', 'upf_share', 'produce_share', 'ae_total']]
     nova['hhid'] = nova['hhid'].astype('int64'); nova['year'] = nova['year'].astype(int)
     df = df.merge(nova, on=['hhid', 'year'], how='left')
+    df = df.merge(price, on=['hhid', 'year'], how='left')
     nf = pd.read_parquet(NONFOOD).rename(columns={'household_code': 'hhid', 'panel_year': 'year'})
     nf['hhid'] = nf['hhid'].astype('int64'); nf['year'] = nf['year'].astype(int)
     df = df.merge(nf[['hhid', 'year', 'food_real', 'trip_total_real', 'nonfood_real']], on=['hhid', 'year'], how='left')
@@ -163,7 +182,7 @@ def main():
     print('movers by event x changing head (1 male, 2 female):', pd.crosstab(hhs[hhs.evt > 0]['evt'].map(labels), hhs[hhs.evt > 0]['who']).to_dict())
     print('balanced movers by event:', hhs[(hhs.evt > 0) & (hhs.balanced == 1)]['evt'].map(labels).value_counts().to_dict())
     keep = ['hhid', 'year', 'evt', 'who', 'r', 'balanced', 'basecell', 'tenure', 'age5', 'kids', 'hh_comp', 'projection_factor', 'avg_age_hh_head', 'hei_usda', 'hi_usda',
-            'prep_time_raw', 'upf_share', 'cals_ae_day', 'produce_share', 'sugar_1000', 'n_trips', 'spend_ae', 'real_income', 'nonfood_ae', 'food_share_trip']
+            'prep_time_raw', 'upf_share', 'cals_ae_day', 'produce_share', 'sugar_1000', 'n_trips', 'spend_ae', 'real_income', 'nonfood_ae', 'food_share_trip', 'price_1000', 'price_upf_1000', 'price_other_1000']
     out = df[keep].copy()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out.to_stata(OUT_DIR / 'time_events_panel.dta', write_index=False, version=118)

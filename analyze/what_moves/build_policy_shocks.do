@@ -41,6 +41,7 @@ save `base'
 use "$idir/movers/occupation_movers_panel.dta", clear
 keep hhid year occ projection_factor age5 kids hh_comp hh_size real_income hei_usda hi hi_usda cals_ae_day upf_share produce_share sugar_1000 sodium_1000 soda_spend_share whole_share produce_spend_share
 merge m:1 hhid using `base', keep(master match) nogen
+merge 1:1 hhid year using "$idir/what_moves/price_per_kcal.dta", keep(master match) nogen keepusing(price_1000 price_upf_1000 price_other_1000)
 tempfile panel
 save `panel'
 
@@ -114,7 +115,7 @@ forvalues y = 2016/2020 {
 	if `y' == 2019 continue
 	gen byte t_`y' = white_2019 * (year == `y')
 }
-foreach v in hei_usda upf_share cals_ae_day produce_share sugar_1000 sodium_1000 real_income {
+foreach v in hei_usda upf_share cals_ae_day produce_share sugar_1000 sodium_1000 real_income price_1000 price_upf_1000 price_other_1000 {
 	quietly reghdfe `v' t_* [pw = projection_factor], absorb(hhid year age5 kids hh_comp) cluster(hhid)
 	local N = e(N)
 	quietly test t_2016 t_2017 t_2018

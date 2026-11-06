@@ -1,12 +1,12 @@
-"""One table of everything tried in the what-moves review (notes/what_moves_nutrition.tex, 2026-11-05).
+"""One table of everything tried in the what-moves review (0_main.tex, 2026-11-05).
 
 Each row is one comparison; the numbers are read from the result files, none are typed here. Columns: HEI points, sugar in grams per
 1,000 kcal, ultra-processed share of calories in percentage points, calories per adult equivalent per day. A blank cell means the
 design was not run for that outcome, or (family changes, income IV on all households) that calories per adult equivalent there mostly
 track the change in the roster that divides them. A dagger marks an estimate whose own test on the period before the event has p < 0.05.
 
-Reads interim/what_moves/ (iv_suboutcomes, iv_suboutcomes_same_size, soda_tax_summary, local_price_regs_county, policy_shock_coefs,
-policy_shock_pretests, time_events_summary, family_events_summary, diagnosis_events_summary), interim/movers/ (income_levels_contrast,
+Reads interim/what_moves/ (iv_suboutcomes, iv_suboutcomes_same_size, soda_tax_summary, local_price_regs_county, local_price_timing, policy_shock_coefs,
+policy_shock_pretests, time_events_summary, family_events_summary, diagnosis_events_summary), interim/movers/ (income_event_study_summary,
 county and retailer summaries) and tabs/what_moves/dynamics_variance.tex (the scale rows).
 Output: tabs/what_moves/summary.tex, printed as well.
 """
@@ -91,10 +91,18 @@ def main():
         pl['p'] = two_sided(pl['b'], pl['se'])
         iv = iv.merge(pl[['outcome', 'p']], on='outcome', how='left')
         add(P, f'Income IV, change the year after, {tag}', pick(iv, names, 'b', 'se', 'p', window='main'))
-        add(P, f'Income IV, level against the year before the income change, {tag}', pick(iv, names, 'b', 'se', 'p', window='level'))
-    c = pd.read_csv(MV / 'income_levels_contrast.csv')
-    inc = c.loc[c['outcome'] == 'real_income', 'up_minus_down'].iloc[0]
-    add(P, rf'One move of income quintile, up minus down (\${inc * 10:.0f},000 apart), not per \$10,000', pick(c, std, 'up_minus_down', 'se', 'p_pretrend'))
+        add(P, f'Income IV, change over two years, $t-1$ to $t+1$, {tag}', pick(iv, names, 'b', 'se', 'p', window='level'))
+    # every change of quintile: outcome per $10k of the quintile income gap over the share of that gap in own income (delta method, estimates treated as independent)
+    q = pd.read_csv(MV / 'income_event_study_summary.csv')
+    first = q[(q['spec'] == 'income_all') & (q['outcome'] == 'real_income')].iloc[0]
+    firsts = q[(q['spec'] == 'income_samesize') & (q['outcome'] == 'real_income')].iloc[0]
+    vals = {}
+    for k, spec, o, fs in [('hei', 'hei_per_inc_all', 'hei_usda', first), ('sugar', 'per_inc_all', 'sugar_1000', first), ('upf', 'per_inc_all', 'upf_share', first), ('kcal', 'per_inc_samesize', 'cals_ae_day', firsts)]:
+        x = q[(q['spec'] == spec) & (q['outcome'] == o)].iloc[0]
+        b = x['jump'] / fs['jump']
+        se = np.sqrt((x['jump_se'] / fs['jump']) ** 2 + (x['jump'] * fs['jump_se'] / fs['jump'] ** 2) ** 2)
+        vals[k] = (b, se, x['p_pretrend'])
+    add(P, r'Every change of income quintile, per \$10,000 of own income, no instrument', vals)
 
     # ---- prices
     P = 'B. Prices'
@@ -103,10 +111,19 @@ def main():
     add(P, 'Philadelphia soda tax 2017: taxed households against never-taxed households in the same state', pick(s, soda, 'post', 'post_se', 'p_pre', design='philadelphia', group='treated'))
     add(P, 'Philadelphia soda tax 2017: adjacent untaxed counties against the same households', pick(s, soda, 'post', 'post_se', 'p_pre', design='philadelphia', group='adjacent'))
     r = pd.read_csv(WM / 'local_price_regs_county.csv')
+    timing = pd.read_csv(WM / 'local_price_timing.csv')
     lp = {'hei': ('hei_usda', 'rel_hi_ces'), 'sugar': ('sugar_per_1000cal_usda', 'rel_hi_ces'), 'upf': ('upf_share', 'rel_upf_ces'), 'kcal': ('cals_ae_day', 'rel_hi_ces')}
     def price_p(o, p, spec):
-        test = 'dyn_lead' if spec == 'hh_year' else 'placebo_pre_x'
-        x = r[(r['outcome'] == o) & (r['price'] == p) & (r['spec'] == test)]
+        # each row's own test: next year's actual price for the same-household row; for the predicted-price row the diet change before 2008 on
+        # the later predicted price and the future predicted prices (build_local_price_timing.do), the smaller p; the later actual price for the decade row
+        if spec == 'iv':
+            zp = p.replace('rel_', 'z_rel_').replace('_ces', '')
+            x = r[(r['outcome'] == o) & (r['price'] == zp) & (r['spec'] == 'placebo_pre_z')]
+            lead = timing[(timing['outcome'] == o) & (timing['price'] == zp) & (timing['term'] == 'p_leads')]
+            pz = two_sided(float(x['b'].iloc[0]), float(x['se'].iloc[0])) if len(x) else np.nan
+            return np.nanmin([pz, float(lead['b'].iloc[0]) if len(lead) else np.nan])
+        else:
+            x = r[(r['outcome'] == o) & (r['price'] == p) & (r['spec'] == ('dyn_lead' if spec == 'hh_year' else 'placebo_pre_x'))]
         return two_sided(float(x['b'].iloc[0]), float(x['se'].iloc[0])) if len(x) else np.nan
     for spec, lab in [('hh_year', 'same household across years'), ('iv', 'prices predicted from national module prices'), ('longdiff_hh', 'same household, 2008--10 to 2018--20')]:
         vals = {}
@@ -170,7 +187,7 @@ def iv_table():
         x = df[(df['outcome'] == o) & (df['window'] == w)].iloc[0]
         return f"{x['b']:.{d}f} ({x['se']:.{d}f})"
     tex = [r'\begin{tabular}{lrcccccc}', r'\toprule', r' & & \multicolumn{3}{c}{All households} & \multicolumn{3}{c}{Size unchanged} \\', r'\cmidrule(lr){3-5} \cmidrule(lr){6-8}',
-           r'Outcome & Mean & Change after & Level & Before & Change after & Level & Before \\', r'\midrule']
+           r'Outcome & Mean & $t$ to $t+1$ & $t-1$ to $t+1$ & Before & $t$ to $t+1$ & $t-1$ to $t+1$ & Before \\', r'\midrule']
     for o, lab, d in labs:
         m = a[a['outcome'] == o].iloc[0]['mean']
         mean = f'{m:,.0f}' if d == 1 else f'{m:.1f}'

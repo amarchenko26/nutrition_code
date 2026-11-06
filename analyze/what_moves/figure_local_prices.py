@@ -8,6 +8,7 @@ build_local_price_index.py, build_local_price_regs.do). Outputs (Overleaf clone)
                                                             price (twenty bins, weighted by projected households)
   tabs/what_moves/local_price_regs.tex                    county RMS price index: household designs and long differences
   tabs/what_moves/local_price_regs_zip3.tex               3-digit-zip unit-value check
+  tabs/what_moves/local_price_timing.tex                  does the diet move before the price (build_local_price_timing.do)
 Every table cell is the change in the outcome when the relative price FALLS by 10 log points (about 10 percent).
 """
 import sys
@@ -90,6 +91,40 @@ def long_difference():
     print('saved', FIG / 'local_price_long_difference.png')
 
 
+def timing_table():
+    """tabs/what_moves/local_price_timing.tex: does the diet move before the local price (build_local_price_timing.do)? Cells are per 10 log points CHEAPER, as in local_price_regs."""
+    t = pd.read_csv(WM / 'local_price_timing.csv')
+    cols = [('F2', 'Two years ahead'), ('F1', 'Next year'), ('cur', 'This year'), ('L1', 'Last year'), ('L2', 'Two years ago')]
+    rows = [('hei_usda', 'rel_hi_ces', 'HEI (points), healthy food, actual price'), ('hei_usda', 'z_rel_hi', 'HEI (points), healthy food, predicted price'),
+            ('upf_share', 'rel_upf_ces', 'Ultra-processed share (pct. pts), ultra-processed food, actual price'), ('upf_share', 'z_rel_upf', 'Ultra-processed share (pct. pts), ultra-processed food, predicted price')]
+    a = t[t['part'] == 'A']
+    out = ['\\begin{tabular}{lcccccc}', '\\toprule', '\\multicolumn{7}{l}{\\textit{A. Household outcome when the food is 10 log points cheaper in the year shown, all five years in one regression}} \\\\',
+           ' & ' + ' & '.join(c for _, c in cols) + ' & Joint $p$, future years \\\\', '\\midrule']
+    for y, p, lab in rows:
+        cells = []
+        for k, _ in cols:
+            x = a[(a['outcome'] == y) & (a['price'] == p) & (a['term'] == k)].iloc[0]
+            cells.append(f'{-float(x.b) / 10:.2f} ({float(x.se) / 10:.2f})')
+        q = a[(a['outcome'] == y) & (a['price'] == p) & (a['term'] == 'p_leads')].iloc[0]
+        out.append(lab + ' & ' + ' & '.join(cells) + f' & {float(q.b):.3f} \\\\')
+    b = t[t['part'] == 'B']
+    def bc(y, term):
+        x = b[(b['outcome'] == y) & (b['term'] == term)].iloc[0]
+        return float(x.b), float(x.se), int(float(x.N))
+    out += ['\\midrule', '\\multicolumn{7}{l}{\\textit{B. County-years: log points of the relative price per point of the mean household change in the outcome}} \\\\',
+            ' & Next year\'s price change & This year\'s price change & & & & County-years \\\\', '\\midrule']
+    for y, lab in [('hei_usda', 'HEI change this year, healthy minus unhealthy price'), ('upf_share', 'Ultra-processed share change this year, ultra-processed minus other price')]:
+        n1, n2 = bc(y, 'price_next_on_diet_now'), bc(y, 'price_now_on_diet_now')
+        out.append(f'{lab} & {100 * n1[0]:.3f} ({100 * n1[1]:.3f}) & {100 * n2[0]:.3f} ({100 * n2[1]:.3f}) & & & & {n1[2]:,} \\\\')
+    out += ['\\bottomrule', '\\end{tabular}']
+    (TAB / 'local_price_timing.tex').write_text('\n'.join(out).replace('\\\\\\\\', '\\\\') + '\n')
+    print('\n'.join(out))
+    c = t[t['part'] == 'C']
+    print(c.assign(per10cheaper=lambda d: -d['b'].astype(float) / 10, se10=lambda d: d['se'].astype(float) / 10).round(3).to_string(index=False))
+    print(t[t['part'] == 'D'].to_string(index=False))
+    print(b.to_string(index=False))
+
+
 def cell(r, y, p, spec, star_f=False, zprice=False):
     price = f'z_rel_{p}' if zprice else f'rel_{p}_ces'
     s = r[(r['outcome'] == y) & (r['price'] == price) & (r['spec'] == spec)]
@@ -104,9 +139,9 @@ def fmt_int(x):
 
 
 def table_county(r):
-    head = ['\\begin{tabular}{llcccc}', '\\toprule']
+    head = ['\\begin{tabular}{llccccc}', '\\toprule']
     A = [('hh_year', 'Same household,'), ('hh_stateyear', 'Same household,'), ('iv', 'Shift-share IV'), ('iv_base', 'Shift-share IV,')]
-    head += ['\\multicolumn{6}{l}{\\textit{Panel A. Household panel, 2008--2020}} \\\\',
+    head += ['\\multicolumn{7}{l}{\\textit{Panel A. Household panel, 2008--2020}} \\\\',
              ' & Food that & Same household, & Same household, & Shift-share & Shift-share IV, \\\\',
              'Outcome & gets cheaper & year FE & state-by-year FE & IV & baseline $\\times$ year \\\\', '\\midrule']
     for y, p, lab in ROWS:
@@ -121,11 +156,11 @@ def table_county(r):
     n = r[(r['outcome'] == 'hei_usda') & (r['price'] == 'rel_hi_ces') & (r['spec'] == 'hh_year')]
     if not n.empty:
         head.append(f'Household-years; counties & & {fmt_int(n.iloc[0].N)}; {fmt_int(n.iloc[0].n_units)} & & & \\\\')
-    head += ['\\midrule', '\\multicolumn{6}{l}{\\textit{Panel B. Long differences, 2008--10 to 2018--20}} \\\\',
-             ' & Food that & Counties & Same households & Counties, & Placebo: diet change \\\\',
-             'Outcome & gets cheaper & & & IV & 2004--05 to 2006--07 \\\\', '\\midrule']
+    head += ['\\midrule', '\\multicolumn{7}{l}{\\textit{Panel B. Long differences, 2008--10 to 2018--20}} \\\\',
+             ' & Food that & Counties & Same households & Counties, & Diet 2004--05 to 2006--07 & Diet 2004--05 to 2006--07 \\\\',
+             'Outcome & gets cheaper & & & IV & on later actual price & on later predicted price \\\\', '\\midrule']
     for y, p, lab in ROWS:
-        head.append(f'{lab} & {CHEAPER[p]} & ' + ' & '.join(cell(r, y, p, s) for s in ['longdiff', 'longdiff_hh', 'longdiff_iv', 'placebo_pre_x']) + ' \\\\')
+        head.append(f'{lab} & {CHEAPER[p]} & ' + ' & '.join(cell(r, y, p, s) for s in ['longdiff', 'longdiff_hh', 'longdiff_iv', 'placebo_pre_x']) + ' & ' + cell(r, y, p, 'placebo_pre_z', zprice=True) + ' \\\\')
     n = r[(r['outcome'] == 'hei_usda') & (r['price'] == 'rel_hi_ces')]
     nc = n[n['spec'] == 'longdiff']; nh = n[n['spec'] == 'longdiff_hh']
     if not nc.empty and not nh.empty:
@@ -160,6 +195,7 @@ def main():
     long_difference()
     rc = pd.read_csv(WM / 'local_price_regs_county.csv', na_values='.')
     table_county(rc)
+    timing_table()
     print(rc.assign(fall10=-rc.b / 10, se10=rc.se / 10).drop(columns=['index', 'b', 'se']).round(4).to_string(index=False))
     zp = WM / 'local_price_regs_zip3.csv'
     if zp.exists():

@@ -3,7 +3,7 @@
 Reads interim/what_moves/time_events_coefs.csv and time_events_summary.csv (columns spec, outcome,
 event, ...; specs main, balanced, samecell, male, female).
 Outputs:
-  figs/what_moves/time/time_events.png   columns = events, rows = six outcomes: the change in the
+  figs/what_moves/time/time_events.png   columns = events, rows = seven outcomes: the change in the
       outcome r years from the event for movers relative to the year before it, net of the
       never-changers (blue, 95% band), and the same for movers observed in every year r = -2..2
       (orange dashed). Inside each panel: the mean of the r = 1 to 3 coefficients, its SE, the
@@ -37,17 +37,18 @@ plt.rcParams.update({'font.size': 24, 'axes.labelsize': 24, 'axes.titlesize': 26
 EVENTS = ['retirement', 'job loss', 'hours cut', 're-employment', 'hours increase']
 EVENT_TITLES = {'retirement': 'Retirement', 'job loss': 'Job loss', 'hours cut': 'Hours cut', 're-employment': 'Re-employment', 'hours increase': 'Hours increase'}
 FIG_OUTCOMES = [('real_income', 'Income ($10k)'), ('hei_usda', 'HEI (points)'), ('prep_time_raw', 'Preparation score'),
-                ('upf_share', 'Ultra-processed\nshare (pct. pts)'), ('cals_ae_day', 'Calories per adult\nequivalent per day'), ('n_trips', 'Trips per year')]
+                ('upf_share', 'Ultra-processed\nshare (pct. pts)'), ('price_1000', 'Price paid per\n1,000 kcal ($)'), ('cals_ae_day', 'Calories per adult\nequivalent per day'), ('n_trips', 'Trips per year')]
 TAB_OUTCOMES = [('real_income', 'Household income (\\$10k)', 2), ('hei_usda', 'HEI (points)', 2), ('prep_time_raw', 'Preparation-time score (1--9)', 3),
                 ('upf_share', 'Ultra-processed share of calories (\\%)', 2), ('produce_share', 'Produce share of calories (\\%)', 2),
-                ('sugar_1000', 'Sugar per 1,000 kcal (g)', 2), ('cals_ae_day', 'Calories per adult equivalent per day', 1), ('n_trips', 'Trips with food per year', 1),
+                ('sugar_1000', 'Sugar per 1,000 kcal (g)', 2), ('price_1000', 'Price paid per 1,000 kcal, all food (2013\\$)', 3), ('price_upf_1000', 'Price paid per 1,000 kcal, ultra-processed (2013\\$)', 3),
+                ('price_other_1000', 'Price paid per 1,000 kcal, other food (2013\\$)', 3), ('cals_ae_day', 'Calories per adult equivalent per day', 1), ('n_trips', 'Trips with food per year', 1),
                 ('spend_ae', 'Food spending per adult equivalent (2013\\$)', 1), ('nonfood_ae', 'Non-food spending on food trips, per adult equivalent (2013\\$)', 1),
                 ('food_share_trip', 'Food share of trip totals (\\%)', 2)]
 CHECK_OUTCOMES = ['hei_usda', 'prep_time_raw', 'upf_share', 'cals_ae_day', 'n_trips', 'spend_ae', 'nonfood_ae', 'food_share_trip']
 
 
 def fig_grid(c, s):
-    fig, axes = plt.subplots(len(FIG_OUTCOMES), len(EVENTS), figsize=(30, 29), sharex=True, sharey='row')
+    fig, axes = plt.subplots(len(FIG_OUTCOMES), len(EVENTS), figsize=(30, 33), sharex=True, sharey='row')
     fig.subplots_adjust(wspace=0.08, hspace=0.14)
     for j, ev in enumerate(EVENTS):
         n = int(s[(s['spec'] == 'main') & (s['event'] == ev)]['n_movers'].iloc[0])
@@ -62,7 +63,7 @@ def fig_grid(c, s):
             ax.plot(b['r'], b['b'], color=ORANGE, lw=3, ls='--', marker='s', ms=6, label='movers observed in every year from $-2$ to $2$')
             ax.axhline(0, color=GREY, lw=1.2, ls='--'); ax.axvline(-0.5, color=GREY, lw=1.2, ls=':')
             ax.set_xticks([-4, -2, 0, 2, 4])
-            dec = 3 if y == 'prep_time_raw' else (0 if y in ('cals_ae_day',) else (1 if y == 'n_trips' else 2))
+            dec = 3 if y in ('prep_time_raw', 'price_1000') else (0 if y in ('cals_ae_day',) else (1 if y == 'n_trips' else 2))
             ax.text(0.03, 0.97, f'post {r["jump"]:+.{dec}f} ({r["jump_se"]:.{dec}f})\npre-trend p {r["p_pretrend"]:.2f}', transform=ax.transAxes, va='top', fontsize=19)
             if j == 0:
                 ax.set_ylabel(lab)
@@ -143,10 +144,17 @@ def table_by_head(s):
 
 
 def main():
-    for stem in ('time_events_coefs', 'time_events_summary'):     # one file per Stata process -> one file
+    for stem in ('time_events_coefs', 'time_events_summary'):     # one file per Stata process -> one file; a new part replaces the same spec and outcome
         parts = sorted(BASE.glob(f'{stem}_*.csv'))
         if parts:
-            pd.concat([pd.read_csv(f) for f in parts], ignore_index=True).to_csv(BASE / f'{stem}.csv', index=False)
+            new = pd.concat([pd.read_csv(f) for f in parts], ignore_index=True)
+            old_path = BASE / f'{stem}.csv'
+            if old_path.exists():
+                old = pd.read_csv(old_path)
+                keys = new[['spec', 'outcome']].drop_duplicates().assign(_new=1)
+                old = old.merge(keys, on=['spec', 'outcome'], how='left')
+                new = pd.concat([old[old['_new'].isna()].drop(columns='_new'), new], ignore_index=True)
+            new.to_csv(old_path, index=False)
             for f in parts:
                 f.unlink()
     c = pd.read_csv(BASE / 'time_events_coefs.csv'); s = pd.read_csv(BASE / 'time_events_summary.csv')

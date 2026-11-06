@@ -1,4 +1,4 @@
-"""National path of the nutrition measures, 2004-2020, for notes/what_moves_nutrition.tex (2026-11-05).
+"""National path of the nutrition measures, 2004-2020, for 0_main.tex (2026-11-05).
 
 Projection-weighted means over the household-year panel: full HEI and its added-sugar, sodium, saturated-fat,
 whole-grain and vegetable components (interim/panel_dataset/hei_usda_panel.parquet), sugar per 1,000 kcal from the

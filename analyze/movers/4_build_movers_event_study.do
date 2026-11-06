@@ -141,6 +141,16 @@ if "`places'" == "income" {
 	es_run "all_nox"             "hei_usda"    "1" "delta_hei_usda"    "none"
 	es_run "income_all_nox"      "real_income" "1" "delta_real_income" "none"
 	es_run "hei_per_inc_all_nox" "hei_usda"    "1" "delta_real_income" "none"
+	// the parts of the diet per $10k of the quintile income gap (2026-11-06): divide by income_all's share for own income.
+	// Calories per adult equivalent also on events whose household stays in one size bin, since they move when the roster changes.
+	foreach o in upf_share produce_share sugar_1000 cals_ae_day {
+		es_run "per_inc_all" "`o'" "1" "delta_real_income"
+	}
+	bys event_id: egen byte _smin = min(size_bin)
+	bys event_id: egen byte _smax = max(size_bin)
+	gen byte same_sizebin = _smin == _smax
+	es_run "per_inc_samesize" "cals_ae_day" "same_sizebin == 1" "delta_real_income"
+	es_run "income_samesize" "real_income" "same_sizebin == 1"
 	di "4_build_movers_event_study.do (income movers) complete"
 	exit
 }

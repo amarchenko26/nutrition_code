@@ -22,6 +22,8 @@
 //             started in the same employment state and age group
 //   male, female  main with the event dummies split by which head changes
 //
+// `do build_time_events.do price` (2026-11-06) runs main and samecell for the price paid per 1,000 kcal, which are not in the
+// outcome list of the other groups; `do build_time_events.do pricebal` runs balanced for price_1000 (the figure's dashed line).
 // Run one spec group per Stata process: do build_time_events.do main (or balanced, samecell, byhead);
 // outputs interim/what_moves/time_events_coefs_<group>.csv and time_events_summary_<group>.csv, which
 // figure_time_events.py combines into time_events_coefs.csv and time_events_summary.csv.
@@ -122,6 +124,31 @@ program define write_event
 end
 
 local outcomes hei_usda prep_time_raw upf_share cals_ae_day produce_share sugar_1000 n_trips spend_ae real_income nonfood_ae food_share_trip
+
+// ------------------------------------------------------------ price paid per calorie
+if "`group'" == "price" {
+	foreach y in price_1000 price_upf_1000 price_other_1000 {
+		di _n "==== price `y'"
+		quietly reghdfe `y' $dlist [pw = projection_factor], absorb(hhid year age5 kids hh_comp) cluster(hhid)
+		local N = e(N)
+		forvalues e = 1/5 {
+			write_event main `y' `e' d 1 `N'
+		}
+		quietly reghdfe `y' $dlist [pw = projection_factor], absorb(hhid year_cell tenure age5 kids hh_comp) cluster(hhid)
+		local N = e(N)
+		forvalues e = 1/5 {
+			write_event samecell `y' `e' d 1 `N'
+		}
+	}
+}
+
+if "`group'" == "pricebal" {
+	quietly reghdfe price_1000 $dlist [pw = projection_factor] if evt == 0 | balanced == 1, absorb(hhid year age5 kids hh_comp) cluster(hhid)
+	local N = e(N)
+	forvalues e = 1/5 {
+		write_event balanced price_1000 `e' d "balanced == 1" `N'
+	}
+}
 
 // ------------------------------------------------------------ main
 if "`group'" == "main" {
