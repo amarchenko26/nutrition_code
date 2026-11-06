@@ -11,13 +11,20 @@ Usage: python build_upc_dictionary.py usda     -> interim/health/upc_dictionary.
 
 For each nutrient separately, the value per 100 g is, in order:
   1  the UPC's own label;
-  2  the labelled UPC of the same brand, module and size unit with the closest package size;
+  2  the closest relative: the mean over labelled UPCs with the same Nielsen description in the module (pack size removed:
+     'CTL BR M 2% LF VAD PL F'), else the mean over labelled UPCs of the same brand, module and size unit at the closest
+     package size. Leave-one-out on USDA labels, by spending, UPCs where both exist: calories within 10% on 83% with the same
+     description and 69% with the closest size, saturated fat within 0.5 g on 73% and 58%; milk 85% and 21%, 96% and 26%.
+     Until 2026-11-05 one relative at the closest size was taken, arbitrarily among ties, so a gallon of store-brand milk
+     copied whole or skim by chance. Allcott et al. condition on product, type, flavor and milk fat in their regressions;
   3  the mean over labelled UPCs of the same brand and module;
   4  the module mean over labelled UPCs, weighted by the UPC's 2004-2020 spending;
   5  the mean over the product group's labelled UPCs.
-Labels are cleaned first. The whole label goes when it is above 900 kcal/100 g, or above five times its module's median
+Labels are cleaned first. The whole label goes when it is above 900 kcal/100 g, above five times its module's median
 density by at least 200 kcal (a false UPC match: a soda labelled as chocolate; pepperoni among deli meats and salad kits
-with dressing stay in). One field goes when above 100 g (sugar,
+with dressing stay in), or below a twentieth of the median by at least 100 kcal (wrong serving grams: a 10-lb bag of sugar at
+0.3 kcal/100 g; a label of exactly zero stays). A sugar, saturated fat, cholesterol or fiber line missing from a label counts
+as zero where the module's labels that report the line have a median near zero (1 g, 0.5 g, 5 mg, 0.5 g per 100 g). One field goes when above 100 g (sugar,
 fiber, fat), 40 g (sodium) or 3 g (cholesterol) per 100 g. Saturated fat is never above total fat, as in Allcott et al.
 (prepare_gladson_nut_facts_for_imputation.do); saturated fat and sugar go when above the calories they imply, with 20%
 and 5 kcal of slack for rounding (some labels carry the sodium figure in the saturated fat field: Mountain Dew, 60 mg
@@ -25,8 +32,9 @@ sodium, "60 g" saturated fat). Monounsaturated and polyunsaturated fat go when t
 total fat. A typed commodity value (USDA Standard
 Reference, kcal per 100 g) replaces tiers 2-5 for calories in fresh commodity modules, whose labelled UPCs are
 atypical (apple chips in FRESH APPLES); Allcott et al. also hand-enter these modules (nut_facts_for_missing_modules).
-NOVA (usda_nova.parquet; both sources use it): own ingredient list, else the nearest-sized labelled relative, else
-the brand x module mode, else the module's spending-weighted mode.
+NOVA (usda_nova.parquet; both sources use it): own ingredient list, else the most common group among UPCs with the same
+description in the module, else among the same brand, module and unit at the closest size, else the brand x module mode,
+else the module's spending-weighted mode.
 Columns: upc_13, product_module_code, product_group_code, brand_descr, multi, cal_per_100g, cal_tier, the nutrients
 per 100 g, nova, nova_tier. Read by build_module_price_calories.py, build_nova_calorie_panel.py and the three
 nutrition panels (hi, hi_usda, hei_usda).
@@ -63,9 +71,15 @@ def fill_tiers(d, col, keys, spend):
     val = d[col].copy()
     tier = pd.Series(np.where(val.notna(), 1, np.nan), index=d.index)
     lab = d[val.notna()]
-    # tier 2
+    # tier 2: same description in the module
+    same = lab[lab['descr_norm'] != ''].groupby(['product_module_code', 'descr_norm'])[col].mean().rename('_same')
+    m2 = d[['product_module_code', 'descr_norm']].merge(same, left_on=['product_module_code', 'descr_norm'], right_index=True, how='left')['_same']
+    use = val.isna() & m2.notna()
+    val[use] = m2[use]
+    tier[use] = 2
+    # tier 2: same brand, module and size unit, closest size; relatives of the same size are averaged
     unl = d[val.isna() & d['log_size'].notna() & d[keys].notna().all(axis=1)]
-    l2 = lab[lab['log_size'].notna()].dropna(subset=keys)[keys + ['log_size', col]].rename(columns={col: '_t2'})
+    l2 = lab[lab['log_size'].notna()].dropna(subset=keys).groupby(keys + ['log_size'], as_index=False, observed=True)[col].mean().rename(columns={col: '_t2'})
     if len(unl) and len(l2):
         near = pd.merge_asof(unl[keys + ['log_size']].reset_index().sort_values('log_size'), l2.sort_values('log_size'), on='log_size', by=keys, direction='nearest').set_index('index')['_t2']
         use = near.dropna().index
@@ -98,7 +112,7 @@ def main(source):
     t0 = time.time()
     path, key, out_path, nuts = SOURCES[source]
     prod = pd.read_csv(rdir / 'products.tsv', sep='\t', encoding='latin-1', dtype={'upc': str},
-                       usecols=['upc', 'upc_ver_uc', 'product_module_code', 'product_module_descr', 'product_group_code', 'brand_descr', 'multi', 'size1_amount', 'size1_units'])
+                       usecols=['upc', 'upc_ver_uc', 'upc_descr', 'product_module_code', 'product_module_descr', 'product_group_code', 'brand_descr', 'multi', 'size1_amount', 'size1_units'])
     prod = prod.sort_values(['upc', 'upc_ver_uc']).drop_duplicates('upc', keep='last')
     prod['upc_13'] = '0' + prod['upc'].str.zfill(12)
     us = pd.read_parquet(idir / 'health' / 'upc_year_spending.parquet', columns=['upc', 'product_module_code', 'spending'])
@@ -131,12 +145,24 @@ def main(source):
     wide.loc[bad, [c for c in fats if c != 'satfat_per_100g']] = np.nan
     print(f'{len(wide):,} labels; fat fields dropped as impossible on {int(bad.sum()):,}')
     d = prod.merge(wide, on='upc_13', how='left')
-    # false matches: far above the module's usual density
+    d['descr_norm'] = d['upc_descr'].fillna('').str.strip().str.replace(r'\s+\d+P$', '', regex=True).str.replace(r'\s+', ' ', regex=True)
+    # false matches and wrong serving grams: far from the module's usual density
     med = d.groupby('product_module_code')['cal_per_100g'].transform('median')
-    far = d['cal_per_100g'] > np.maximum(5 * med, med + 200)
-    print(f'labels far above their module (false matches): {int(far.sum()):,}; of labelled spending {d.loc[far, "upc_13"].map(spend).sum() / d.loc[d["cal_per_100g"].notna(), "upc_13"].map(spend).sum():.4f}')
-    print(d[far].assign(sp=d.loc[far, 'upc_13'].map(spend)).sort_values('sp', ascending=False).head(15)[['product_module_descr', 'brand_descr', 'cal_per_100g', 'sp']].round(0).to_string(index=False))
+    far = (d['cal_per_100g'] > np.maximum(5 * med, med + 200)) | ((d['cal_per_100g'] > 0) & (d['cal_per_100g'] < med / 20) & (med - d['cal_per_100g'] > 100))
+    print(f'labels far from their module: {int(far.sum()):,}; of labelled spending {d.loc[far, "upc_13"].map(spend).sum() / d.loc[d["cal_per_100g"].notna(), "upc_13"].map(spend).sum():.4f}')
+    print(d[far].assign(sp=d.loc[far, 'upc_13'].map(spend)).sort_values('sp', ascending=False).head(15)[['product_module_descr', 'brand_descr', 'cal_per_100g', 'sp']].round(1).to_string(index=False))
     d.loc[far, cols] = np.nan
+    # a line missing from a label counts as zero where the module's labels that report the line are near zero. Allcott et al.
+    # do this everywhere (replace `var'=0 if `var'==.). Labels leave out zero lines, and filling them from relatives spreads
+    # one bad label across a brand (one Dr Pepper label with 7.9 g of fat). On UPCs with both labels, by spending: where Syndigo
+    # has no line, USDA reports zero for 84% of sugar, 96% of saturated fat, 97% of cholesterol, 88% of fiber, and 3% of sodium
+    # and 55% of total fat, which stay with the relatives. Elsewhere a missing line is a gap in the data, as for cookies
+    labelled = d['cal_per_100g'].notna()
+    for n, near_zero in (('sugar', 1.0), ('satfat', 0.5), ('chol', 0.005), ('fiber', 0.5)):
+        c = f'{n}_per_100g'
+        zero = labelled & d[c].isna() & (d.groupby('product_module_code')[c].transform('median') <= near_zero)
+        d.loc[zero, c] = 0.0
+        print(f'  {c}: missing line set to zero on {int(zero.sum()):,} labels; still missing on {int((labelled & d[c].isna()).sum()):,}')
     nova = pd.read_parquet(idir / 'usda_nielsen_merged' / 'usda_nova.parquet', columns=['upc13', 'nova']).rename(columns={'upc13': 'upc_13'}).drop_duplicates('upc_13')
     d = d.merge(nova, on='upc_13', how='left')
     d['nova'] = d['nova'].astype('float')
@@ -158,9 +184,15 @@ def main(source):
     nv = d['nova'].copy()
     ntier = pd.Series(np.where(nv.notna(), 1, np.nan), index=d.index)
     lab = d[nv.notna()]
+    sm = lab[lab['descr_norm'] != ''].groupby(['product_module_code', 'descr_norm', 'nova']).size().rename('n').reset_index().sort_values('n').drop_duplicates(['product_module_code', 'descr_norm'], keep='last')
+    ms = d[['product_module_code', 'descr_norm']].merge(sm, on=['product_module_code', 'descr_norm'], how='left')['nova']
+    use = nv.isna() & ms.notna()
+    nv[use] = ms[use]
+    ntier[use] = 2
     unl = d[nv.isna() & d['log_size'].notna() & d[keys].notna().all(axis=1)]
+    atsize = lab[lab['log_size'].notna()].dropna(subset=keys).groupby(keys + ['log_size', 'nova'], observed=True).size().rename('n').reset_index().sort_values('n').drop_duplicates(keys + ['log_size'], keep='last')
     near = pd.merge_asof(unl[keys + ['log_size']].reset_index().sort_values('log_size'),
-                         lab[lab['log_size'].notna()].dropna(subset=keys)[keys + ['log_size', 'nova']].rename(columns={'nova': '_n'}).sort_values('log_size'),
+                         atsize[keys + ['log_size', 'nova']].rename(columns={'nova': '_n'}).sort_values('log_size'),
                          on='log_size', by=keys, direction='nearest').set_index('index')['_n'].dropna()
     nv.loc[near.index] = near
     ntier.loc[near.index] = 2
