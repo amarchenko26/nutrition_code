@@ -112,8 +112,8 @@ def main():
 
     # ---- estimates before and after
     e = pd.read_csv(idir / 'what_moves' / 'cleaning_estimates.csv', na_values='.')
-    rows = [('main', 'Income IV, change the year after'), ('before', 'Same income change, purchases $t-3$ to $t-2$'), ('levels', 'Income IV, level at $t+1$ on income at $t$'),
-            ('ols', 'Without the instrument'), ('unemp', 'Income IV, not employed at $t-1$, under 67')]
+    rows = [('main', 'Income IV, change the year after'), ('before', 'Same income change, purchases $t-3$ to $t-2$'),
+            ('ols', 'OLS, same regression and sample as the first row'), ('unemp', 'Income IV, not employed at $t-1$, under 67')]
 
     def stars(b, se):
         p = 2 * (1 - __import__('scipy.stats').stats.norm.cdf(abs(b / se)))

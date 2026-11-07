@@ -8,7 +8,7 @@ Same binscatter machinery / controls as replicate_figure1.py (age-bin, year,
 household-size controls; projection-factor weights). Output suffixed _hei;
 the Syndigo and simple-USDA panels are not touched.
 
-Output: figs/fig1d_health_index_hei.png
+Output: figs/gradients/fig1d_health_index_hei.png
 """
 
 import pandas as pd
@@ -23,10 +23,15 @@ warnings.filterwarnings('ignore')
 def log(msg):
     print(msg, flush=True)
 
-BASE    = Path('/Users/anyamarchenko/CEGA Dropbox/Anya Marchenko/nielsen_data')
-DATASET = BASE / 'interim' / 'panel_dataset' / 'panel_hh_year.parquet'
-HEIP    = BASE / 'interim' / 'panel_dataset' / 'hei_usda_panel.parquet'
-FIG_DIR = Path('/Users/anyamarchenko/Documents/GitHub/nutrition_overleaf/figs')
+import sys
+_r = Path(__file__).resolve().parent
+while not (_r / "paths.py").exists():
+    _r = _r.parent
+sys.path.insert(0, str(_r))
+from paths import *
+DATASET = idir / 'panel_dataset' / 'panel_hh_year.parquet'
+HEIP    = idir / 'panel_dataset' / 'hei_usda_panel.parquet'
+FIG_DIR = fdir / 'gradients'
 
 YEARS       = range(2004, 2021)  # stop at 2020 to avoid 2021 definition change
 N_QUANTILES = 15

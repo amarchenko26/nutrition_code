@@ -6,8 +6,8 @@
 //   before: z_backup_2026-11-05/final/labor_supply_reg_data.dta (the panels as of 2026-09-16, with the 2009 step in HEI)
 //   after : final/labor_supply_reg_data.dta
 // and, for HEI only, the panel of 2026-11-04 (fatty-acid fix done, the rest not yet) merged onto the before file.
-// Rows follow analyze/labor_supply 12_, 13_, 18_: main change after; test on purchases t-3 to t-2; without the instrument;
-// households not employed at t-1 under 67; level with household fixed effects.
+// Rows follow analyze/labor_supply 12_, 13_, 18_: main change after; test on purchases t-3 to t-2; OLS, the main regression
+// and its sample without the instrument; households not employed at t-1 under 67.
 // Outcomes in standard deviations of each version.
 // Output: interim/what_moves/cleaning_estimates.csv
 // ============================================================================
@@ -56,7 +56,6 @@ foreach version in before after {
 		gen double z = (`v' - r(mean)) / r(sd)
 		gen double fz = F.z - z
 		gen double bz = L2.z - L3.z
-		gen double lz = F.z
 		local FE "year_state hhid kids avg_age_hh_head hh_comp"
 		quietly ivreghdfe fz (D.real_income = D.iv_income_fips) [pw = projection_factor] if clean == 1, absorb(`FE') cluster(fips)
 		wr `version' `v' main `=_b[D.real_income]' `=_se[D.real_income]' `=e(widstat)' `=e(N)' `sd'
@@ -71,10 +70,7 @@ foreach version in before after {
 		quietly ivreghdfe fz (D.real_income = D.iv_income_fips) [pw = projection_factor] if unemp == 1, absorb(`FE') cluster(fips)
 		wr `version' `v' unemp `=_b[D.real_income]' `=_se[D.real_income]' `=e(widstat)' `=e(N)' `sd'
 		di "`version' `v' not employed: " %7.4f _b[D.real_income] " (" %6.4f _se[D.real_income] ")"
-		quietly ivreghdfe lz (real_income = iv_income_fips) [pw = projection_factor] if clean == 1, absorb(`FE') cluster(fips)
-		wr `version' `v' levels `=_b[real_income]' `=_se[real_income]' `=e(widstat)' `=e(N)' `sd'
-		di "`version' `v' levels: " %7.4f _b[real_income] " (" %6.4f _se[real_income] ")"
-		drop z fz bz lz smp
+		drop z fz bz smp
 	}
 }
 di "build_cleaning_estimates.do complete"

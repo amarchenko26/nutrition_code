@@ -66,6 +66,7 @@ gen byte clean = (L.emp_cell == 1) if !missing(L.emp_cell)
 local outcomes hi hi_usda hei_usda
 foreach v of local outcomes {
 	quietly summarize `v' [aw = projection_factor]
+	local sd_`v' = r(sd)
 	gen z_`v'  = (`v' - r(mean)) / r(sd)
 	gen fz_`v' = F.z_`v' - z_`v'
 }
@@ -95,10 +96,10 @@ foreach v of local outcomes {
 
 // the estimates the movers figures compare with (analyze/movers 6_ and 8_ read this file)
 file open fh using "$idir/labor_supply/iv_main_estimates.csv", write replace
-file write fh "outcome,b,se,f,n" _n
+file write fh "outcome,b,se,f,n,sd" _n
 foreach v of local outcomes {
 	estimates restore `v'
-	file write fh "`v'," (_b[D.real_income]) "," (_se[D.real_income]) "," (e(widstat)) "," (e(N)) _n
+	file write fh "`v'," (_b[D.real_income]) "," (_se[D.real_income]) "," (e(widstat)) "," (e(N)) ",`sd_`v''" _n
 }
 file close fh
 

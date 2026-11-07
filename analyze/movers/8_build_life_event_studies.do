@@ -38,10 +38,10 @@ global out  "$idir/movers"
 import delimited "$idir/labor_supply/iv_main_estimates.csv", clear
 quietly summarize b if outcome == "hei_usda"
 local iv_sd = r(mean)                   // income IV, full HEI, clean sample: SD per $10k (analyze/labor_supply/12_)
+quietly summarize sd if outcome == "hei_usda"
+global iv_beta_pts = `iv_sd' * r(mean)  // the same estimate in HEI points, with the SD 12_ standardizes with
 
 use "$out/occupation_movers_panel.dta", clear
-quietly summarize hei_usda if analysis == 1
-global iv_beta_pts = `iv_sd' * r(sd)    // the same estimate in HEI points
 di "IV coefficient in HEI points per 10k: $iv_beta_pts"
 
 // ------------------------------------ state gaps for births and deaths

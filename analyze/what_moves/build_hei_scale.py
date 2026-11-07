@@ -1,4 +1,5 @@
-"""How large is a gap of 5.4 HEI points? (2026-11-06, Anya's comments on the who-eats-better table and the cohort figure.) Prints only.
+"""How large is a gap of 5.4 HEI points? (2026-11-06, Anya's comments on the who-eats-better table and the cohort figure.)
+Output: tabs/what_moves/hei_scale.tex (parts 1 to 3); everything is printed.
 
 1. What the gap between the lowest- and highest-scoring income bins is made of, component by component, and cups of fruit and calories by income bin.
 2. In food: the change in HEI when each household's groceries gain an apple, a whole-grain slice in place of a white one, or a can of soda
@@ -87,8 +88,10 @@ def food_scenarios(d):
         x['as'] = 100 * (x0['as'] / 100 * E + 156 * n) / (E + a)
         return score(x, fa)
 
+    out = {}
     for name, f in [('medium apple', apple), ('whole-grain slice for a white slice', bread), ('can of soda', soda)]:
-        print(f"  one {name} per adult equivalent per day: {wm(f(1) - base, w):+.2f} HEI points")
+        out[name] = wm(f(1) - base, w)
+        print(f"  one {name} per adult equivalent per day: {out[name]:+.2f} HEI points")
     for name, f in [('medium apples', apple), ('whole-grain slices', bread)]:
         lo, hi = 0.0, 5.0
         for _ in range(40):
@@ -98,6 +101,32 @@ def food_scenarios(d):
             else:
                 hi = mid
         print(f"  {name} per adult equivalent per day for +{GAP} points: {lo:.2f}")
+    return out
+
+
+def write_table(m, a, b, fruit, food, health):
+    """tabs/what_moves/hei_scale.tex"""
+    c = lambda k: f'hei_c_{k}'
+    def row(lab, keys, dec=2):
+        lo, hi = sum(m.loc[a, c(k)] for k in keys), sum(m.loc[b, c(k)] for k in keys)
+        return f'{lab} & {lo:.{dec}f} & {hi:.{dec}f} & {hi - lo:+.{dec}f} \\\\'
+    fa, fb = fruit.loc[a], fruit.loc[b]
+    fruit_gap = round(fb['fruit_cups'] - fa['fruit_cups'], 2) + 0.0     # + 0.0 turns -0.0 into 0.0
+    tex = [r'\begin{tabular}{lrrr}', r'\toprule', r' & Lowest bin & Highest bin & Difference \\', r'\midrule', r'\multicolumn{4}{l}{\textit{A. HEI, by component (points)}} \\',
+           f"Total & {m.loc[a, 'hei']:.2f} & {m.loc[b, 'hei']:.2f} & {m.loc[b, 'hei'] - m.loc[a, 'hei']:+.2f} \\\\",
+           row('Fruit (two components)', ['totfruit', 'wholfruit']), row('Added sugar', ['addsugar']), row('Dairy', ['dairy']), row('Seafood and plant protein', ['seaplant']), row('Whole grains', ['wholegrain']),
+           row('Vegetables, greens and beans', ['totveg', 'greensbeans']), row('Sodium, total protein, fatty acids', ['sodium', 'totprot', 'fattyacid']), row('Refined grains', ['refgrain']), row('Saturated fat', ['satfat']),
+           r'\midrule', r'\multicolumn{4}{l}{\textit{B. Purchases per adult equivalent per day}} \\',
+           f"Barcoded fruit (cups) & {fa['fruit_cups']:.2f} & {fb['fruit_cups']:.2f} & {fruit_gap:+.2f} \\\\",
+           f"Calories & {fa['kcal']:,.0f} & {fb['kcal']:,.0f} & {fb['kcal'] - fa['kcal']:+,.0f} \\\\",
+           f"Fruit per 1,000 calories (cups) & {fa['fruit_per_1000']:.2f} & {fb['fruit_per_1000']:.2f} & {fb['fruit_per_1000'] - fa['fruit_per_1000']:+.2f} \\\\",
+           r'\midrule', r'\multicolumn{4}{l}{\textit{C. One more a day per adult equivalent, by the scoring rules of HEI (HEI points)}} \\',
+           f"Medium apple & & & {food['medium apple']:+.2f} \\\\", f"Whole-grain slice in place of a white slice & & & {food['whole-grain slice for a white slice']:+.2f} \\\\", f"Can of soda & & & {food['can of soda']:+.2f} \\\\",
+           r'\midrule', rf'\multicolumn{{4}}{{l}}{{\textit{{D. Adults in households scoring {GAP} points higher, 2016--17}}}} \\',
+           f"BMI & & & {health['bmi'][0]:+.2f} ({health['bmi'][1]:.2f}) \\\\", f"BMI of 30 or more (percentage points) & & & {health['obese'][0]:+.2f} ({health['obese'][1]:.2f}) \\\\",
+           f"Type 2 diabetes (percentage points) & & & {health['diab'][0]:+.2f} ({health['diab'][1]:.2f}) \\\\", r'\bottomrule', r'\end{tabular}']
+    (tdir / 'what_moves' / 'hei_scale.tex').write_text('\n'.join(tex) + '\n')
+    print('\n'.join(tex))
 
 
 def fruit_by_bin(h):
@@ -140,18 +169,19 @@ def main():
     c = d.groupby('household_code')[[f'hei_c_{k}' for k in COMP] + ['hei_usda', 'E', 'addsug_energy_share']].mean().reset_index()
     h2 = h.merge(c, left_on='hhid', right_on='household_code', how='inner')
     m = h2.groupby('inc_b').apply(lambda g: pd.Series({k: np.average(g[k], weights=g.w) for k in ['hei'] + [f'hei_c_{x}' for x in COMP] + ['E', 'inc']}))
-    a, b = m['hei'].idxmin(), m['hei'].idxmax()
-    print(f"  lowest-scoring income bin {a} of 0-19 (income {m.loc[a, 'inc']:.1f}k), highest {b} (income {m.loc[b, 'inc']:.1f}k), gap {m.loc[b, 'hei'] - m.loc[a, 'hei']:.2f}; sample here {len(h2):,} households")
-    t = pd.DataFrame({'low': m.loc[a], 'high': m.loc[b]})
+    bin_lo, bin_hi = m['hei'].idxmin(), m['hei'].idxmax()
+    print(f"  lowest-scoring income bin {bin_lo} of 0-19 (income {m.loc[bin_lo, 'inc']:.1f}k), highest {bin_hi} (income {m.loc[bin_hi, 'inc']:.1f}k), gap {m.loc[bin_hi, 'hei'] - m.loc[bin_lo, 'hei']:.2f}; sample here {len(h2):,} households")
+    t = pd.DataFrame({'low': m.loc[bin_lo], 'high': m.loc[bin_hi]})
     t['gap'] = t['high'] - t['low']
     print(t.round(2).to_string())
 
-    print(fruit_by_bin(h).round(3).to_string())
+    fruit = fruit_by_bin(h)
+    print(fruit.round(3).to_string())
 
     # ---- 2. food
     print('\n2. Food, all household-years')
-    food_scenarios(d)
-    low = d[d['household_code'].isin(h.loc[h.inc_b == a, 'hhid'])]
+    food = food_scenarios(d)
+    low = d[d['household_code'].isin(h.loc[h.inc_b == bin_lo, 'hhid'])]
     print('   households in the lowest-scoring income bin')
     food_scenarios(low)
 
@@ -183,11 +213,15 @@ def main():
             Zk = sm.add_constant(Zk, has_constant='add')
         r = sm.OLS(Yk, Zk).fit(cov_type='cluster', cov_kwds={'groups': x.loc[keep, 'household_code'].values})
         return r.params['v'], r.bse['v']
+    health = {}
     for y, lab in [('bmi', 'BMI'), ('obese', 'BMI 30+ (points)'), ('diab', 'Type 2 diabetes (points)')]:
         for name, X, z in [('no controls', None, False), ('age x sex, income, education, race, Hispanic, size, children, region', ctrl, False), ('same + ZIP', ctrl, True)]:
             b, se = run(y, 'hei', X, z)
             bl, sel = run(y, 'lhei', X, z)
             print(f"  {lab}, {name}: per {GAP} HEI points {b * GAP:+.3f} ({se * GAP:.3f}); per 0.56 SD of the linear HEI {bl * 0.56 * lsd:+.3f} ({sel * 0.56 * lsd:.3f})")
+            if X is not None and not z:
+                health[y] = (b * GAP, se * GAP)
+    write_table(m, bin_lo, bin_hi, fruit, food, health)
 
     # ---- 4. age
     print('\n4. HEI within a household by age of the heads')

@@ -18,8 +18,7 @@ from scipy.stats import norm
 WM = idir / 'what_moves'
 OUTS = [('hei_usda', 2), ('upf_share', 2), ('produce_share', 2), ('cals_ae_day', 1)]
 ROWS = [
-    (r'A. Fixed effects', [('main', r'Main: household and state-by-year'), ('hh_year', 'Household and year'), ('no_hhfe', 'State-by-year, no household'),
-                           ('year_only', 'Year only, no household'), ('levels', r'Levels: outcome at $t+1$ on income at $t$, household and state-by-year')]),
+    (r'A. Fixed effects', [('main', r'Main: household and state-by-year'), ('hh_year', 'Household and year')]),
     (r'B. Purchase window, same income change', [('level_t', r'$t-1$ to $t$'), ('twoyear', r'$t-1$ to $t+1$')]),
     (r'C. Households', [('same_size', r'Same household size at $t-1$, $t$, $t+1$'), ('geo_movers', 'Keeping households that change county'),
                         ('stayers', r'Group does not change from $t-1$ to $t$'), ('switchers', r'Group changes from $t-1$ to $t$'), ('switch_noNE', 'Group changes, not into not employed')]),
@@ -80,7 +79,8 @@ def main():
     (tdir / 'what_moves' / 'iv_robustness.tex').write_text('\n'.join(tex) + '\n')
     print('\n'.join(tex))
     # purchases before the income change, any outcome, any row with a first stage
-    bf = d[(d['window'] == 'before') & (d['f'] >= 1)].copy()
+    shown = [spec for _, rows in ROWS for spec, _ in rows]
+    bf = d[(d['window'] == 'before') & (d['f'] >= 1) & d['spec'].isin(shown)].copy()
     bf['p'] = 2 * (1 - norm.cdf((bf['b'] / bf['se']).abs()))
     print('tests on purchases from t-3 to t-2 with p < 0.05:', bf.loc[bf['p'] < 0.05, ['outcome', 'spec', 'b', 'se', 'p']].round(3).to_dict('records'), 'of', len(bf))
     # without the instrument, long changes
