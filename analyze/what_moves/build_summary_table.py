@@ -6,8 +6,8 @@ design was not run for that outcome, or (family changes, income IV on all househ
 track the change in the roster that divides them. A dagger marks an estimate whose own test on the period before the event has p < 0.05.
 
 Reads interim/what_moves/ (iv_suboutcomes, iv_suboutcomes_same_size, soda_tax_summary, local_price_regs_county, local_price_timing, policy_shock_coefs,
-policy_shock_pretests, time_events_summary, family_events_summary, diagnosis_events_summary), interim/movers/ (income_event_study_summary,
-county and retailer summaries) and tabs/what_moves/dynamics_variance.tex (the scale rows).
+policy_shock_pretests, time_events_summary, family_events_summary, diagnosis_events_summary), interim/movers/ (county and retailer
+summaries) and tabs/what_moves/dynamics_variance.tex (the scale rows).
 Output: tabs/what_moves/summary.tex, printed as well.
 """
 import re
@@ -94,22 +94,7 @@ def main():
         iv = iv.merge(pl[['outcome', 'p']], on='outcome', how='left')
         add(P, f'Income IV, change the year after, {tag}', pick(iv, names, 'b', 'se', 'p', window='main'))
         add(P, f'Income IV, change over two years, $t-1$ to $t+1$, {tag}', pick(iv, names, 'b', 'se', 'p', window='level'))
-    # every change of quintile: outcome per $10k of the quintile income gap over the share of that gap in own income (delta method, estimates treated as independent)
-    q = pd.read_csv(MV / 'income_event_study_summary.csv')
-    first = q[(q['spec'] == 'income_all') & (q['outcome'] == 'real_income')].iloc[0]
-    firsts = q[(q['spec'] == 'income_samesize') & (q['outcome'] == 'real_income')].iloc[0]
-    vals = {}
-    for k, spec, o, fs in [('hei', 'hei_per_inc_all', 'hei_usda', first), ('sugar', 'per_inc_all', 'sugar_1000', first), ('upf', 'per_inc_all', 'upf_share', first), ('kcal', 'per_inc_samesize', 'cals_ae_day', firsts)]:
-        x = q[(q['spec'] == spec) & (q['outcome'] == o)].iloc[0]
-        b = x['jump'] / fs['jump']
-        se = np.sqrt((x['jump_se'] / fs['jump']) ** 2 + (x['jump'] * fs['jump_se'] / fs['jump'] ** 2) ** 2)
-        vals[k] = (b, se, x['p_pretrend'])
-    add(P, r'Every change of income quintile, per \$10,000 of own income, no instrument', vals)
-    m = pd.read_csv(MV / 'income_matched_event_study_summary.csv')
-    x = m[(m['spec'] == 'hei_per_inc_all') & (m['outcome'] == 'hei_usda')].iloc[0]
-    fm = m[(m['spec'] == 'income_all') & (m['outcome'] == 'real_income')].iloc[0]
-    add(P, r'Every change of income quintile against matched non-movers, per \$10,000 of own income, no instrument',
-        {'hei': (x['jump'] / fm['jump'], np.sqrt((x['jump_se'] / fm['jump']) ** 2 + (x['jump'] * fm['jump_se'] / fm['jump'] ** 2) ** 2), x['p_pretrend'])})
+        add(P, f'Income IV, purchases $t-3$ to $t-2$, before the income change, {tag} (placebo)', pick(iv, names, 'b', 'se', window='placebo'))
 
     # ---- prices
     P = 'B. Prices'
