@@ -280,7 +280,7 @@ Cross-folder Python imports use a `sys.path` bootstrap (only in `build/variety/b
 and `build_product_variety.py`, which reach `utils/` and `clean/syndigo/`). `.sh` runners are Oscar/SLURM
 cluster jobs hardcoding `/users/amarche4/scratch/` — repo location is irrelevant to them.
 
-Overleaf layout: `0_main.tex` (paper; since 2026-11-06 its body is the what-moves review, with Anya's preamble and first page; soda taxes, WIC and cash timing in its appendix since the same day; edit it directly), `figs/`, `tabs/`, `notes/` (labor_supply.tex, movers.tex,
+Overleaf layout: `0_main.tex` (paper; since 2026-11-06 its body is the what-moves review, with Anya's preamble and first page; soda taxes, WIC and cash timing in its appendix since the same day, data cleaning since 2026-11-07, national trends since 2026-11-09; edit it directly), `figs/`, `tabs/`, `notes/` (labor_supply.tex, movers.tex,
 syndigo_vs_usda.tex, hei_simple_vs_full.tex), `present/` (talk decks), `food.bib`.
 
 ## DATA FIX 2026-11-05: every nutrition measure rebuilt to the cleaning of Allcott et al. (2019)
