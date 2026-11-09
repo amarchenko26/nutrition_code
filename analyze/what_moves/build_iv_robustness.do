@@ -30,6 +30,8 @@
 // shares of the numerator (outcome on the group-income change) and of the denominator (own income on the group-income
 // change) by type of cell change, after the fixed effects; and the year-by-year path for stayers and switchers.
 // `do build_iv_robustness.do zero` writes interim/what_moves/iv_zero_first_stage.csv.
+// `do build_iv_robustness.do size` prints the main regression with household size as the outcome (Anya 2026-11-09: does
+// income change household size, so that keeping households of the same size at t-1, t and t+1 selects on an outcome?).
 // ============================================================================
 clear all
 set more off
@@ -206,6 +208,74 @@ if "`part'" == "zero" {
 	file close fh
 	di "own income per dollar of group income, group changed: " %7.4f _b[d_iv] " (" %6.4f _se[d_iv] ")"
 	di "build_iv_robustness.do zero complete"
+	exit
+}
+
+// ---------------------------------------------------------------- does income change household size?
+// Outcomes in percentage points (members for dsz_f), per $10k of income, instrumented as in the main regression: size changes
+// from t to t+1 (after the income change; also on households whose size did not change from t-1 to t, so that their group
+// did not change size bin); size changes from t-1 to t (the window of the income change, where the size bin is part of the
+// group, so a change of bin changes the instrument by construction); same size at t-1, t and t+1 (the condition of the
+// same-size rows of Table 1); size changes from t-3 to t-2 (before). Main fixed effects, then household and state-by-year
+// only, because the main ones include children and composition at t.
+if "`part'" == "size" {
+	gen double sz_f = 100 * (F.hh_size != hh_size) if !missing(F.hh_size, hh_size)
+	gen double dsz_f = F.hh_size - hh_size
+	gen double sz_t = 100 * (hh_size != L.hh_size) if !missing(hh_size, L.hh_size)
+	gen double sz_3 = 100 * same_size
+	gen double sz_b = 100 * (L2.hh_size != L3.hh_size) if !missing(L2.hh_size, L3.hh_size)
+	gen byte keep_t = hh_size == L.hh_size if !missing(hh_size, L.hh_size)
+	foreach fe in "`FE'" "year_state hhid" {
+		di _n "fixed effects: `fe'"
+		foreach r in "sz_f|all" "sz_f|keep_t == 1" "dsz_f|all" "dsz_f|keep_t == 1" "sz_t|all" "sz_3|all" "sz_b|all" {
+			gettoken y c : r, parse("|")
+			local c = substr("`c'", 2, .)
+			local cond "movers_f == 0 & clean == 1"
+			if "`c'" != "all" local cond "`cond' & `c'"
+			capture quietly ivreghdfe `y' (d_inc = d_iv) [pw = projection_factor] if `cond', absorb(`fe') cluster(fips)
+			if _rc {
+				di as error "`y' [`c'] failed, rc " _rc
+				continue
+			}
+			local b = _b[d_inc]
+			local se = _se[d_inc]
+			local f = e(widstat)
+			local n = e(N)
+			quietly sum `y' [aw = projection_factor] if e(sample)
+			di "`y' [`c']: " %8.3f `b' " (" %7.3f `se' ")  F " %6.1f `f' "  N " `n' "  mean " %7.3f r(mean)
+		}
+	}
+	// groups without the size bin (occupation x education), so a size change does not change the group
+	di _n "group without the size bin, main fixed effects"
+	foreach y in sz_t sz_f dsz_f sz_3 sz_b {
+		capture quietly ivreghdfe `y' (d_inc = d_ivx) [pw = projection_factor] if movers_f == 0 & clean == 1, absorb(`FE') cluster(fips)
+		if _rc {
+			di as error "`y' failed, rc " _rc
+			continue
+		}
+		di "`y': " %8.3f _b[d_inc] " (" %7.3f _se[d_inc] ")  F " %6.1f e(widstat) "  N " e(N)
+	}
+	// the income change of the household's own group at t-1 from t-1 to t, the group held fixed (build_iv_predicted.py);
+	// own income does not follow it, so only the direct regression, per $10k of group income
+	preserve
+	use household_code panel_year d_iv_frozen using "$idir/panel_dataset/iv_predicted.dta", clear
+	ren household_code hhid
+	ren panel_year year
+	tempfile fz
+	save `fz'
+	restore
+	merge 1:1 hhid year using `fz', keep(master match) nogen
+	gen double d_ivf = d_iv_frozen / 10
+	di _n "group held at its t-1 value, main fixed effects, per $10k of group income"
+	foreach y in sz_t sz_f dsz_f sz_3 sz_b {
+		capture quietly reghdfe `y' d_ivf [pw = projection_factor] if movers_f == 0 & clean == 1, absorb(`FE') cluster(fips)
+		if _rc {
+			di as error "`y' failed, rc " _rc
+			continue
+		}
+		di "`y': " %8.3f _b[d_ivf] " (" %7.3f _se[d_ivf] ")  N " e(N)
+	}
+	di "build_iv_robustness.do size complete"
 	exit
 }
 
