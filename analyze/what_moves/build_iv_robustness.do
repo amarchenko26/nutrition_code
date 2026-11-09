@@ -19,12 +19,10 @@
 //   predicted (predicted-share instrument, labor_supply/26_); baseline_occ (occupation frozen at first panel year);
 //   bls (national OEWS wage of the occupation); acs (ACS cell income);
 //   k2, k3, k5, k8 (k-year change in the outcome ending at t+1 on the k-year change in income and instrument ending
-//   at t, employed at t-k); long_all, long_emp, long_empboth, long_size, long_empbothsize (first two years against last two,
-//   8+ years apart: all households; employed at the start; employed at the start and at the end; same household size;
-//   employed at both ends and same size);
+//   at t, employed at t-k);
 //   q1-q4 (quartile of income in the household's first panel year).
 //
-// `do build_iv_robustness.do <outcome>` writes interim/what_moves/iv_robustness_<outcome>.csv (`<outcome> longonly` adds only the long rows).
+// `do build_iv_robustness.do <outcome>` writes interim/what_moves/iv_robustness_<outcome>.csv.
 // `do build_iv_robustness.do unpack` writes interim/what_moves/iv_unpack.csv: for the main regression, the exact
 // shares of the numerator (outcome on the group-income change) and of the denominator (own income on the group-income
 // change) by type of cell change, after the fixed effects; and the year-by-year path for stayers and switchers.
@@ -288,43 +286,4 @@ foreach k in 2 3 5 8 {
 	drop dk_inc dk_iv dk_y clean_k size_k
 }
 }
-// long differences: first two years against last two, 8+ years apart
-preserve
-keep if movers_f == 0
-bys hhid (year): gen int _n1 = _n
-bys hhid (year): gen int _nN = _N - _n
-gen byte _early = _n1 <= 2
-gen byte _late = _nN <= 1
-keep if _early | _late
-gen byte emp_x = emp_cell == 1
-collapse (mean) yy = `v' real_income iv_income_fips avg_age_hh_head hh_size emp_x (min) y0 = year (max) y1 = year (firstnm) fips projection_factor [aw = projection_factor], by(hhid _late)
-reshape wide yy real_income iv_income_fips avg_age_hh_head hh_size emp_x y0 y1 fips projection_factor, i(hhid) j(_late)
-keep if y01 - y00 >= 8
-gen dy = yy1 - yy0
-gen dinc = real_income1 - real_income0
-gen div = (iv_income_fips1 - iv_income_fips0) / 10
-gen byte age0 = floor(avg_age_hh_head0 / 5)
-local size_c = cond("`v'" == "cals_ae_day", "abs(hh_size1 - hh_size0) < 0.01", "1")
-local slist "all emp empboth size empbothsize"
-if "`mode'" == "longsize" local slist "size empbothsize"
-foreach s of local slist {
-	local cond "`size_c'"
-	if "`s'" == "emp" local cond "`cond' & emp_x0 == 1"
-	if inlist("`s'", "empboth", "empbothsize") local cond "`cond' & emp_x0 == 1 & emp_x1 == 1"
-	// same mean household size in the first two and the last two years
-	if inlist("`s'", "size", "empbothsize") local cond "`cond' & abs(hh_size1 - hh_size0) < 0.01"
-	capture ivreghdfe dy (dinc = div) [pw = projection_factor0] if `cond', absorb(y00 y01 age0) cluster(fips0)
-	if _rc == 0 {
-		file open fh using "$OUT", write append
-		file write fh "`v',long_`s',main," (_b[dinc]) "," (_se[dinc]) "," (e(widstat)) "," (e(N)) _n
-		file close fh
-		di "`v' long_`s': " %8.3f _b[dinc] " (" %7.3f _se[dinc] ") F " %6.1f e(widstat) " N " e(N)
-	}
-	quietly reghdfe dy dinc [pw = projection_factor0] if `cond', absorb(y00 y01 age0) cluster(hhid)
-	file open fh using "$OUT", write append
-	file write fh "`v',long_`s',ols," (_b[dinc]) "," (_se[dinc]) ",," (e(N)) _n
-	file close fh
-	di "`v' long_`s' without the instrument: " %8.3f _b[dinc] " (" %7.3f _se[dinc] ")"
-}
-restore
 di "build_iv_robustness.do `v' complete"

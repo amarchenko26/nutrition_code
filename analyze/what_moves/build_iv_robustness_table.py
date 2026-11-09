@@ -25,10 +25,7 @@ ROWS = [
                         ('stayers', r'Group does not change from $t-1$ to $t$'), ('switchers', r'Group changes from $t-1$ to $t$'), ('switch_noNE', 'Group changes, not into not employed')]),
     (r'D. Instrument', [('no_size_bin', 'Group without the size bin'), ('baseline_occ', 'Occupation frozen at the first panel year'), ('predicted', 'Predicted group from $t-1$ characteristics'),
                         ('acs', 'Group income from the ACS'), ('bls', 'National wage of the occupation (BLS)')]),
-    (r'E. Longer changes', [('k2', r'Changes over 2 years'), ('k3', r'Changes over 3 years'), ('k5', r'Changes over 5 years'), ('k8', r'Changes over 8 years'),
-                                                         ('long_all', 'First two years against last two, 8+ years apart, all households'),
-                                                         ('long_emp', 'Same, employed at the start'), ('long_empboth', 'Same, employed at the start and the end'),
-                                                         ('long_size', 'Same, same household size at the start and the end'), ('long_empbothsize', 'Same, employed at both ends and same size')]),
+    (r'E. Longer changes', [('k2', r'Changes over 2 years'), ('k3', r'Changes over 3 years'), ('k5', r'Changes over 5 years'), ('k8', r'Changes over 8 years')]),
     (r'F. Quartile of income in the first panel year', [('q1', 'Bottom'), ('q2', 'Second'), ('q3', 'Third'), ('q4', 'Top')]),
 ]
 
@@ -57,7 +54,7 @@ def main():
         # these outcomes come from the panel of analyze/movers/1_, which holds non-movers only
         if o != 'hei_usda' and spec == 'geo_movers':
             return ''
-        if x is None or x['f'] != x['f'] and not spec.startswith('long'):
+        if x is None or x['f'] != x['f']:
             return ''
         # no estimate when the first stage is zero
         if not np.isnan(x['f']) and x['f'] < 1:
@@ -86,8 +83,6 @@ def main():
     bf = d[(d['window'] == 'before') & (d['f'] >= 1) & d['spec'].isin(shown)].copy()
     bf['p'] = 2 * (1 - norm.cdf((bf['b'] / bf['se']).abs()))
     print('tests on purchases from t-3 to t-2 with p < 0.05:', bf.loc[bf['p'] < 0.05, ['outcome', 'spec', 'b', 'se', 'p']].round(3).to_dict('records'), 'of', len(bf))
-    # without the instrument, long changes
-    print(d[(d['window'] == 'ols')].round(3).to_string(index=False))
 
     # ---- where the estimate comes from, printed
     u = pd.read_csv(WM / 'iv_unpack.csv')
