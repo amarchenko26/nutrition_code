@@ -22,6 +22,7 @@ while not (_r / "paths.py").exists():
     _r = _r.parent
 sys.path.insert(0, str(_r))
 from paths import *
+from utils.hei_units import to_sd, hei_sd, hei_mean_sd
 
 import shutil
 import pandas as pd
@@ -34,7 +35,7 @@ plt.rcParams.update({'font.size': 22, 'axes.labelsize': 22, 'axes.titlesize': 21
                      'legend.fontsize': 21, 'axes.spines.top': False, 'axes.spines.right': False})
 CONDS = [('diabetes', 'Type-2 diabetes'), ('hypertension', 'Hypertension'), ('cholesterol', 'High cholesterol'),
          ('heart', 'Heart disease'), ('obesity', 'Obesity')]
-MAIN = [('hei_usda', 'HEI', 'points'), ('sugar_1000', 'Sugar per 1,000 kcal', 'grams'), ('sodium_1000', 'Sodium per 1,000 kcal', 'mg'),
+MAIN = [('hei_usda', 'HEI', 'SD'), ('sugar_1000', 'Sugar per 1,000 kcal', 'grams'), ('sodium_1000', 'Sodium per 1,000 kcal', 'mg'),
         ('soda_share', 'Soda share of spending', 'pct. points'), ('cals_ae_day', 'Calories per adult per day', 'kcal'),
         ('upf_share', 'Ultra-processed share', 'pct. points'), ('produce_share', 'Produce share of calories', 'pct. points')]
 GRID = [m for m in MAIN if m[0] in ('hei_usda', 'sugar_1000', 'cals_ae_day', 'upf_share')]
@@ -52,7 +53,8 @@ def load():
         pd.concat([pd.read_csv(f) for f in sorted(parts.glob('coefs_*.csv'))]).to_csv(W / 'diagnosis_events_coefs.csv', index=False)
         pd.concat([pd.read_csv(f) for f in sorted(parts.glob('summary_*.csv'))]).to_csv(W / 'diagnosis_events_summary.csv', index=False)
         shutil.rmtree(parts)
-    return pd.read_csv(W / 'diagnosis_events_coefs.csv'), pd.read_csv(W / 'diagnosis_events_summary.csv')
+    # HEI in standard deviations, the paper's unit
+    return to_sd(pd.read_csv(W / 'diagnosis_events_coefs.csv')), to_sd(pd.read_csv(W / 'diagnosis_events_summary.csv'))
 
 
 def pick(df, cond, regime, outcome):
@@ -77,7 +79,7 @@ def fig_events(coefs, summ):
             ax = axes[i, j]
             event_lines(ax, coefs, c, o)
             s = pick(summ, c, 'dated', o).iloc[0]
-            head = f'{s["post"]:+.2f} ({s["post_se"]:.2f})' if abs(s['post']) < 100 else f'{s["post"]:+.0f} ({s["post_se"]:.0f})'
+            head = f'{s["post"]:+.3f} ({s["post_se"]:.3f})' if o == 'hei_usda' else f'{s["post"]:+.2f} ({s["post_se"]:.2f})' if abs(s['post']) < 100 else f'{s["post"]:+.0f} ({s["post_se"]:.0f})'
             ax.set_title((f'{olab}\n' if i == 0 else '') + f'after {head}', fontsize=21)
             if j == 0:
                 ax.set_ylabel(f'{clab}\n{int(s["n_events"]):,} households\n\nchange ({unit})')
@@ -110,6 +112,8 @@ def fig_products(coefs, summ):
 
 
 def cell(s, a='post', b='post_se'):
+    if s['outcome'] == 'hei_usda':
+        return f'{s[a]:.3f} ({s[b]:.3f})'
     return f'{s[a]:.0f} ({s[b]:.0f})' if abs(s[a]) >= 100 or s[b] >= 5 else f'{s[a]:.2f} ({s[b]:.2f})'
 
 
@@ -120,7 +124,7 @@ def table_events(summ):
                           ('first', 'Panel B: first survey report of the condition')]:
         out.append(f'\\multicolumn{{{len(MAIN) + 1}}}{{l}}{{\\textit{{{title}}}}} \\\\')
         means = [summ[(summ['regime'] == regime) & (summ['outcome'] == o)]['mean_m1'].mean() for o, _, _ in MAIN]
-        out.append('Mean, year before diagnosis & ' + ' & '.join(f'{m:,.1f}' for m in means) + ' \\\\')
+        out.append('Mean, year before diagnosis & ' + ' & '.join(f'{m:,.2f}' if o == 'hei_usda' else f'{m:,.1f}' for m, (o, _, _) in zip(means, MAIN)) + ' \\\\')
         for c, clab in CONDS:
             rows = [pick(summ, c, regime, o).iloc[0] for o, _, _ in MAIN]
             n = max(int(r['n_events']) for r in rows)

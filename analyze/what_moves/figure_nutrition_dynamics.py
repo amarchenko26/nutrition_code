@@ -32,6 +32,7 @@ while not (_r / "paths.py").exists():
     _r = _r.parent
 sys.path.insert(0, str(_r))
 from paths import *
+from utils.hei_units import to_sd, hei_sd, hei_mean_sd
 
 import numpy as np
 import pandas as pd
@@ -48,11 +49,11 @@ BLUE, RED, ORANGE, GREY = '#2c5f8a', '#a63d40', '#fc8d59', '#999999'
 plt.rcParams.update({'font.size': 14, 'axes.labelsize': 15, 'axes.titlesize': 15, 'xtick.labelsize': 13,
                      'ytick.labelsize': 13, 'legend.fontsize': 12, 'axes.spines.top': False, 'axes.spines.right': False})
 
-OUTCOMES = [('hei_usda', 'HEI (0-100)'), ('hi_allcott', 'Simple index (SD units)'), ('sugar_1000', 'Sugar, g per 1,000 kcal'),
+OUTCOMES = [('hei_z', 'HEI (SD)'), ('hi_allcott', 'Simple index (SD units)'), ('sugar_1000', 'Sugar, g per 1,000 kcal'),
             ('sodium_1000', 'Sodium, mg per 1,000 kcal'), ('produce_share', 'Produce share of calories (%)'),
             ('upf_share', 'Ultra-processed share of calories (%)'), ('cals_ae_day', 'Calories per adult equivalent per day'),
             ('sugar_usda_1000', 'Sugar, g per 1,000 kcal (USDA labels)'), ('soda_spend_share', 'Soda share of grocery spending (%)')]
-DRIFT_OUTCOMES = [('hei_usda', 'HEI', 'HEI points', ''), ('sugar_1000', 'sugar per 1,000 kcal (Syndigo labels)', 'grams', '_sugar'),
+DRIFT_OUTCOMES = [('hei_z', 'HEI (SD)', 'SD', ''), ('sugar_1000', 'sugar per 1,000 kcal (Syndigo labels)', 'grams', '_sugar'),
                   ('sugar_usda_1000', 'sugar per 1,000 kcal (USDA labels)', 'grams', '_sugar_usda'),
                   ('soda_spend_share', 'soda share of grocery spending', 'pct. points', '_soda')]
 
@@ -76,6 +77,8 @@ def load():
     df = pan.merge(hei, on=['household_code', 'panel_year'], how='left').merge(nova, on=['household_code', 'panel_year'], how='left') \
             .merge(reg, on=['household_code', 'panel_year'], how='left')
     df['sugar_1000'] = df['sugar_per_1000cal']
+    mean, sd = hei_mean_sd()
+    df['hei_z'] = (df['hei_usda'] - mean) / sd     # HEI in standard deviations, the paper's unit
     df['sugar_usda_1000'] = df['sugar_per_1000cal_usda']
     df['soda_spend_share'] = 100 * df['spend_soda'] / df['spend_total']
     df['sodium_1000'] = 1000 * df['sodium_per_1000cal']

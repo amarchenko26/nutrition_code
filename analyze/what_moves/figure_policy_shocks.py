@@ -10,6 +10,7 @@ while not (_r / "paths.py").exists():
     _r = _r.parent
 sys.path.insert(0, str(_r))
 from paths import *
+from utils.hei_units import to_sd, hei_sd, hei_mean_sd
 
 import pandas as pd
 import matplotlib
@@ -19,7 +20,7 @@ import matplotlib.pyplot as plt
 BLUE, GREY = '#2c5f8a', '#7a7a7a'
 plt.rcParams.update({'font.size': 14, 'axes.labelsize': 15, 'axes.titlesize': 13, 'xtick.labelsize': 12, 'ytick.labelsize': 12,
                      'axes.spines.top': False, 'axes.spines.right': False})
-NAMES = {'hei_usda': 'HEI (points)', 'produce_share': 'Produce share of calories (pct. points)', 'produce_spend_share': 'Produce share of spending (pct. points)',
+NAMES = {'hei_usda': 'HEI (SD)', 'produce_share': 'Produce share of calories (pct. points)', 'produce_spend_share': 'Produce share of spending (pct. points)',
          'whole_share': 'Whole-grain share of bread (pct. points)', 'sugar_1000': 'Sugar, g per 1,000 kcal', 'upf_share': 'Ultra-processed share of calories (pct. points)',
          'cals_ae_day': 'Calories per adult equivalent per day', 'real_income': 'Household income ($10k)', 'sodium_1000': 'Sodium, mg per 1,000 kcal'}
 
@@ -44,7 +45,7 @@ def grid(d, design, outs, base, line, title, path):
 
 
 def main():
-    d = pd.read_csv(idir / 'what_moves' / 'policy_shock_coefs.csv')
+    d = to_sd(pd.read_csv(idir / 'what_moves' / 'policy_shock_coefs.csv'))     # HEI in standard deviations, the paper's unit
     grid(d, 'wic', ['hei_usda', 'produce_share', 'produce_spend_share', 'whole_share', 'sugar_1000', 'upf_share'], '2008', 2009.5,
          'Households on WIC before the October 2009 food-package change vs low-income households with young children', fdir / 'what_moves' / 'prices' / 'wic_package.png')
     grid(d, 'covid_white', ['hei_usda', 'upf_share', 'cals_ae_day', 'produce_share', 'sugar_1000', 'real_income'], '2019', 2019.5,

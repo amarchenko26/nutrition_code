@@ -10,6 +10,7 @@ while not (_r / "paths.py").exists():
     _r = _r.parent
 sys.path.insert(0, str(_r))
 from paths import *
+from utils.hei_units import to_sd, hei_sd, hei_mean_sd
 
 import pandas as pd
 import matplotlib
@@ -21,13 +22,14 @@ plt.rcParams.update({'font.size': 13, 'axes.labelsize': 14, 'axes.titlesize': 12
                      'axes.spines.top': False, 'axes.spines.right': False})
 EVENTS = [('emptynest', 'The last child leaves'), ('birth', 'A young child arrives'), ('partner', 'A second head joins'),
           ('split', 'A couple separates'), ('widowed', 'A head dies')]
-OUT = [('hei_usda', 'HEI (points)'), ('upf_share', 'Ultra-processed share of calories (pct. points)'), ('cals_ae_day', 'Calories per adult equivalent per day'),
+OUT = [('hei_usda', 'HEI (SD)'), ('upf_share', 'Ultra-processed share of calories (pct. points)'), ('cals_ae_day', 'Calories per adult equivalent per day'),
        ('produce_share', 'Produce share of calories (pct. points)'), ('sugar_1000', 'Sugar, g per 1,000 kcal'), ('real_income', 'Household income ($10k)')]
 
 
 def main():
     c = pd.read_csv(idir / 'what_moves' / 'family_events_coefs.csv')
     s = pd.read_csv(idir / 'what_moves' / 'family_events_summary.csv')
+    c, s = to_sd(c), to_sd(s)     # HEI in standard deviations, the paper's unit
     fig, axes = plt.subplots(len(EVENTS), len(OUT), figsize=(26, 19), sharex=True)
     fig.subplots_adjust(hspace=0.42, wspace=0.28)
     for i, (ev, evt) in enumerate(EVENTS):
@@ -42,7 +44,8 @@ def main():
             ax.plot(d.r, d.b, color=BLUE, lw=2.2, marker='o', ms=4)
             ax.fill_between(d.r, d.b - 1.96 * d.se, d.b + 1.96 * d.se, color=BLUE, alpha=0.15, lw=0)
             ax.axhline(0, color=GREY, lw=1, ls='--'); ax.axvline(-0.5, color=GREY, lw=1, ls=':')
-            ax.set_title(f'{evt if j == 0 else ""}{" · " if j == 0 else ""}{ot}\npost {r.jump:+.2f} ({r.jump_se:.2f}), before-move p = {r.p_pretrend:.2f}', fontsize=10.5)
+            k = 3 if o == 'hei_usda' else 2
+            ax.set_title(f'{evt if j == 0 else ""}{" · " if j == 0 else ""}{ot}\npost {r.jump:+.{k}f} ({r.jump_se:.{k}f}), before-move p = {r.p_pretrend:.2f}', fontsize=10.5)
     for ax in axes[-1]:
         ax.set_xlabel('Year relative to the change')
     out = fdir / 'what_moves' / 'family' / 'family_events.png'
@@ -53,12 +56,12 @@ def main():
     cols = ['hei_usda', 'upf_share', 'cals_ae_day', 'produce_share', 'sugar_1000', 'real_income']
     lines = ['\\begin{tabular}{lrr' + 'c' * len(cols) + '}', '\\toprule',
              'Change & Households & Comparison & HEI & Ultra-proc. & Calories & Produce & Sugar & Income \\\\',
-             ' & & households & (points) & (pct. pts) & per AE/day & (pct. pts) & (g/1,000 kcal) & (\\$10k) \\\\', '\\midrule']
+             ' & & households & (SD) & (pct. pts) & per AE/day & (pct. pts) & (g/1,000 kcal) & (\\$10k) \\\\', '\\midrule']
     for ev, evt in EVENTS:
         x = s[s.event == ev].set_index('outcome')
         if x.empty:
             continue
-        fmt = {'cals_ae_day': 0}
+        fmt = {'cals_ae_day': 0, 'hei_usda': 3}
         row = [f'{x.loc[o, "jump"]:+.{fmt.get(o, 2)}f}' for o in cols]
         se = [f'({x.loc[o, "jump_se"]:.{fmt.get(o, 2)}f})' for o in cols]
         lines.append(f'{evt} & {int(x.n_events.iloc[0]):,} & {int(x.n_controls.iloc[0]):,} & ' + ' & '.join(row) + ' \\\\')

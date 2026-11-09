@@ -21,6 +21,7 @@ while not (_r / "paths.py").exists():
     _r = _r.parent
 sys.path.insert(0, str(_r))
 from paths import *
+from utils.hei_units import to_sd, hei_sd, hei_mean_sd
 
 import pandas as pd
 import matplotlib
@@ -36,9 +37,9 @@ plt.rcParams.update({'font.size': 24, 'axes.labelsize': 24, 'axes.titlesize': 26
 
 EVENTS = ['retirement', 'job loss', 'hours cut', 're-employment', 'hours increase']
 EVENT_TITLES = {'retirement': 'Retirement', 'job loss': 'Job loss', 'hours cut': 'Hours cut', 're-employment': 'Re-employment', 'hours increase': 'Hours increase'}
-FIG_OUTCOMES = [('real_income', 'Income ($10k)'), ('hei_usda', 'HEI (points)'), ('prep_time_raw', 'Preparation score'),
+FIG_OUTCOMES = [('real_income', 'Income ($10k)'), ('hei_usda', 'HEI (SD)'), ('prep_time_raw', 'Preparation score'),
                 ('upf_share', 'Ultra-processed\nshare (pct. pts)'), ('price_1000', 'Price paid per\n1,000 kcal ($)'), ('cals_ae_day', 'Calories per adult\nequivalent per day'), ('n_trips', 'Trips per year')]
-TAB_OUTCOMES = [('real_income', 'Household income (\\$10k)', 2), ('hei_usda', 'HEI (points)', 2), ('prep_time_raw', 'Preparation-time score (1--9)', 3),
+TAB_OUTCOMES = [('real_income', 'Household income (\\$10k)', 2), ('hei_usda', 'HEI (SD)', 3), ('prep_time_raw', 'Preparation-time score (1--9)', 3),
                 ('upf_share', 'Ultra-processed share of calories (\\%)', 2), ('produce_share', 'Produce share of calories (\\%)', 2),
                 ('sugar_1000', 'Sugar per 1,000 kcal (g)', 2), ('price_1000', 'Price paid per 1,000 kcal, all food (2013\\$)', 3), ('price_upf_1000', 'Price paid per 1,000 kcal, ultra-processed (2013\\$)', 3),
                 ('price_other_1000', 'Price paid per 1,000 kcal, other food (2013\\$)', 3), ('cals_ae_day', 'Calories per adult equivalent per day', 1), ('n_trips', 'Trips with food per year', 1),
@@ -63,7 +64,7 @@ def fig_grid(c, s):
             ax.plot(b['r'], b['b'], color=ORANGE, lw=3, ls='--', marker='s', ms=6, label='movers observed in every year from $-2$ to $2$')
             ax.axhline(0, color=GREY, lw=1.2, ls='--'); ax.axvline(-0.5, color=GREY, lw=1.2, ls=':')
             ax.set_xticks([-4, -2, 0, 2, 4])
-            dec = 3 if y in ('prep_time_raw', 'price_1000') else (0 if y in ('cals_ae_day',) else (1 if y == 'n_trips' else 2))
+            dec = 3 if y in ('prep_time_raw', 'price_1000', 'hei_usda') else (0 if y in ('cals_ae_day',) else (1 if y == 'n_trips' else 2))
             ax.text(0.03, 0.97, f'post {r["jump"]:+.{dec}f} ({r["jump_se"]:.{dec}f})\npre-trend p {r["p_pretrend"]:.2f}', transform=ax.transAxes, va='top', fontsize=19)
             if j == 0:
                 ax.set_ylabel(lab)
@@ -158,6 +159,7 @@ def main():
             for f in parts:
                 f.unlink()
     c = pd.read_csv(BASE / 'time_events_coefs.csv'); s = pd.read_csv(BASE / 'time_events_summary.csv')
+    c, s = to_sd(c), to_sd(s)     # HEI in standard deviations, the paper's unit
     fig_grid(c, s); table_main(s); table_checks(s); table_by_head(s)
 
 

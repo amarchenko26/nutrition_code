@@ -9,6 +9,7 @@ while not (_r / "paths.py").exists():
     _r = _r.parent
 sys.path.insert(0, str(_r))
 from paths import *
+from utils.hei_units import to_sd, hei_sd, hei_mean_sd
 
 import numpy as np
 import pandas as pd
@@ -16,7 +17,7 @@ import pyreadstat
 from scipy.stats import norm
 
 WM = idir / 'what_moves'
-OUTS = [('hei_usda', 2), ('upf_share', 2), ('produce_share', 2), ('cals_ae_day', 1)]
+OUTS = [('hei_usda', 3), ('upf_share', 2), ('produce_share', 2), ('cals_ae_day', 1)]
 ROWS = [
     (r'A. Fixed effects', [('main', r'Main: household and state-by-year'), ('hh_year', 'Household and year')]),
     (r'B. Purchase window, same income change', [('level_t', r'$t-1$ to $t$'), ('twoyear', r'$t-1$ to $t+1$')]),
@@ -41,6 +42,7 @@ def est(x, dec):
 
 def main():
     d = pd.concat([pd.read_csv(WM / f'iv_robustness_{o}.csv') for o, _ in OUTS], ignore_index=True)
+    d = to_sd(d)     # HEI in standard deviations, the paper's unit
 
     def get(o, spec, window='main'):
         x = d[(d['outcome'] == o) & (d['spec'] == spec) & (d['window'] == window)]
@@ -62,13 +64,13 @@ def main():
         return est(x, dec)
 
     tex = [r'\begin{tabular}{lccccccc}', r'\toprule', r' & HEI & HEI, purchases & Ultra-processed & Produce & Calories per & First- & Household- \\',
-           r'Specification & (points) & before ($t-3$ to $t-2$) & (\% of calories) & (\% of calories) & adult eq. per day & stage F & years \\']
+           r'Specification & (SD) & before ($t-3$ to $t-2$) & (\% of calories) & (\% of calories) & adult eq. per day & stage F & years \\']
     for panel, rows in ROWS:
         tex += [r'\midrule', rf'\multicolumn{{8}}{{l}}{{\textit{{{panel}}}}} \\']
         for spec, lab in rows:
-            cells = [cell('hei_usda', spec, 2)]
+            cells = [cell('hei_usda', spec, 3)]
             b = get('hei_usda', spec, 'before')
-            cells.append('' if b is None or b['f'] < 1 else est(b, 2))
+            cells.append('' if b is None or b['f'] < 1 else est(b, 3))
             for o, dec in OUTS[1:]:
                 cells.append(cell(o, spec, dec))
             x = get('hei_usda', spec)

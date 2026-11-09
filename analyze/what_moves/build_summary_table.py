@@ -18,6 +18,7 @@ while not (_r / "paths.py").exists():
     _r = _r.parent
 sys.path.insert(0, str(_r))
 from paths import *
+from utils.hei_units import to_sd, hei_sd, hei_mean_sd
 
 import numpy as np
 import pandas as pd
@@ -26,7 +27,7 @@ from scipy.stats import norm
 WM = idir / 'what_moves'
 MV = idir / 'movers'
 OUTCOMES = ['hei', 'sugar', 'upf', 'kcal']
-DEC = {'hei': 2, 'sugar': 2, 'upf': 2, 'kcal': 1}
+DEC = {'hei': 3, 'sugar': 2, 'upf': 2, 'kcal': 1}
 DAGGER = r'$^{\dagger}$'
 
 
@@ -34,13 +35,13 @@ def two_sided(b, se):
     return 2 * (1 - norm.cdf(abs(b / se)))
 
 
-def cell(x, out):
+def cell(x, out, dec=None):
     """x = (b, se) or (b, se, p)."""
     b, se = x[0], x[1]
     p = x[2] if len(x) > 2 else np.nan
     if pd.isna(b) or pd.isna(se):
         return ''
-    d = DEC[out]
+    d = DEC[out] if dec is None else dec
     pz = two_sided(b, se)
     st = '***' if pz < 0.01 else '**' if pz < 0.05 else '*' if pz < 0.10 else ''
     return f'{b:.{d}f}' + (f'$^{{{st}}}$' if st else '') + f' ({se:.{d}f})' + (DAGGER if not pd.isna(p) and p < 0.05 else '')
@@ -62,22 +63,31 @@ def pick(df, names, b, se, p=None, **filters):
 def scale_rows():
     """Mean, SD of household means and SD of annual changes, from the dynamics table."""
     txt = (tdir / 'what_moves' / 'dynamics_variance.tex').read_text()
-    keys = {'hei': 'HEI (0-100)', 'sugar': 'Sugar, g per 1,000 kcal (USDA labels)', 'upf': 'Ultra-processed share of calories', 'kcal': 'Calories per adult equivalent per day'}
+    keys = {'hei': 'HEI (SD)', 'sugar': 'Sugar, g per 1,000 kcal (USDA labels)', 'upf': 'Ultra-processed share of calories', 'kcal': 'Calories per adult equivalent per day'}
     vals = {}
     for k, lab in keys.items():
         line = [l for l in txt.splitlines() if l.startswith(lab)][0]
         c = [x.strip().replace(',', '') for x in line.split('&')]
         vals[k] = (float(c[1]), float(c[2]), float(c[3]))
-    fmt = lambda v, k: f'{v:,.0f}' if k == 'kcal' else f'{v:.1f}'
-    return [('Mean', {k: fmt(vals[k][0], k) for k in OUTCOMES}),
+    fmt = lambda v, k: f'{v:,.0f}' if k == 'kcal' else f'{v:.2f}' if k == 'hei' else f'{v:.1f}'
+    # HEI is standardized to mean 0 (projection-weighted household-years); the other means are the dynamics table's
+    return [('Mean', {k: ('0' if k == 'hei' else fmt(vals[k][0], k)) for k in OUTCOMES}),
             ('Standard deviation of household means', {k: fmt(vals[k][1], k) for k in OUTCOMES}),
             ('Standard deviation of one-year changes', {k: fmt(vals[k][2], k) for k in OUTCOMES})]
 
 
 def main():
     rows = []
+    sd = hei_sd()
     def add(panel, label, vals, sign=1.0):
-        rows.append({'panel': panel, 'label': label, **{k: cell((sign * vals[k][0],) + tuple(vals[k][1:]), k) if k in vals else '' for k in OUTCOMES}})
+        # HEI in standard deviations, the paper's unit, except the shares of a gap in panel F, which have no unit
+        share = panel.startswith('F.')
+        def one(k):
+            b, se = sign * vals[k][0], vals[k][1]
+            if k == 'hei' and not share:
+                b, se = b / sd, se / sd
+            return cell((b, se) + tuple(vals[k][2:]), k, 2 if (k == 'hei' and share) else None)
+        rows.append({'panel': panel, 'label': label, **{k: one(k) if k in vals else '' for k in OUTCOMES}})
 
     for lab, v in scale_rows():
         rows.append({'panel': 'Scale of the outcomes', 'label': lab, **v})
@@ -156,7 +166,7 @@ def main():
 
     d = pd.DataFrame(rows)
     print(d.to_string(index=False))
-    tex = [r'\begin{tabular}{p{0.52\linewidth}cccc}', r'\toprule', r' & HEI & Sugar & Ultra-processed & Calories \\', r' & (points, 0--100) & (g per 1,000 kcal) & (\% of calories) & (per adult eq. per day) \\']
+    tex = [r'\begin{tabular}{p{0.52\linewidth}cccc}', r'\toprule', r' & HEI & Sugar & Ultra-processed & Calories \\', r' & (SD) & (g per 1,000 kcal) & (\% of calories) & (per adult eq. per day) \\']
     for p, g in d.groupby('panel', sort=False):
         tex += [r'\midrule', rf'\multicolumn{{5}}{{l}}{{\textit{{{p}}}}} \\']
         for _, x in g.iterrows():

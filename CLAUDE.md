@@ -311,6 +311,15 @@ Final check on the rebuilt panels (2026-11-06): household score from Syndigo lab
 
 ## Health Index (main outcome)
 
+RULE (Anya 2026-11-09): the paper's outcome is HEI standardized to mean 0 and SD 1 across household-years, the standardization of
+analyze/labor_supply/12_ (projection-weighted, non-mover household-years; one SD is 9.73 points), as Allcott et al. standardize their
+index. Every HEI estimate in the paper, tables, figures and text, is in SD; `utils/hei_units.py` (`to_sd`, `hei_sd`) converts results
+estimated in points. Points only where a passage describes the measure itself (the cleaning appendix). Converted on 2026-11-09:
+build_summary_table, build_iv_robustness_table, figure_time_events, figure_family_events, figure_diagnosis_events, figure_policy_shocks,
+figure_soda_tax, figure_local_prices, figure_nutrition_dynamics (variance table and cohort figure), build_hei_scale, 6_ (life events and the
+per-$10k panel of the income movers figure). Not converted: notes/movers.tex and the other figures of the labor-supply note (other_switches,
+the reduced form, the income levels figures), which report HEI points.
+
 Allcott et al. (2019): fixed positive score for fruit/veg modules; for all else,
 `fiber/29.5 − sugar/32.8 − satfat/17.2 − sodium/2.3 − chol/0.3` per 100 g → per-1,000 kcal →
 calorie-weighted to household-year → standardized. Produce/whole-grain flags come from Nielsen

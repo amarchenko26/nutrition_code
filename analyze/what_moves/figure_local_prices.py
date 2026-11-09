@@ -18,6 +18,7 @@ while not (_r / "paths.py").exists():
     _r = _r.parent
 sys.path.insert(0, str(_r))
 from paths import *
+from utils.hei_units import to_sd, hei_sd, hei_mean_sd
 
 import numpy as np
 import pandas as pd
@@ -32,7 +33,7 @@ FIG.mkdir(parents=True, exist_ok=True); TAB.mkdir(parents=True, exist_ok=True)
 plt.rcParams.update({'font.size': 15, 'axes.labelsize': 16, 'axes.titlesize': 15, 'xtick.labelsize': 14,
                      'ytick.labelsize': 14, 'legend.fontsize': 12.5, 'axes.spines.top': False, 'axes.spines.right': False})
 WM = idir / 'what_moves'
-ROWS = [('hei_usda', 'hi', 'Full HEI (points)'), ('hei_usda', 'upf', 'Full HEI (points)'), ('hei_usda', 'prep', 'Full HEI (points)'),
+ROWS = [('hei_usda', 'hi', 'Full HEI (SD)'), ('hei_usda', 'upf', 'Full HEI (SD)'), ('hei_usda', 'prep', 'Full HEI (SD)'),
         ('upf_share', 'upf', 'Ultra-processed share of calories (pct. pts)'), ('prep_time_raw', 'prep', 'Basket preparation score'),
         ('hi_usda', 'hi', 'Simple index (SD)'), ('produce_share', 'hi', 'Produce share of calories (pct. pts)'),
         ('sugar_per_1000cal_usda', 'hi', 'Sugar, g per 1,000 kcal'), ('cals_ae_day', 'hi', 'Calories per adult eq. per day')]
@@ -69,9 +70,10 @@ def dispersion(cty, zip3):
 
 def long_difference():
     ld = pd.read_stata(WM / 'local_price_longdiff_county.dta')
+    ld['d_hei_usda'] = ld['d_hei_usda'] / hei_sd()     # HEI in standard deviations, the paper's unit
     fig, axes = plt.subplots(1, 2, figsize=(15, 5.8))
     for ax, (y, x, ylab, xlab) in zip(axes, [
-            ('d_hei_usda', 'd_rel_hi_ces', 'Change in HEI (points)', 'Change in healthy minus unhealthy price, log points'),
+            ('d_hei_usda', 'd_rel_hi_ces', 'Change in HEI (SD)', 'Change in healthy minus unhealthy price, log points'),
             ('d_upf_share', 'd_rel_upf_ces', 'Change in ultra-processed share (pct. points)', 'Change in ultra-processed minus not price, log points')]):
         d = ld[[y, x, 'w']].dropna().copy()
         d[x] = d[x] * 100
@@ -94,8 +96,14 @@ def long_difference():
 def timing_table():
     """tabs/what_moves/local_price_timing.tex: does the diet move before the local price (build_local_price_timing.do)? Cells are per 10 log points CHEAPER, as in local_price_regs."""
     t = pd.read_csv(WM / 'local_price_timing.csv')
+    # HEI in standard deviations, the paper's unit: divide where HEI is the outcome (part A), multiply where it is the regressor (part B)
+    sd = hei_sd()
+    for part, f in [('A', 1 / sd), ('B', sd)]:
+        m = (t['part'] == part) & (t['outcome'] == 'hei_usda') & (t['term'] != 'p_leads')
+        t.loc[m, 'b'] = t.loc[m, 'b'].astype(float) * f
+        t.loc[m, 'se'] = t.loc[m, 'se'].astype(float) * f
     cols = [('F2', 'Two years ahead'), ('F1', 'Next year'), ('cur', 'This year'), ('L1', 'Last year'), ('L2', 'Two years ago')]
-    rows = [('hei_usda', 'rel_hi_ces', 'HEI (points), healthy food, actual price'), ('hei_usda', 'z_rel_hi', 'HEI (points), healthy food, predicted price'),
+    rows = [('hei_usda', 'rel_hi_ces', 'HEI (SD), healthy food, actual price'), ('hei_usda', 'z_rel_hi', 'HEI (SD), healthy food, predicted price'),
             ('upf_share', 'rel_upf_ces', 'Ultra-processed share (pct. pts), ultra-processed food, actual price'), ('upf_share', 'z_rel_upf', 'Ultra-processed share (pct. pts), ultra-processed food, predicted price')]
     a = t[t['part'] == 'A']
     out = ['\\begin{tabular}{lcccccc}', '\\toprule', '\\multicolumn{7}{l}{\\textit{A. Household outcome when the food is 10 log points cheaper in the year shown, all five years in one regression}} \\\\',
@@ -104,14 +112,15 @@ def timing_table():
         cells = []
         for k, _ in cols:
             x = a[(a['outcome'] == y) & (a['price'] == p) & (a['term'] == k)].iloc[0]
-            cells.append(f'{-float(x.b) / 10:.2f} ({float(x.se) / 10:.2f})')
+            k = 3 if y == 'hei_usda' else 2
+            cells.append(f'{-float(x.b) / 10:.{k}f} ({float(x.se) / 10:.{k}f})')
         q = a[(a['outcome'] == y) & (a['price'] == p) & (a['term'] == 'p_leads')].iloc[0]
         out.append(lab + ' & ' + ' & '.join(cells) + f' & {float(q.b):.3f} \\\\')
     b = t[t['part'] == 'B']
     def bc(y, term):
         x = b[(b['outcome'] == y) & (b['term'] == term)].iloc[0]
         return float(x.b), float(x.se), int(float(x.N))
-    out += ['\\midrule', '\\multicolumn{7}{l}{\\textit{B. County-years: log points of the relative price per point of the mean household change in the outcome}} \\\\',
+    out += ['\\midrule', '\\multicolumn{7}{l}{\\textit{B. County-years: log points of the relative price per unit of the mean household change (one SD of HEI, one point of the share)}} \\\\',
             ' & Next year\'s price change & This year\'s price change & & & & County-years \\\\', '\\midrule']
     for y, lab in [('hei_usda', 'HEI change this year, healthy minus unhealthy price'), ('upf_share', 'Ultra-processed share change this year, ultra-processed minus other price')]:
         n1, n2 = bc(y, 'price_next_on_diet_now'), bc(y, 'price_now_on_diet_now')
@@ -194,12 +203,14 @@ def main():
     dispersion(cty, zip3)
     long_difference()
     rc = pd.read_csv(WM / 'local_price_regs_county.csv', na_values='.')
+    rc = to_sd(rc)     # HEI in standard deviations, the paper's unit
     table_county(rc)
     timing_table()
     print(rc.assign(fall10=-rc.b / 10, se10=rc.se / 10).drop(columns=['index', 'b', 'se']).round(4).to_string(index=False))
     zp = WM / 'local_price_regs_zip3.csv'
     if zp.exists():
         rz = pd.read_csv(zp, na_values='.')
+        rz = to_sd(rz)
         table_zip3(rz)
         print(rz.assign(fall10=-rz.b / 10, se10=rz.se / 10).drop(columns=['index', 'b', 'se', 'fs_F', 'fs_b', 'fs_se']).round(4).to_string(index=False))
 

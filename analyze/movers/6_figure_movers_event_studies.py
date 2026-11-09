@@ -39,6 +39,7 @@ while not (_r / "paths.py").exists():
     _r = _r.parent
 sys.path.insert(0, str(_r))
 from paths import *
+from utils.hei_units import to_sd, hei_sd, hei_mean_sd
 
 import numpy as np
 import matplotlib
@@ -313,13 +314,15 @@ def fig_income_movers(ic, mc=None):
     fig.subplots_adjust(wspace=0.34, bottom=0.27)
     specs = [('all', 'hei_usda', 'HEI on the quintile HEI gap', '$\\theta_r$: share of the HEI gap', (-0.6, 1.2)),
              ('income_all', 'real_income', 'Income on the quintile income gap', '$\\theta_r$: share of the income gap', (-0.4, 1.1)),
-             ('hei_per_inc_all', 'hei_usda', 'HEI per \\$10k of the quintile income gap', 'HEI points per \\$10k of the gap', None)]
+             ('hei_per_inc_all', 'hei_usda', 'HEI per \\$10k of the quintile income gap', 'HEI (SD) per \\$10k of the gap', None)]
     for ax, (spec, outcome, title, ylab, ylim) in zip(axes, specs):
         for tab, col, lab, mark in [(ic, BLUE, 'Movers only', 'o'), (mc, ORANGE, 'Against matched non-movers', 'D')]:
             if tab is None:
                 continue
             d = tab[(tab['spec'] == spec) & (tab['outcome'] == outcome)].sort_values('r')
             d = d[(d['r'] >= -6) & (d['r'] <= 6)]
+            if spec == 'hei_per_inc_all':
+                d = to_sd(d)     # HEI in standard deviations, the paper's unit
             ax.plot(d['r'], d['b'], color=col, lw=2.5, marker=mark, ms=6, label=lab)
             ax.fill_between(d['r'], d['b'] - 1.96 * d['se'], d['b'] + 1.96 * d['se'], color=col, alpha=0.15, lw=0)
         ax.axhline(0, color=GREY, lw=1, ls='--'); ax.axvline(-0.5, color=GREY, lw=1, ls=':')
@@ -367,6 +370,10 @@ def fig_other_switches(oc, os_):
 def fig_life_events(oc, os_):
     """life_events.png: birth, death and retirement from other_switches, one row, short titles, for 0_main.tex."""
     designs = [('birth', 'A child under 6 arrives'), ('death', 'A head dies'), ('retirement', 'Retirement')]
+    sd = hei_sd()     # HEI in standard deviations, the paper's unit
+    oc = oc.copy(); os_ = os_.copy()
+    oc.loc[oc['spec'] == 'points', ['b', 'se']] = oc.loc[oc['spec'] == 'points', ['b', 'se']] / sd
+    os_[['jump', 'jump_se', 'iv_implied', 'gap']] = os_[['jump', 'jump_se', 'iv_implied', 'gap']] / sd
     fig, axes = plt.subplots(1, 3, figsize=(16.5, 5.6), sharey=True)
     fig.subplots_adjust(wspace=0.08, bottom=0.26)
     for ax, (d, title) in zip(axes, designs):
@@ -381,7 +388,7 @@ def fig_life_events(oc, os_):
         ax.tick_params(labelsize=15)
         ax.set_title(title, fontsize=17)
         ax.set_xlabel('Year relative to the event', fontsize=16)
-    axes[0].set_ylabel('HEI points', fontsize=16)
+    axes[0].set_ylabel('HEI (SD)', fontsize=16)
     h, l = axes[0].get_legend_handles_labels()
     fig.legend(h, l, loc='lower center', ncol=2, frameon=False, fontsize=16, bbox_to_anchor=(0.5, 0.02))
     save(fig, 'life_events.png')

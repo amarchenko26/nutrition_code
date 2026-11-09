@@ -10,6 +10,7 @@ while not (_r / 'paths.py').exists():
     _r = _r.parent
 sys.path.insert(0, str(_r))
 from paths import *
+from utils.hei_units import to_sd, hei_sd, hei_mean_sd
 import pandas as pd, numpy as np
 import matplotlib
 matplotlib.use('Agg')
@@ -23,14 +24,15 @@ TAB = tdir / 'what_moves'
 FIG.mkdir(parents=True, exist_ok=True); TAB.mkdir(parents=True, exist_ok=True)
 OUT = [('soda_oz', 'Sugary soda bought, oz per household-year', 'oz'), ('home_share', 'Share of soda bought at stores in own zip3', 'pct. points'),
        ('soda_share', 'Soda share of grocery spending', 'pct. points'), ('sugar_per_1000cal_usda', 'Sugar per 1,000 kcal', 'grams'),
-       ('hei_usda', 'HEI', 'points'), ('upf_share', 'Ultra-processed share of calories', 'pct. points')]
+       ('hei_usda', 'HEI', 'SD'), ('upf_share', 'Ultra-processed share of calories', 'pct. points')]
 LAB = {'philadelphia': 'Philadelphia, 1.5 cents per oz from January 2017', 'cities': 'Berkeley, Albany, Oakland, Boulder, San Francisco, Seattle (2015-18)', 'cook': 'Cook County, 1 cent per oz, August-November 2017 only'}
 
 
 def panel(ax, c, s, group, color, label):
     d = c[(c['group'] == group)].sort_values('r')
     r = s[s['group'] == group].iloc[0]
-    ax.plot(d['r'], d['b'], color=color, lw=2.5, marker='o', ms=6, label=f'{label}: post {r["post"]:+.2f} (SE {r["post_se"]:.2f}), pre-trend p = {r["p_pre"]:.2f}')
+    k = 3 if r['outcome'] == 'hei_usda' else 2
+    ax.plot(d['r'], d['b'], color=color, lw=2.5, marker='o', ms=6, label=f'{label}: post {r["post"]:+.{k}f} (SE {r["post_se"]:.{k}f}), pre-trend p = {r["p_pre"]:.2f}')
     ax.fill_between(d['r'], d['b'] - 1.96 * d['se'], d['b'] + 1.96 * d['se'], color=color, alpha=0.15, lw=0)
 
 
@@ -56,7 +58,7 @@ def table(summ):
     for design, lab in [('philadelphia', 'Philadelphia 2017'), ('cities', 'Six cities 2015--18'), ('cook', 'Cook County 2017 (4 months)')]:
         for group, glab in [('treated', 'taxed'), ('adjacent', 'adjacent')]:
             s = summ[(summ.design == design) & (summ.group == group)].set_index('outcome')
-            cells = [f'{s.loc[o, "post"]:.2f} ({s.loc[o, "post_se"]:.2f})' if o in s.index else '' for o in ['soda_oz', 'home_share', 'soda_share', 'sugar_per_1000cal_usda', 'hei_usda', 'upf_share']]
+            cells = [f'{s.loc[o, "post"]:.{3 if o == "hei_usda" else 2}f} ({s.loc[o, "post_se"]:.{3 if o == "hei_usda" else 2}f})' if o in s.index else '' for o in ['soda_oz', 'home_share', 'soda_share', 'sugar_per_1000cal_usda', 'hei_usda', 'upf_share']]
             cells[0] = f'{s.loc["soda_oz", "post"]:.0f} ({s.loc["soda_oz", "post_se"]:.0f})' if 'soda_oz' in s.index else ''
             n = int(s.n_treated.iloc[0]) if group == 'treated' else (int(s.n_adjacent.iloc[0]) if 'n_adjacent' in s.columns else None)
             rows.append(f'{lab if group == "treated" else ""} & {glab} & {f"{n:,}" if n is not None else ""} & ' + ' & '.join(cells) + ' \\\\')
@@ -65,6 +67,7 @@ def table(summ):
 
 
 coefs = pd.read_csv(IN / 'soda_tax_coefs.csv'); summ = pd.read_csv(IN / 'soda_tax_summary.csv')
+coefs, summ = to_sd(coefs), to_sd(summ)     # HEI in standard deviations, the paper's unit
 fig_design(coefs, summ, 'philadelphia', OUT, 'soda_tax_philadelphia.png', 3)
 fig_design(coefs, summ, 'cities', [OUT[0], OUT[3], OUT[4]], 'soda_tax_cities.png', 3)
 table(summ)

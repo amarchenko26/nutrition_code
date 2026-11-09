@@ -21,6 +21,7 @@ while not (_r / "paths.py").exists():
 sys.path.insert(0, str(_r))
 from paths import *
 from build_hei_cross_section import household_means
+from utils.hei_units import hei_sd
 from utils.food_measures import package_grams
 
 import numpy as np
@@ -107,22 +108,23 @@ def food_scenarios(d):
 def write_table(m, a, b, fruit, food, health):
     """tabs/what_moves/hei_scale.tex"""
     c = lambda k: f'hei_c_{k}'
-    def row(lab, keys, dec=2):
-        lo, hi = sum(m.loc[a, c(k)] for k in keys), sum(m.loc[b, c(k)] for k in keys)
-        return f'{lab} & {lo:.{dec}f} & {hi:.{dec}f} & {hi - lo:+.{dec}f} \\\\'
+    sd = hei_sd()     # HEI in standard deviations, the paper's unit
+    def row(lab, keys, dec=3):
+        gap = (sum(m.loc[b, c(k)] for k in keys) - sum(m.loc[a, c(k)] for k in keys)) / sd
+        return f'{lab} & & & {gap:+.{dec}f} \\\\'
     fa, fb = fruit.loc[a], fruit.loc[b]
     fruit_gap = round(fb['fruit_cups'] - fa['fruit_cups'], 2) + 0.0     # + 0.0 turns -0.0 into 0.0
-    tex = [r'\begin{tabular}{lrrr}', r'\toprule', r' & Lowest bin & Highest bin & Difference \\', r'\midrule', r'\multicolumn{4}{l}{\textit{A. HEI, by component (points)}} \\',
-           f"Total & {m.loc[a, 'hei']:.2f} & {m.loc[b, 'hei']:.2f} & {m.loc[b, 'hei'] - m.loc[a, 'hei']:+.2f} \\\\",
+    tex = [r'\begin{tabular}{lrrr}', r'\toprule', r' & Lowest bin & Highest bin & Difference \\', r'\midrule', r'\multicolumn{4}{l}{\textit{A. HEI and its components, highest minus lowest bin (SD)}} \\',
+           f"Total & & & {(m.loc[b, 'hei'] - m.loc[a, 'hei']) / sd:+.3f} \\\\",
            row('Fruit (two components)', ['totfruit', 'wholfruit']), row('Added sugar', ['addsugar']), row('Dairy', ['dairy']), row('Seafood and plant protein', ['seaplant']), row('Whole grains', ['wholegrain']),
            row('Vegetables, greens and beans', ['totveg', 'greensbeans']), row('Sodium, total protein, fatty acids', ['sodium', 'totprot', 'fattyacid']), row('Refined grains', ['refgrain']), row('Saturated fat', ['satfat']),
            r'\midrule', r'\multicolumn{4}{l}{\textit{B. Purchases per adult equivalent per day}} \\',
            f"Barcoded fruit (cups) & {fa['fruit_cups']:.2f} & {fb['fruit_cups']:.2f} & {fruit_gap:+.2f} \\\\",
            f"Calories & {fa['kcal']:,.0f} & {fb['kcal']:,.0f} & {fb['kcal'] - fa['kcal']:+,.0f} \\\\",
            f"Fruit per 1,000 calories (cups) & {fa['fruit_per_1000']:.2f} & {fb['fruit_per_1000']:.2f} & {fb['fruit_per_1000'] - fa['fruit_per_1000']:+.2f} \\\\",
-           r'\midrule', r'\multicolumn{4}{l}{\textit{C. One more a day per adult equivalent, by the scoring rules of HEI (HEI points)}} \\',
-           f"Medium apple & & & {food['medium apple']:+.2f} \\\\", f"Whole-grain slice in place of a white slice & & & {food['whole-grain slice for a white slice']:+.2f} \\\\", f"Can of soda & & & {food['can of soda']:+.2f} \\\\",
-           r'\midrule', rf'\multicolumn{{4}}{{l}}{{\textit{{D. Adults in households scoring {GAP} points higher, 2016--17}}}} \\',
+           r'\midrule', r'\multicolumn{4}{l}{\textit{C. One more a day per adult equivalent, by the scoring rules of HEI (SD)}} \\',
+           f"Medium apple & & & {food['medium apple'] / sd:+.3f} \\\\", f"Whole-grain slice in place of a white slice & & & {food['whole-grain slice for a white slice'] / sd:+.3f} \\\\", f"Can of soda & & & {food['can of soda'] / sd:+.3f} \\\\",
+           r'\midrule', rf'\multicolumn{{4}}{{l}}{{\textit{{D. Adults in households scoring {GAP / sd:.2f} SD higher, 2016--17}}}} \\',
            f"BMI & & & {health['bmi'][0]:+.2f} ({health['bmi'][1]:.2f}) \\\\", f"BMI of 30 or more (percentage points) & & & {health['obese'][0]:+.2f} ({health['obese'][1]:.2f}) \\\\",
            f"Type 2 diabetes (percentage points) & & & {health['diab'][0]:+.2f} ({health['diab'][1]:.2f}) \\\\", r'\bottomrule', r'\end{tabular}']
     (tdir / 'what_moves' / 'hei_scale.tex').write_text('\n'.join(tex) + '\n')
