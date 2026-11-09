@@ -87,13 +87,12 @@ def main():
 
     # ---- income
     P = r'A. Income (\$10,000 more income)'
-    for fname, tag, names in [('iv_suboutcomes.csv', 'all households', nokcal), ('iv_suboutcomes_same_size.csv', 'household size unchanged', std)]:
+    for fname, tag, names in [('iv_suboutcomes.csv', 'employed at $t-1$', nokcal), ('iv_suboutcomes_same_size.csv', 'employed at $t-1$, same household size at $t-1$, $t$ and $t+1$', std)]:
         iv = pd.read_csv(WM / fname)
         pl = iv[iv['window'] == 'placebo'].copy()
         pl['p'] = two_sided(pl['b'], pl['se'])
         iv = iv.merge(pl[['outcome', 'p']], on='outcome', how='left')
         add(P, f'Income IV, change the year after, {tag}', pick(iv, names, 'b', 'se', 'p', window='main'))
-        add(P, f'Income IV, change over two years, $t-1$ to $t+1$, {tag}', pick(iv, names, 'b', 'se', 'p', window='level'))
         add(P, f'Income IV, purchases $t-3$ to $t-2$, before the income change, {tag} (placebo)', pick(iv, names, 'b', 'se', window='placebo'))
 
     # ---- prices
@@ -157,7 +156,7 @@ def main():
 
     d = pd.DataFrame(rows)
     print(d.to_string(index=False))
-    tex = [r'\begin{tabular}{p{0.52\linewidth}cccc}', r'\toprule', r' & HEI & Sugar & Ultra-processed & Calories \\', r' & (points) & (g per 1,000 kcal) & (\% of calories) & (per adult eq. per day) \\']
+    tex = [r'\begin{tabular}{p{0.52\linewidth}cccc}', r'\toprule', r' & HEI & Sugar & Ultra-processed & Calories \\', r' & (points, 0--100) & (g per 1,000 kcal) & (\% of calories) & (per adult eq. per day) \\']
     for p, g in d.groupby('panel', sort=False):
         tex += [r'\midrule', rf'\multicolumn{{5}}{{l}}{{\textit{{{p}}}}} \\']
         for _, x in g.iterrows():
