@@ -1,13 +1,11 @@
-"""The income-nutrition gradients of fig1a-d with the normal controls, then holding education fixed, and the education-nutrition
-gradients with the normal controls, then holding income fixed (2026-11-06, for 0_main.tex).
+"""The income-nutrition gradients of fig1a-d with the normal controls, then holding education fixed (2026-11-06, for 0_main.tex).
 
 Sample and normal controls as analyze/hi/usda/replicate_figure1_usda.py: household-years 2004-2020, income trimmed at the 1st and 99th
 percentiles, age-bin, year and household-size controls, projection weights. Outcomes: sugar, whole-grain share of bread calories and
 fruit and vegetable share of calories (USDA labels), HEI in standard deviations.
 
 figs/gradients/income_gradients_education.png: 15-bin binscatter on income, normal controls and with education bins added.
-figs/gradients/education_gradients_income.png: mean by education bin (the heads' average years of schooling), normal controls and with
-twenty income bins added. Slopes and group means are printed, standard errors clustered on household.
+Slopes are printed, standard errors clustered on household. (The education gradients holding income fixed were deleted on 2026-11-09.)
 """
 import sys
 from pathlib import Path
@@ -30,7 +28,6 @@ BLUE, ORANGE, GREY = '#2c5f8a', '#fc8d59', '#999999'
 YEARS = range(2004, 2021)
 NQ = 15
 OUTCOMES = [('sugar', 'Sugar (g per 1,000 kcal)'), ('whole', 'Whole grain (% of bread)'), ('produce', 'Produce (% of calories)'), ('hei_z', 'HEI (standard deviations)')]
-EDUC = ['Under 12', '12', '13-15', '16+']
 plt.rcParams.update({'font.size': 17, 'axes.labelsize': 19, 'xtick.labelsize': 16, 'ytick.labelsize': 16, 'legend.fontsize': 15,
                      'axes.spines.top': False, 'axes.spines.right': False})
 
@@ -52,7 +49,6 @@ def load():
     m = np.average(d['hei_usda'], weights=w)
     d['hei_z'] = (d['hei_usda'] - m) / np.sqrt(np.average((d['hei_usda'] - m) ** 2, weights=w))
     d['educ_b'] = pd.cut(d['hh_avg_yrsofschool'], [0, 11.9, 12.9, 15.9, np.inf], labels=False)
-    d['inc_v'] = pd.qcut(d['hh_real_income_avg'].rank(method='first'), 20, labels=False)
     d['age_b'] = pd.cut(d['avg_age_hh_head'], bins=[0, 35, 45, 55, 65, 100], labels=False)
     d = d.dropna(subset=['educ_b', 'age_b']).reset_index(drop=True)
     print(f"{len(d):,} household-years, {d['household_code'].nunique():,} households; shares by education bin {d.groupby('educ_b')['projection_factor'].sum().div(w.sum()).round(3).tolist()}")
@@ -111,38 +107,11 @@ def income_gradients(d, base, edu):
     finish(fig, axes, 'income_gradients_education.png')
 
 
-def education_gradients(d, base, inc):
-    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
-    fig.subplots_adjust(wspace=0.25, hspace=0.27, bottom=0.12)
-    E = pd.get_dummies(d['educ_b'].astype(int), prefix='e', dtype=float)
-    w = d['projection_factor']
-    for ax, (y, lab) in zip(axes.flat, OUTCOMES):
-        gaps = []
-        for C, col, mark, name, off in [(base, BLUE, 'o', 'Age, year, household size', -0.07), (pd.concat([base, inc], axis=1), ORANGE, 'D', 'Adding income', 0.07)]:
-            ok = d[y].notna()
-            # controls in deviations from their means, no constant: each coefficient is the group's mean at the sample's average controls
-            Cd = C[ok] - np.average(C[ok].values, axis=0, weights=w[ok])
-            X = pd.concat([E[ok], Cd], axis=1)
-            r = sm.WLS(d.loc[ok, y].astype(float), X, weights=w[ok]).fit(cov_type='cluster', cov_kwds={'groups': d.loc[ok, 'household_code'].values})
-            level = np.array([r.params[f'e_{i}'] for i in range(4)])
-            ses = np.array([r.bse[f'e_{i}'] for i in range(4)])
-            V = r.cov_params()
-            gap, gse = level[3] - level[0], np.sqrt(V.loc['e_3', 'e_3'] + V.loc['e_0', 'e_0'] - 2 * V.loc['e_3', 'e_0'])
-            print(f'{y} by education, {name}: ' + ', '.join(f'{EDUC[i]} {level[i]:.2f}' for i in range(4)) + f'; 16+ minus under 12 {gap:.3f} ({gse:.3f})')
-            gaps.append(gap)
-            ax.errorbar(np.arange(4) + off, level, yerr=1.96 * ses, color=col, marker=mark, ms=10, lw=0, elinewidth=2, capsize=4, label=name)
-        down = gaps[0] < 0
-        ax.text(0.97 if down else 0.03, 0.96, f'16+ minus under 12: {gaps[0]:+.2f}, {gaps[1]:+.2f}', transform=ax.transAxes, ha='right' if down else 'left', va='top', fontsize=17)
-        ax.set_xticks(range(4)); ax.set_xticklabels(EDUC); ax.set_xlabel("Heads' average years of schooling"); ax.set_ylabel(lab); ax.grid(True, alpha=0.3)
-    finish(fig, axes, 'education_gradients_income.png')
-
-
 def main():
     FIG.mkdir(parents=True, exist_ok=True)
     d = load()
     base = pd.concat([dummies(d['age_b'], 'a'), dummies(d['panel_year'], 'y'), d[['household_size']].astype(float)], axis=1)
     income_gradients(d, base, dummies(d['educ_b'], 'e'))
-    education_gradients(d, base, dummies(d['inc_v'], 'v'))
 
 
 if __name__ == '__main__':
