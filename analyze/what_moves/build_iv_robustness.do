@@ -20,9 +20,12 @@
 //   bls (national OEWS wage of the occupation); acs (ACS cell income);
 //   k2, k3, k5, k8 (k-year change in the outcome ending at t+1 on the k-year change in income and instrument ending
 //   at t, employed at t-k);
-//   q1-q4 (quartile of income in the household's first panel year).
+//   q1-q4 (quartile of income in the household's first panel year);
+//   ql1-ql4 (quartile of income at t-1, cut within each year among non-movers, projection-weighted; mode qlag).
 //
 // `do build_iv_robustness.do <outcome>` writes interim/what_moves/iv_robustness_<outcome>.csv.
+// `do build_iv_robustness.do <outcome> qlag` replaces only the ql1-ql4 rows of that file and prints how the t-1 quartiles
+// compare with the first-year quartiles (same quartile, income change, group-income change).
 // `do build_iv_robustness.do unpack` writes interim/what_moves/iv_unpack.csv: for the main regression, the exact
 // shares of the numerator (outcome on the group-income change) and of the denominator (own income on the group-income
 // change) by type of cell change, after the fixed effects; and the year-by-year path for stayers and switchers.
@@ -211,7 +214,7 @@ local v "`part'"
 local mode "`2'"
 global OUT "$idir/what_moves/iv_robustness_`v'.csv"
 cap file close fh
-if !inlist("`mode'", "longonly", "longsize") {
+if "`mode'" != "qlag" {
 	file open fh using "$OUT", write replace
 	file write fh "outcome,spec,window,b,se,f,n" _n
 	file close fh
@@ -238,7 +241,36 @@ gen double y_lev = F.`v'
 local base "movers_f == 0 & clean == 1"
 if "`v'" == "cals_ae_day" local base "`base' & same_size == 1"
 
-if !inlist("`mode'", "longonly", "longsize") {
+// quartile of income at t-1: cut points within each year among non-movers, projection-weighted
+if "`mode'" == "qlag" {
+	preserve
+	import delimited using "$OUT", clear varnames(1) stringcols(_all)
+	drop if substr(spec, 1, 2) == "ql"
+	export delimited using "$OUT", replace
+	restore
+	gen byte inc_qy = .
+	levelsof year, local(yrs)
+	foreach y of local yrs {
+		_pctile real_income [aw = projection_factor] if year == `y' & movers_f == 0, nquantiles(4)
+		replace inc_qy = 1 + (real_income > r(r1)) + (real_income > r(r2)) + (real_income > r(r3)) if year == `y' & movers_f == 0 & !missing(real_income)
+	}
+	gen byte inc_ql = L.inc_qy
+	gen double inc_lag = L.real_income
+	gen byte cmp = `base' & !missing(y_main, d_inc, d_iv)
+	tab inc_q inc_ql [aw = projection_factor] if cmp, cell nofreq
+	gen byte same_q = inc_q == inc_ql if cmp & !missing(inc_q, inc_ql)
+	sum same_q [aw = projection_factor]
+	tabstat inc_lag d_inc d_iv [aw = projection_factor] if cmp, by(inc_q) statistics(mean n)
+	tabstat inc_lag d_inc d_iv [aw = projection_factor] if cmp, by(inc_ql) statistics(mean n)
+	foreach w in main before {
+		forvalues q = 1/4 {
+			run_iv `v' ql`q' `w' y_`w' d_inc d_iv "`base' & inc_ql == `q'" "`FE'"
+		}
+	}
+	di "build_iv_robustness.do `v' qlag complete"
+	exit
+}
+
 foreach w in main before {
 	run_iv `v' main `w' y_`w' d_inc d_iv "`base'" "`FE'"
 	run_iv `v' hh_year `w' y_`w' d_inc d_iv "`base'" "year hhid kids avg_age_hh_head hh_comp"
@@ -284,6 +316,5 @@ foreach k in 2 3 5 8 {
 	if "`v'" == "cals_ae_day" local bk "`bk' & size_k == 1"
 	run_iv `v' k`k' main dk_y dk_inc dk_iv "`bk'" "`FE'"
 	drop dk_inc dk_iv dk_y clean_k size_k
-}
 }
 di "build_iv_robustness.do `v' complete"
