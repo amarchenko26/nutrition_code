@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 
 MV = idir / 'movers'
-OUTCOMES = ['hei_usda', 'real_income']
+OUTCOMES = ['hei_usda', 'real_income', 'upf_share']     # upf_share since 2026-11-09
 ID = ['event_id', 'hhid', 'year', 'r', 'origin', 'up_income', 'projection_factor', 'age5', 'kids', 'hh_comp', 'educ_bin', 'size_bin']
 MIN_PAIRS = 20
 
@@ -54,7 +54,7 @@ def chained(ev, pairs, y):
 
 
 def main():
-    ev = pd.read_parquet(MV / 'income_movers_events_panel.parquet', columns=ID + OUTCOMES + ['delta_hei_usda', 'delta_real_income'])
+    ev = pd.read_parquet(MV / 'income_movers_events_panel.parquet', columns=ID + OUTCOMES + ['delta_hei_usda', 'delta_real_income', 'delta_upf_share'])
     ev = ev.sort_values(['event_id', 'year']).reset_index(drop=True)
     df = pd.read_parquet(MV / 'income_movers_panel.parquet', columns=['hhid', 'year', 'occ', 'mover_type', 'analysis', 'educ_bin', 'size_bin', 'age5', 'projection_factor'] + OUTCOMES)
     nm = df[(df['analysis'] == 1) & (df['mover_type'] == 0)].rename(columns={'occ': 'origin'}).sort_values(['hhid', 'year'])

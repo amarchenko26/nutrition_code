@@ -39,6 +39,8 @@ set more off
 // `do 4_build_movers_event_study.do income_matched` runs income movers against matched non-movers
 // (build_income_matched_panel.py subtracts the matched mean from the outcome, 2026-11-06): no year fixed effects, and
 // rho_r (the path of a mover with no gap) is identified, so it is written too. Outputs income_matched_event_study_*.csv.
+// Since 2026-11-09 both income runs also take the ultra-processed share of calories (share of the quintile UPF gap, and
+// points per $10k of the income gap), and every run prints its estimate over the purchase windows of the income IV.
 local places "`1'"
 if "`places'" == "" local places occupation
 
@@ -122,6 +124,14 @@ program define es_run
 	file write fh "`spec',`outcome',`jump',`jump_se',`jl',`jl_se',`pre',`pre_se',`pp',`N',`nev',`nhh'" _n
 	file close fh
 	di "`spec'/`outcome': jump (1..3) = `jump' (`jump_se'); late (4..6) = `jl' (`jl_se'); pre (-4..-2) = `pre' (`pre_se'), p = `pp'; events `nev', households `nhh'"
+	// the purchase windows of the income IV (printed only, 2026-11-09): with r = 0 the calendar year of the new income,
+	// the IV's t to t+1 is r = 1 to 2, its t-1 to t is r = 0 to 1, its t-1 to t+1 is r = 0 to 2
+	foreach w in "p2 p1" "p1 p0" "p2 p0" {
+		gettoken a b : w
+		local b = trim("`b'")
+		quietly lincom dd_`a' - dd_`b'
+		di "`spec'/`outcome' window `b' to `a': " %9.4f r(estimate) " (" %7.4f r(se) ")"
+	}
 end
 
 // ---------------------------------------------------------------- county movers (place effects, 2026-11-05)
@@ -144,6 +154,9 @@ if "`places'" == "income_matched" {
 	es_run "income_all"      "real_income" "1"
 	es_run "hei_per_inc_all" "hei_usda"    "1" "delta_real_income"
 	es_run "all_levelcell"   "hei_lev"     "1" "delta_hei_usda"
+	// ultra-processed share of calories (2026-11-09): share of the quintile UPF gap, and points per $10k of the income gap
+	es_run "all"             "upf_share"   "1"
+	es_run "per_inc_all"     "upf_share"   "1" "delta_real_income"
 	// a move up and a move down, each against its matched non-movers, in HEI points and $10k
 	foreach dir in up down {
 		local c = cond("`dir'" == "up", "up_income == 1", "up_income == 0")
@@ -151,7 +164,7 @@ if "`places'" == "income_matched" {
 		foreach s of global rlist {
 			local dlist `dlist' d_`s'
 		}
-		foreach o in hei_usda real_income {
+		foreach o in hei_usda real_income upf_share {
 			reghdfe `o' `dlist' [pw = projection_factor] if `c', absorb(event_id age5 kids hh_comp) cluster(hhid)
 			local N = e(N)
 			quietly lincom (d_p1 + d_p2 + d_p3) / 3
@@ -183,6 +196,8 @@ if "`places'" == "income" {
 	es_run "all_nox"             "hei_usda"    "1" "delta_hei_usda"    "none"
 	es_run "income_all_nox"      "real_income" "1" "delta_real_income" "none"
 	es_run "hei_per_inc_all_nox" "hei_usda"    "1" "delta_real_income" "none"
+	// ultra-processed share of calories on the quintile UPF gap (2026-11-09; per $10k of the income gap below)
+	es_run "all"                 "upf_share"   "1"
 	// the parts of the diet per $10k of the quintile income gap (2026-11-06): divide by income_all's share for own income.
 	// Calories per adult equivalent also on events whose household stays in one size bin, since they move when the roster changes.
 	foreach o in upf_share produce_share sugar_1000 cals_ae_day {

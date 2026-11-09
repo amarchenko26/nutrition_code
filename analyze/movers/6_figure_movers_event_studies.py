@@ -28,6 +28,10 @@ Outputs (figs/movers/):
                                   income on the quintile income gap, HEI per $10k of it; orange since 2026-11-06:
                                   the same against matched non-movers (build_income_matched_panel.py, 4_ income_matched)
   life_events.png                 birth, death and retirement from other_switches, for 0_main.tex
+  event_study_income_movers_upf.png  (2026-11-09) the ultra-processed share of calories for income-quintile movers: share
+                                  of the quintile UPF gap, points per $10k of the quintile income gap (blue movers only,
+                                  orange against matched non-movers), and points around a single move up or down against
+                                  never-movers (7_)
   event_study_samples.png    theta_r for HEI: all moves, moves not later reversed, first moves, single-change households
 """
 
@@ -338,6 +342,47 @@ def fig_income_movers(ic, mc=None):
     save(fig, 'event_study_income_movers.png')
 
 
+def fig_income_movers_upf(ic, mc, lc, ls_):
+    """event_study_income_movers_upf.png: the ultra-processed share of calories for income-quintile movers. Left: share of
+    the quintile UPF gap closed; middle: points per $10k of the quintile income gap (blue movers only, orange against matched
+    non-movers, 4_ income and income_matched); right: points around a single move up or down a quintile against never-movers
+    (7_, household fixed effects)."""
+    fig, axes = plt.subplots(1, 3, figsize=(16.5, 6))
+    fig.subplots_adjust(wspace=0.34, bottom=0.27)
+    specs = [('all', 'On the quintile ultra-processed gap', '$\\theta_r$: share of the gap'),
+             ('per_inc_all', 'Per \\$10k of the quintile income gap', 'Percentage points per \\$10k')]
+    for ax, (spec, title, ylab) in zip(axes[:2], specs):
+        for tab, col, lab, mark in [(ic, BLUE, 'Movers only', 'o'), (mc, ORANGE, 'Against matched non-movers', 'D')]:
+            if tab is None:
+                continue
+            d = tab[(tab['spec'] == spec) & (tab['outcome'] == 'upf_share')].sort_values('r')
+            d = d[(d['r'] >= -6) & (d['r'] <= 6)]
+            ax.plot(d['r'], d['b'], color=col, lw=2.5, marker=mark, ms=6, label=lab)
+            ax.fill_between(d['r'], d['b'] - 1.96 * d['se'], d['b'] + 1.96 * d['se'], color=col, alpha=0.15, lw=0)
+        ax.axhline(0, color=GREY, lw=1, ls='--'); ax.axvline(-0.5, color=GREY, lw=1, ls=':')
+        if spec == 'all':
+            ax.axhline(1, color=GREY, lw=1, ls='--')
+        ax.set_xticks(range(-6, 7, 2))
+        ax.set_title(title, fontsize=16)
+        ax.set_ylabel(ylab, fontsize=16)
+    h, l = axes[0].get_legend_handles_labels()
+    fig.legend(h, l, loc='lower center', ncol=2, frameon=False, fontsize=16, bbox_to_anchor=(0.33, 0.02))
+    ax = axes[2]
+    for direction, col, lab in [('up', BLUE, 'Up a quintile'), ('down', RED, 'Down a quintile')]:
+        d = lc[(lc['outcome'] == 'upf_share') & (lc['direction'] == direction)].sort_values('r')
+        ax.plot(d['r'], d['b'], color=col, lw=2.5, marker='o', ms=6, label=lab)
+        ax.fill_between(d['r'], d['b'] - 1.96 * d['se'], d['b'] + 1.96 * d['se'], color=col, alpha=0.15, lw=0)
+    ax.axhline(0, color=GREY, lw=1, ls='--'); ax.axvline(-0.5, color=GREY, lw=1, ls=':')
+    ax.set_xticks(range(-4, 5, 2))
+    ax.set_title('Single move, against never-movers', fontsize=16)
+    ax.set_ylabel('Percentage points', fontsize=16)
+    ax.legend(loc='upper left', frameon=False, fontsize=14)
+    for ax in axes:
+        ax.tick_params(labelsize=15)
+        ax.set_xlabel('Year relative to the move', fontsize=16)
+    save(fig, 'event_study_income_movers_upf.png')
+
+
 def fig_other_switches(oc, os_):
     designs = [('birth', 'Birth: child under 6 arrives'), ('death', 'Death of a head (widowed)'),
                ('educ', 'Education increase (a head\'s schooling +2 years)'),
@@ -428,6 +473,8 @@ def main():
         lc, ls_ = pd.read_csv(BASE / 'income_levels_coefs.csv'), pd.read_csv(BASE / 'income_levels_summary.csv')
         fig_income_levels(lc, ls_)
         fig_income_levels_outcomes(lc, ls_)
+        if isum is not None:
+            fig_income_movers_upf(ic, mc, lc, ls_)
     table_results(summ, isum)
     if (BASE / 'county_event_study_summary.csv').exists():
         fig_county_movers(pd.read_csv(BASE / 'county_event_study_coefs.csv'), pd.read_csv(BASE / 'county_event_study_summary.csv'))
