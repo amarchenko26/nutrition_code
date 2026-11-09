@@ -241,7 +241,9 @@ gen double y_lev = F.`v'
 local base "movers_f == 0 & clean == 1"
 if "`v'" == "cals_ae_day" local base "`base' & same_size == 1"
 
-// quartile of income at t-1: cut points within each year among non-movers, projection-weighted
+// quartile of income at t-1: cut points within each year among non-movers, projection-weighted. Income comes in brackets, so
+// every cut falls on a bracket; the whole bracket goes to the side that brings the group's share closer to a quarter (from
+// 2017 the top bracket holds more than a quarter of households, and ties sent down would leave the top quartile empty)
 if "`mode'" == "qlag" {
 	preserve
 	import delimited using "$OUT", clear varnames(1) stringcols(_all)
@@ -251,9 +253,24 @@ if "`mode'" == "qlag" {
 	gen byte inc_qy = .
 	levelsof year, local(yrs)
 	foreach y of local yrs {
-		_pctile real_income [aw = projection_factor] if year == `y' & movers_f == 0, nquantiles(4)
-		replace inc_qy = 1 + (real_income > r(r1)) + (real_income > r(r2)) + (real_income > r(r3)) if year == `y' & movers_f == 0 & !missing(real_income)
+		local in "year == `y' & movers_f == 0 & !missing(real_income)"
+		sum projection_factor if `in', meanonly
+		scalar tot = r(sum)
+		_pctile real_income [aw = projection_factor] if `in', nquantiles(4)
+		forvalues k = 1/3 {
+			scalar c`k' = r(r`k')
+		}
+		replace inc_qy = 1 if `in'
+		forvalues k = 1/3 {
+			sum projection_factor if `in' & real_income < scalar(c`k'), meanonly
+			scalar lt = r(sum) / scalar(tot)
+			sum projection_factor if `in' & real_income <= scalar(c`k'), meanonly
+			scalar le = r(sum) / scalar(tot)
+			if abs(scalar(le) - `k' / 4) <= abs(scalar(lt) - `k' / 4) replace inc_qy = inc_qy + 1 if `in' & real_income > scalar(c`k')
+			else replace inc_qy = inc_qy + 1 if `in' & real_income >= scalar(c`k')
+		}
 	}
+	tab year inc_qy [aw = projection_factor] if movers_f == 0, row nofreq
 	gen byte inc_ql = L.inc_qy
 	gen double inc_lag = L.real_income
 	gen byte cmp = `base' & !missing(y_main, d_inc, d_iv)
