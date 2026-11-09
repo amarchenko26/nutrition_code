@@ -22,6 +22,7 @@ while not (_r / "paths.py").exists():
 sys.path.insert(0, str(_r))
 from paths import *
 from utils.hei_units import to_sd, hei_sd, hei_mean_sd
+from utils.stars import stars, star_num, est
 
 import pandas as pd
 import matplotlib
@@ -90,7 +91,7 @@ def table_main(s):
     for y, lab, dec in TAB_OUTCOMES:
         rows = [m[(m['outcome'] == y) & (m['event'] == e)].iloc[0] for e in EVENTS]
         lead = lab
-        out.append(lead + ' & ' + ' & '.join(fmt(r['jump'], dec) for r in rows) + ' \\\\')
+        out.append(lead + ' & ' + ' & '.join(star_num(r['jump'], r['jump_se'], dec) for r in rows) + ' \\\\')
         out.append(f'\\quad mean before {sum(r["mean_pre"] for r in rows) / len(rows):.{max(dec - 1, 0) if y != "prep_time_raw" else 2}f} & ' + ' & '.join(f'({fmt(r["jump_se"], dec)}) [{r["p_pretrend"]:.2f}]' for r in rows) + ' \\\\')
     n0 = int(m['n_controls'].iloc[0])
     out += ['\\midrule', f'\\multicolumn{{{len(EVENTS) + 1}}}{{l}}{{Comparison group: {n0:,} households whose heads\' employment never changes.}} \\\\', '\\bottomrule', '\\end{tabular}']
@@ -109,7 +110,7 @@ def table_checks(s):
     for y in CHECK_OUTCOMES:
         lab, dec = labs[y]
         rows = [b[(b['outcome'] == y) & (b['event'] == e)].iloc[0] for e in EVENTS]
-        out.append(lab + ' & ' + ' & '.join(fmt(r['jump12'], dec) for r in rows) + ' \\\\')
+        out.append(lab + ' & ' + ' & '.join(star_num(r['jump12'], r['jump12_se'], dec) for r in rows) + ' \\\\')
         out.append(' & ' + ' & '.join(f'({fmt(r["jump12_se"], dec)}) [{fmt(r["lead2"], dec)}]' for r in rows) + ' \\\\')
     out += ['\\midrule', '\\multicolumn{6}{l}{\\textit{B. Compared with never-changers of the same starting employment state and age group: mean of $r=1,2,3$ (SE) [pre-trend $p$]}} \\\\']
     for y in CHECK_OUTCOMES:

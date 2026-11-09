@@ -11,6 +11,7 @@ while not (_r / "paths.py").exists():
 sys.path.insert(0, str(_r))
 from paths import *
 from utils.hei_units import to_sd, hei_sd, hei_mean_sd
+from utils.stars import stars, star_num, est
 
 import pandas as pd
 import matplotlib
@@ -62,7 +63,7 @@ def main():
         if x.empty:
             continue
         fmt = {'cals_ae_day': 0, 'hei_usda': 3}
-        row = [f'{x.loc[o, "jump"]:+.{fmt.get(o, 2)}f}' for o in cols]
+        row = [star_num(x.loc[o, 'jump'], x.loc[o, 'jump_se'], fmt.get(o, 2), sign=True) for o in cols]
         se = [f'({x.loc[o, "jump_se"]:.{fmt.get(o, 2)}f})' for o in cols]
         lines.append(f'{evt} & {int(x.n_events.iloc[0]):,} & {int(x.n_controls.iloc[0]):,} & ' + ' & '.join(row) + ' \\\\')
         lines.append(' & & & ' + ' & '.join(se) + ' \\\\')

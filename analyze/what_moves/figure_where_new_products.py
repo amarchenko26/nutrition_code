@@ -17,6 +17,7 @@ while not (_r / "paths.py").exists():
     _r = _r.parent
 sys.path.insert(0, str(_r))
 from paths import *
+from utils.stars import stars, star_num, est
 
 import numpy as np
 import pandas as pd
@@ -124,7 +125,7 @@ def table_modules(m):
     fit = {}
     for y, _ in ys:
         fit[y] = smf.wls(f'{y} ~ rich_z', data=m.dropna(subset=['rich_z', y]), weights=m.dropna(subset=['rich_z', y])['sp0']).fit(cov_type='HC1')
-    lines.append('Buyers richer by 1 SD & ' + ' & '.join(f"{fit[y].params['rich_z']:.3f}" for y, _ in ys) + ' \\\\')
+    lines.append('Buyers richer by 1 SD & ' + ' & '.join(star_num(fit[y].params['rich_z'], fit[y].bse['rich_z'], 3) for y, _ in ys) + ' \\\\')
     lines.append(' & ' + ' & '.join(f"({fit[y].bse['rich_z']:.3f})" for y, _ in ys) + ' \\\\')
     lines.append('\\midrule')
     for gv, base, labs in [('upf_group', 1.0, {2.0: 'Mostly ultra-processed (vs not)'}), ('hi_group', 3.0, {1.0: 'Unhealthy (vs healthy)', 2.0: 'Middle (vs healthy)'}), ('prep_group', 3.0, {1.0: 'Open and eat (vs cooking)', 2.0: 'Little preparation (vs cooking)'})]:
@@ -134,7 +135,7 @@ def table_modules(m):
             fg[y] = smf.wls(f'{y} ~ C({gv}, Treatment(reference={base}))', data=z, weights=z['sp0']).fit(cov_type='HC1')
         for k, lab in labs.items():
             nm = f'C({gv}, Treatment(reference={base}))[T.{k}]'
-            lines.append(f'{lab} & ' + ' & '.join(f"{fg[y].params[nm]:.3f}" for y, _ in ys) + ' \\\\')
+            lines.append(f'{lab} & ' + ' & '.join(star_num(fg[y].params[nm], fg[y].bse[nm], 3) for y, _ in ys) + ' \\\\')
             lines.append(' & ' + ' & '.join(f"({fg[y].bse[nm]:.3f})" for y, _ in ys) + ' \\\\')
             res[lab] = {y: (round(fg[y].params[nm], 3), round(fg[y].bse[nm], 3)) for y, _ in ys}
         lines.append('\\midrule')

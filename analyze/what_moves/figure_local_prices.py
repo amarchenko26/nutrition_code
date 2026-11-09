@@ -19,6 +19,7 @@ while not (_r / "paths.py").exists():
 sys.path.insert(0, str(_r))
 from paths import *
 from utils.hei_units import to_sd, hei_sd, hei_mean_sd
+from utils.stars import stars, star_num, est
 
 import numpy as np
 import pandas as pd
@@ -113,7 +114,7 @@ def timing_table():
         for k, _ in cols:
             x = a[(a['outcome'] == y) & (a['price'] == p) & (a['term'] == k)].iloc[0]
             k = 3 if y == 'hei_usda' else 2
-            cells.append(f'{-float(x.b) / 10:.{k}f} ({float(x.se) / 10:.{k}f})')
+            cells.append(est(-float(x.b) / 10, float(x.se) / 10, k))
         q = a[(a['outcome'] == y) & (a['price'] == p) & (a['term'] == 'p_leads')].iloc[0]
         out.append(lab + ' & ' + ' & '.join(cells) + f' & {float(q.b):.3f} \\\\')
     b = t[t['part'] == 'B']
@@ -124,7 +125,7 @@ def timing_table():
             ' & Next year\'s price change & This year\'s price change & & & & County-years \\\\', '\\midrule']
     for y, lab in [('hei_usda', 'HEI change this year, healthy minus unhealthy price'), ('upf_share', 'Ultra-processed share change this year, ultra-processed minus other price')]:
         n1, n2 = bc(y, 'price_next_on_diet_now'), bc(y, 'price_now_on_diet_now')
-        out.append(f'{lab} & {100 * n1[0]:.3f} ({100 * n1[1]:.3f}) & {100 * n2[0]:.3f} ({100 * n2[1]:.3f}) & & & & {n1[2]:,} \\\\')
+        out.append(f'{lab} & {est(100 * n1[0], 100 * n1[1], 3)} & {est(100 * n2[0], 100 * n2[1], 3)} & & & & {n1[2]:,} \\\\')
     out += ['\\bottomrule', '\\end{tabular}']
     (TAB / 'local_price_timing.tex').write_text('\n'.join(out).replace('\\\\\\\\', '\\\\') + '\n')
     print('\n'.join(out))
@@ -140,7 +141,7 @@ def cell(r, y, p, spec, star_f=False, zprice=False):
     if s.empty or pd.isna(s.iloc[0]['b']):
         return ''
     s = s.iloc[0]
-    return f'{-s.b / 10:.3f} ({s.se / 10:.3f})'
+    return est(-s.b / 10, s.se / 10, 3)
 
 
 def fmt_int(x):

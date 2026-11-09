@@ -23,6 +23,7 @@ while not (_r / "paths.py").exists():
 sys.path.insert(0, str(_r))
 from paths import *
 from utils.hei_units import to_sd, hei_sd, hei_mean_sd
+from utils.stars import stars, star_num, est
 
 import shutil
 import pandas as pd
@@ -113,8 +114,8 @@ def fig_products(coefs, summ):
 
 def cell(s, a='post', b='post_se'):
     if s['outcome'] == 'hei_usda':
-        return f'{s[a]:.3f} ({s[b]:.3f})'
-    return f'{s[a]:.0f} ({s[b]:.0f})' if abs(s[a]) >= 100 or s[b] >= 5 else f'{s[a]:.2f} ({s[b]:.2f})'
+        return est(s[a], s[b], 3)
+    return est(s[a], s[b], 0) if abs(s[a]) >= 100 or s[b] >= 5 else est(s[a], s[b], 2)
 
 
 def table_events(summ):

@@ -124,6 +124,8 @@ exhibit without reading the paper.
 
 ### Table block
 
+Every regression table shows significance stars, * 10%, ** 5%, *** 1% (`utils/stars.py`: `est`, `star_num`), and its caption says so (Anya 2026-11-09).
+
 ```
 \begin{table}[htbp]
     \centering

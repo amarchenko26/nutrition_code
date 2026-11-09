@@ -11,6 +11,7 @@ while not (_r / 'paths.py').exists():
 sys.path.insert(0, str(_r))
 from paths import *
 from utils.hei_units import to_sd, hei_sd, hei_mean_sd
+from utils.stars import stars, star_num, est
 import pandas as pd, numpy as np
 import matplotlib
 matplotlib.use('Agg')
@@ -58,8 +59,8 @@ def table(summ):
     for design, lab in [('philadelphia', 'Philadelphia 2017'), ('cities', 'Six cities 2015--18'), ('cook', 'Cook County 2017 (4 months)')]:
         for group, glab in [('treated', 'taxed'), ('adjacent', 'adjacent')]:
             s = summ[(summ.design == design) & (summ.group == group)].set_index('outcome')
-            cells = [f'{s.loc[o, "post"]:.{3 if o == "hei_usda" else 2}f} ({s.loc[o, "post_se"]:.{3 if o == "hei_usda" else 2}f})' if o in s.index else '' for o in ['soda_oz', 'home_share', 'soda_share', 'sugar_per_1000cal_usda', 'hei_usda', 'upf_share']]
-            cells[0] = f'{s.loc["soda_oz", "post"]:.0f} ({s.loc["soda_oz", "post_se"]:.0f})' if 'soda_oz' in s.index else ''
+            cells = [est(s.loc[o, 'post'], s.loc[o, 'post_se'], 3 if o == 'hei_usda' else 2) if o in s.index else '' for o in ['soda_oz', 'home_share', 'soda_share', 'sugar_per_1000cal_usda', 'hei_usda', 'upf_share']]
+            cells[0] = est(s.loc['soda_oz', 'post'], s.loc['soda_oz', 'post_se'], 0) if 'soda_oz' in s.index else ''
             n = int(s.n_treated.iloc[0]) if group == 'treated' else (int(s.n_adjacent.iloc[0]) if 'n_adjacent' in s.columns else None)
             rows.append(f'{lab if group == "treated" else ""} & {glab} & {f"{n:,}" if n is not None else ""} & ' + ' & '.join(cells) + ' \\\\')
     rows += ['\\bottomrule', '\\end{tabular}']

@@ -22,6 +22,7 @@ sys.path.insert(0, str(_r))
 from paths import *
 from build_hei_cross_section import household_means
 from utils.hei_units import hei_sd
+from utils.stars import est
 from utils.food_measures import package_grams
 
 import numpy as np
@@ -125,8 +126,8 @@ def write_table(m, a, b, fruit, food, health):
            r'\midrule', r'\multicolumn{4}{l}{\textit{C. One more a day per adult equivalent, by the scoring rules of HEI (SD)}} \\',
            f"Medium apple & & & {food['medium apple'] / sd:+.3f} \\\\", f"Whole-grain slice in place of a white slice & & & {food['whole-grain slice for a white slice'] / sd:+.3f} \\\\", f"Can of soda & & & {food['can of soda'] / sd:+.3f} \\\\",
            r'\midrule', rf'\multicolumn{{4}}{{l}}{{\textit{{D. Adults in households scoring {GAP / sd:.2f} SD higher, 2016--17}}}} \\',
-           f"BMI & & & {health['bmi'][0]:+.2f} ({health['bmi'][1]:.2f}) \\\\", f"BMI of 30 or more (percentage points) & & & {health['obese'][0]:+.2f} ({health['obese'][1]:.2f}) \\\\",
-           f"Type 2 diabetes (percentage points) & & & {health['diab'][0]:+.2f} ({health['diab'][1]:.2f}) \\\\", r'\bottomrule', r'\end{tabular}']
+           f"BMI & & & {est(health['bmi'][0], health['bmi'][1], 2, sign=True)} \\\\", f"BMI of 30 or more (percentage points) & & & {est(health['obese'][0], health['obese'][1], 2, sign=True)} \\\\",
+           f"Type 2 diabetes (percentage points) & & & {est(health['diab'][0], health['diab'][1], 2, sign=True)} \\\\", r'\bottomrule', r'\end{tabular}']
     (tdir / 'what_moves' / 'hei_scale.tex').write_text('\n'.join(tex) + '\n')
     print('\n'.join(tex))
 

@@ -11,6 +11,7 @@ while not (_r / "paths.py").exists():
     _r = _r.parent
 sys.path.insert(0, str(_r))
 from paths import *
+from utils.stars import stars, star_num, est
 
 import glob
 import numpy as np
@@ -92,7 +93,7 @@ def table(d):
         z = z[~z.index.duplicated()]
         if z.empty:
             return []
-        l1 = lab + ' & ' + ' & '.join(f"{10 * z.b[y]:.2f}" if y in z.index else '' for y in cols) + ' \\\\'
+        l1 = lab + ' & ' + ' & '.join(star_num(10 * z.b[y], 10 * z.se[y], 2) if y in z.index else '' for y in cols) + ' \\\\'
         l2 = ' & ' + ' & '.join(f"({10 * z.se[y]:.2f})" if y in z.index else '' for y in cols) + ' \\\\'
         return [l1, l2]
     S = lambda spec, sh: (d.spec == spec) & (d.shock == sh)
@@ -137,7 +138,7 @@ def table_buying():
         cells, ses = [], []
         for spec, x in [('OLS', 'dlog_nupcs'), ('OLS', 'dlog_va'), ('IV_launch', 'dlog_nupcs')]:
             r = b[(b.spec == spec) & (b.regressor == x) & (b.grouping == g) & (b.term == k)]
-            cells.append(f'{r.b.iloc[0]:.3f}' if len(r) else ''); ses.append(f'({r.se.iloc[0]:.3f})' if len(r) else '')
+            cells.append(star_num(r.b.iloc[0], r.se.iloc[0], 3) if len(r) else ''); ses.append(f'({r.se.iloc[0]:.3f})' if len(r) else '')
         L += [f'{lab} & ' + ' & '.join(cells) + ' \\\\', ' & ' + ' & '.join(ses) + ' \\\\']
     iv = b[(b.spec == 'IV_launch') & (b.grouping == 'all')]
     if len(iv):
