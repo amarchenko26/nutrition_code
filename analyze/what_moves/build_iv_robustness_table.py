@@ -18,6 +18,9 @@ from scipy.stats import norm
 
 WM = idir / 'what_moves'
 OUTS = [('hei_usda', 3), ('upf_share', 2), ('produce_share', 2), ('cals_ae_day', 1)]
+# the same income change on purchases before it (Anya 2026-11-09: placebos for the main row and the two groups that do not move
+# with household size, and for the same-size row so that the rows of Panel A of the summary table are all here)
+PLACEBO = r'G. Placebo: purchases $t-3$ to $t-2$, before the income change'
 ROWS = [
     (r'A. Fixed effects', [('main', r'Main: household and state-by-year'), ('hh_year', 'Household and year')]),
     (r'B. Purchase window, same income change', [('level_t', r'$t-1$ to $t$'), ('twoyear', r'$t-1$ to $t+1$')]),
@@ -27,6 +30,8 @@ ROWS = [
                         ('acs', 'Group income from the ACS'), ('bls', 'National wage of the occupation (BLS)')]),
     (r'E. Longer changes', [('k2', r'Changes over 2 years'), ('k3', r'Changes over 3 years'), ('k5', r'Changes over 5 years'), ('k8', r'Changes over 8 years')]),
     (r'F. Quartile of income in the first panel year', [('q1', 'Bottom'), ('q2', 'Second'), ('q3', 'Third'), ('q4', 'Top')]),
+    (PLACEBO, [('main', 'Main'), ('same_size', r'Same household size at $t-1$, $t$, $t+1$'), ('no_size_bin', 'Group without the size bin'),
+               ('predicted', 'Predicted group from $t-1$ characteristics')]),
 ]
 
 
@@ -46,8 +51,8 @@ def main():
         x = d[(d['outcome'] == o) & (d['spec'] == spec) & (d['window'] == window)]
         return x.iloc[0] if len(x) else None
 
-    def cell(o, spec, dec):
-        x = get(o, spec)
+    def cell(o, spec, dec, window='main'):
+        x = get(o, spec, window)
         # calories in levels compare years across which household size changes
         if o == 'cals_ae_day' and spec == 'levels':
             return ''
@@ -64,14 +69,15 @@ def main():
     tex = [r'\begin{tabular}{lccccccc}', r'\toprule', r' & HEI & HEI, purchases & Ultra-processed & Produce & Calories per & First- & Household- \\',
            r'Specification & (SD) & before ($t-3$ to $t-2$) & (\% of calories) & (\% of calories) & adult eq. per day & stage F & years \\']
     for panel, rows in ROWS:
+        w = 'before' if panel == PLACEBO else 'main'
         tex += [r'\midrule', rf'\multicolumn{{8}}{{l}}{{\textit{{{panel}}}}} \\']
         for spec, lab in rows:
-            cells = [cell('hei_usda', spec, 3)]
+            cells = [cell('hei_usda', spec, 3, w)]
             b = get('hei_usda', spec, 'before')
-            cells.append('' if b is None or b['f'] < 1 else est(b, 3))
+            cells.append('' if w == 'before' or b is None or b['f'] < 1 else est(b, 3))
             for o, dec in OUTS[1:]:
-                cells.append(cell(o, spec, dec))
-            x = get('hei_usda', spec)
+                cells.append(cell(o, spec, dec, w))
+            x = get('hei_usda', spec, w)
             cells.append('' if x is None else f"{x['f']:.0f}" if x['f'] >= 1 else '0')
             cells.append('' if x is None else f"{int(x['n']):,}")
             tex.append(f'{lab} & ' + ' & '.join(cells) + r' \\')
