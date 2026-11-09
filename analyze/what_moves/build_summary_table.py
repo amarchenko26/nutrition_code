@@ -44,6 +44,7 @@ def cell(x, out, dec=None):
     d = DEC[out] if dec is None else dec
     pz = two_sided(b, se)
     st = '***' if pz < 0.01 else '**' if pz < 0.05 else '*' if pz < 0.10 else ''
+    b = round(b, d) + 0.0     # + 0.0 prints -0.000 as 0.000
     return f'{b:.{d}f}' + (f'$^{{{st}}}$' if st else '') + f' ({se:.{d}f})' + (DAGGER if not pd.isna(p) and p < 0.05 else '')
 
 

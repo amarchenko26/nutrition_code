@@ -37,7 +37,8 @@ def est(x, dec):
     """Estimate with its stars, then the standard error."""
     p = 2 * (1 - norm.cdf(abs(x['b'] / x['se'])))
     st = '***' if p < 0.01 else '**' if p < 0.05 else '*' if p < 0.10 else ''
-    return f"{x['b']:.{dec}f}" + (f'$^{{{st}}}$' if st else '') + f" ({x['se']:.{dec}f})"
+    b = round(float(x['b']), dec) + 0.0     # + 0.0 prints -0.000 as 0.000
+    return f"{b:.{dec}f}" + (f'$^{{{st}}}$' if st else '') + f" ({x['se']:.{dec}f})"
 
 
 def main():
