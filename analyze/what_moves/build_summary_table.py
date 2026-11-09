@@ -41,7 +41,9 @@ def cell(x, out):
     if pd.isna(b) or pd.isna(se):
         return ''
     d = DEC[out]
-    return f'{b:.{d}f} ({se:.{d}f})' + (DAGGER if not pd.isna(p) and p < 0.05 else '')
+    pz = two_sided(b, se)
+    st = '***' if pz < 0.01 else '**' if pz < 0.05 else '*' if pz < 0.10 else ''
+    return f'{b:.{d}f}' + (f'$^{{{st}}}$' if st else '') + f' ({se:.{d}f})' + (DAGGER if not pd.isna(p) and p < 0.05 else '')
 
 
 def pick(df, names, b, se, p=None, **filters):
