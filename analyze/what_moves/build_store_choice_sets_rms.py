@@ -15,10 +15,17 @@ measures describe access, not consumption:
   hi_1000         mean Health Index per 1,000 kcal (GetHealthIndex.do formula)
   nova4_share     share of package calories that are ultra-processed (NOVA 4), over UPCs with a NOVA group
   claude_hi_mean  mean module healthiness score (0-10)
-  price_healthy, price_unhealthy: mean of log(store unit value / national unit value) over the store's healthy (claude_hi
-      4-10) or unhealthy UPCs, clipped at the UPC's 1st and 99th percentiles across stores, weighted by package calories;
-      price_*_sold: the same weighted by national calories sold (the weights of their price figure)
-  n_upcs, n_upcs_healthy, n_upcs_unhealthy, food_spend (all food UPCs kept)
+  Prices (Anya 2026-11-10), for each side of each panel: sug_lo / sug_hi (added sugar at most / above 25 g per 1,000 kcal, 10%
+  of calories), whole / refined (bread), prod / nonprod (fruit and vegetables or not), hipos / hineg (non-produce UPCs with a
+  Health Index above / at or below 0), healthy / unhealthy (claude_hi 4-10 / 0-3):
+  shelf_<side>   price of the UPCs offered per 1,000 kcal, each UPC once: 1,000 x the sum of the store's price of one package
+                 (spending / units over the year) / the sum of the packages' calories (nominal dollars). Differences in what
+                 stores stock and in what they charge both enter.
+  rel_<side>     the same UPCs only: mean of log(store unit value / national unit value), clipped at the UPC's 1st and 99th
+                 percentiles across stores, weighted by package calories. What stores charge for the same products.
+  n_<side>       UPCs offered
+  rel_healthy_sold, rel_unhealthy_sold: rel_ weighted by national calories sold (the weights of their price figure)
+  n_upcs, food_spend (all food UPCs kept)
 Store attributes from the year's stores file: channel_code, store_zip3, fips (state x 1000 + county), retailer_code, parent_code.
 Output: /users/amarche4/scratch/store_choice/store_choice_sets_<year>.parquet.
 Usage: python build_store_choice_sets_rms.py <year> [n_modules]   (n_modules: stop after that many food modules, a test);
@@ -40,8 +47,10 @@ RMS = Path('/users/amarche4/data/rms/2006-2020_Scanner_Data')
 UPC = Path('/users/amarche4/data/rms_variety/rms_upc_groups.parquet')
 OUT = Path('/users/amarche4/scratch/store_choice')
 MIN_KCAL = 1.0
-SUMS = ['n', 'n_h', 'n_u', 'spend', 'kc', 'add', 'kc_add', 'prod', 'hi', 'kc_hi', 'n4', 'kc_nova', 'bread', 'whole', 'chi',
-        'ph', 'wh', 'pu', 'wu', 'phs', 'whs', 'pus', 'wus']
+SIDES = ['sug_lo', 'sug_hi', 'whole', 'refined', 'prod', 'nonprod', 'hipos', 'hineg', 'healthy', 'unhealthy']
+SUMS = (['n', 'spend', 'kc', 'add', 'kc_add', 'prod_kc', 'hi', 'kc_hi', 'n4', 'kc_nova', 'bread_kc', 'whole_kc', 'chi', 'rls_healthy', 'wrs_healthy',
+         'rls_unhealthy', 'wrs_unhealthy'] + [f'{c}_{x}' for x in SIDES for c in ('n', 'pk', 'kc', 'rl', 'wr')])
+ADDSUGAR_CUT = 25.0                     # g per 1,000 kcal = 10% of calories from added sugar
 
 
 def log(msg):
@@ -96,17 +105,27 @@ def module_sums(d, attr):
     d['rel'] = clip_by_group(d['upc'].values, d['rel'].values)
     d['wsold'] = nat['u'].reindex(d['upc']).values * d['kcal_unit'].values
     k = d['kcal_unit'].where(d['kcal_unit'] > MIN_KCAL)            # package calories, the choice-set weight
-    h = d['healthy'] == 1
-    x = pd.DataFrame({'store': d['store'], 'n': 1, 'n_h': h.astype(int), 'n_u': (~h).astype(int), 'spend': d['spend'],
-                      'kc': k, 'add': d['addsugar_unit'].where(k.notna()), 'kc_add': k.where(d['addsugar_unit'].notna()),
-                      'prod': k * d['produce'], 'hi': k * d['hi_1000'], 'kc_hi': k.where(d['hi_1000'].notna() & np.isfinite(d['hi_1000'])),
-                      'n4': k * d['nova4'], 'kc_nova': k.where(d['nova4'].notna()), 'bread': k * d['bread'], 'whole': k * d['bread'] * d['whole'],
-                      'chi': k * d['claude_hi'],
-                      'ph': (k * d['rel']).where(h), 'wh': k.where(h), 'pu': (k * d['rel']).where(~h), 'wu': k.where(~h),
-                      'phs': (d['wsold'] * d['rel']).where(h), 'whs': d['wsold'].where(h), 'pus': (d['wsold'] * d['rel']).where(~h),
-                      'wus': d['wsold'].where(~h)})
-    x['hi'] = x['hi'].where(x['kc_hi'].notna())
-    return x.groupby('store')[SUMS].sum(min_count=1)
+    price = d['spend'] / d['units']                                 # the store's price of one package
+    sug = 1000 * d['addsugar_unit'] / k
+    hi_ok = d['hi_1000'].notna() & np.isfinite(d['hi_1000'])
+    prod, bread, whole, h = d['produce'] == 1, d['bread'] == 1, d['whole'] == 1, d['healthy'] == 1
+    side = {'sug_lo': sug <= ADDSUGAR_CUT, 'sug_hi': sug > ADDSUGAR_CUT, 'whole': bread & whole, 'refined': bread & ~whole,
+            'prod': prod, 'nonprod': ~prod, 'hipos': ~prod & hi_ok & (d['hi_1000'] > 0), 'hineg': ~prod & hi_ok & (d['hi_1000'] <= 0),
+            'healthy': h, 'unhealthy': ~h}
+    x = {'store': d['store'], 'n': 1, 'spend': d['spend'], 'kc': k, 'add': d['addsugar_unit'].where(k.notna()),
+         'kc_add': k.where(d['addsugar_unit'].notna()), 'prod_kc': k * d['produce'], 'hi': (k * d['hi_1000']).where(hi_ok),
+         'kc_hi': k.where(hi_ok), 'n4': k * d['nova4'], 'kc_nova': k.where(d['nova4'].notna()), 'bread_kc': k * d['bread'],
+         'whole_kc': k * d['bread'] * d['whole'], 'chi': k * d['claude_hi'],
+         'rls_healthy': (d['wsold'] * d['rel']).where(h), 'wrs_healthy': d['wsold'].where(h),
+         'rls_unhealthy': (d['wsold'] * d['rel']).where(~h), 'wrs_unhealthy': d['wsold'].where(~h)}
+    for nm, m in side.items():
+        m = m.fillna(False) & k.notna()
+        x[f'n_{nm}'] = m.astype(int)
+        x[f'pk_{nm}'] = price.where(m)
+        x[f'kc_{nm}'] = k.where(m)
+        x[f'rl_{nm}'] = (k * d['rel']).where(m)
+        x[f'wr_{nm}'] = k.where(m & d['rel'].notna())
+    return pd.DataFrame(x).groupby('store')[SUMS].sum(min_count=1)
 
 
 def main(year, n_modules=None):
@@ -137,11 +156,15 @@ def main(year, n_modules=None):
             if n_modules is not None and done >= n_modules:
                 break
     s = pd.concat(acc).groupby(level=0).sum(min_count=1)
-    out = pd.DataFrame({'n_upcs': s['n'], 'n_upcs_healthy': s['n_h'], 'n_upcs_unhealthy': s['n_u'], 'food_spend': s['spend'],
-                        'kcal_offered': s['kc'], 'addsugar_1000': 1000 * s['add'] / s['kc_add'], 'produce_share': s['prod'] / s['kc'],
-                        'whole_share': s['whole'] / s['bread'], 'hi_1000': s['hi'] / s['kc_hi'], 'nova4_share': s['n4'] / s['kc_nova'],
-                        'claude_hi_mean': s['chi'] / s['kc'], 'price_healthy': s['ph'] / s['wh'], 'price_unhealthy': s['pu'] / s['wu'],
-                        'price_healthy_sold': s['phs'] / s['whs'], 'price_unhealthy_sold': s['pus'] / s['wus']})
+    cols = {'n_upcs': s['n'], 'food_spend': s['spend'], 'kcal_offered': s['kc'], 'addsugar_1000': 1000 * s['add'] / s['kc_add'],
+            'produce_share': s['prod_kc'] / s['kc'], 'whole_share': s['whole_kc'] / s['bread_kc'], 'hi_1000': s['hi'] / s['kc_hi'],
+            'nova4_share': s['n4'] / s['kc_nova'], 'claude_hi_mean': s['chi'] / s['kc'],
+            'rel_healthy_sold': s['rls_healthy'] / s['wrs_healthy'], 'rel_unhealthy_sold': s['rls_unhealthy'] / s['wrs_unhealthy']}
+    for nm in SIDES:
+        cols[f'n_{nm}'] = s[f'n_{nm}']
+        cols[f'shelf_{nm}'] = 1000 * s[f'pk_{nm}'] / s[f'kc_{nm}']
+        cols[f'rel_{nm}'] = s[f'rl_{nm}'] / s[f'wr_{nm}']
+    out = pd.DataFrame(cols)
     out.index.name = 'store_code_uc'
     out = out.reset_index()
     out['year'] = year

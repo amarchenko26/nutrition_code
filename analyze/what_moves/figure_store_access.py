@@ -1,13 +1,20 @@
-"""What stores offer, by the income of the ZIP codes their shoppers live in (Anya 2026-11-10, after Allcott, Diamond and Dube
-2019, Figure II): access, not consumption.
+"""What stores offer and what they charge, by the income of the ZIP codes their shoppers live in (Anya 2026-11-10): access, not
+consumption. Figure 1 reproduces Allcott, Diamond and Dube (2019, Figure II); figures 2 and 3 add prices in the same layout.
 
 Reads interim/what_moves/store_choice_sets.parquet (build_store_choice_sets_rms.py on Oscar: one row per RMS store and year,
-measures over the food UPCs the store sold, each weighted by the calories in one package) and store_shopper_income.parquet
-(build_store_shopper_income.py: trip-weighted ACS median household income of the panel shoppers' home ZIP codes).
-Stores with MIN_TRIPS or more panel trips from MIN_HH or more households. Bins of $10,000 of shopper ZIP income; points are
-means across store-years in the bin, 2006-2020, as in their figure.
-Output: figs/what_moves/prices/store_access_by_income.png. Prints the bin means, the top-minus-bottom bin differences and the
-same by store channel.
+measures over the food UPCs the store sold, each UPC counted once and weighted by the calories in one package) and
+store_shopper_income.parquet (build_store_shopper_income.py: trip-weighted ACS 2011-2015 median household income of the panel
+shoppers' home ZIP codes). Stores with MIN_TRIPS or more panel trips from MIN_HH or more households. Points: means across
+store-years 2006-2020 in $10,000 bins of shopper ZIP income, as in their figure.
+Outputs (figs/what_moves/prices/):
+  store_access_by_income.png        added sugar per 1,000 kcal, whole-grain share of bread, fruit and vegetable share, Health Index
+  store_shelf_prices_by_income.png  real price per 1,000 kcal of the UPCs offered (each once; stocking and prices both enter), for
+                                    the healthy and unhealthy side of each panel: added sugar at most / above 25 g per 1,000 kcal,
+                                    whole-grain / other bread, fruit and vegetables / other food, Health Index above / at or below 0
+                                    (non-produce)
+  store_same_prices_by_income.png   the same sides, price of the same UPCs relative to their national price (%)
+  tabs/what_moves/store_prices_by_income.tex  stores in the top vs bottom quartile of shopper ZIP income (quartiles of stores)
+Prints the bin means and the top-minus-bottom differences.
 """
 import sys
 from pathlib import Path
@@ -24,15 +31,23 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
 FIG = fdir / 'what_moves' / 'prices'
+TAB = tdir / 'what_moves' / 'store_prices_by_income.tex'
 BLUE, RED, ORANGE, GREY = '#2c5f8a', '#a63d40', '#fc8d59', '#999999'
-plt.rcParams.update({'font.size': 24, 'axes.labelsize': 24, 'axes.titlesize': 26, 'xtick.labelsize': 22, 'ytick.labelsize': 22,
+plt.rcParams.update({'font.size': 24, 'axes.labelsize': 24, 'axes.titlesize': 26, 'xtick.labelsize': 21, 'ytick.labelsize': 22,
                      'axes.spines.top': False, 'axes.spines.right': False})
 MIN_TRIPS, MIN_HH = 50, 10
-EDGES = [0, 30, 40, 50, 60, 70, 80, 90, np.inf]            # $000s of shopper ZIP median household income
+EDGES = [0, 30, 40, 50, 60, 70, 80, 90, np.inf]            # $000s of shopper ZIP median household income (2015 dollars)
 MIDS = [25, 35, 45, 55, 65, 75, 85, 95]
-PANELS = [('addsugar_1000', 'Added sugar per 1,000 calories (g)', 1), ('whole_share', 'Whole-grain share of bread (%)', 100),
-          ('produce_share', 'Fruit and vegetable share of calories (%)', 100), ('hi_1000', 'Health Index per 1,000 calories', 1),
-          ('nova4_share', 'Ultra-processed share of calories (%)', 100)]
+TICKS = ['<30', '30-40', '40-50', '50-60', '60-70', '70-80', '80-90', '90+']
+XLAB = "Shoppers' ZIP median income ($000s)"
+CPI = {2006: 201.6, 2007: 207.3, 2008: 215.3, 2009: 214.5, 2010: 218.1, 2011: 224.9, 2012: 229.6, 2013: 233.0, 2014: 236.7,
+       2015: 237.0, 2016: 240.0, 2017: 245.1, 2018: 251.1, 2019: 255.7, 2020: 258.8}       # CPI-U, as in analyze_variety_price_index.py
+ACCESS = [('addsugar_1000', 'Added sugar per 1,000 calories (g)', 1), ('whole_share', 'Whole-grain share of bread (%)', 100),
+          ('produce_share', 'Fruit and vegetable share of calories (%)', 100), ('hi_1000', 'Health Index per 1,000 calories', 1)]
+PANELS = [('Added sugar', 'sug_lo', '25 g per 1,000 kcal or less', 'sug_hi', 'more than 25 g'),
+          ('Bread', 'whole', 'whole grain', 'refined', 'other bread'),
+          ('Fruit and vegetables', 'prod', 'fruit and vegetables', 'nonprod', 'other food'),
+          ('Health Index', 'hipos', 'above 0', 'hineg', '0 or below')]
 
 
 def load():
@@ -41,38 +56,82 @@ def load():
     inc = inc[(inc['n_trips'] >= MIN_TRIPS) & (inc['n_households'] >= MIN_HH) & inc['zip_income'].notna()]
     d = s.merge(inc[['store_code_uc', 'zip_income']], on='store_code_uc', how='inner')
     d['bin'] = pd.cut(d['zip_income'] / 1000, EDGES, labels=MIDS, right=False).astype(int)
-    d['price_gap'] = 100 * (d['price_healthy'] - d['price_unhealthy'])
-    print(f'{len(d):,} store-years, {d.store_code_uc.nunique():,} stores; of {len(s):,} store-years in RMS')
+    to_2013 = CPI[2013] / d['year'].map(CPI)
+    for c in [c for c in d.columns if c.startswith('shelf_')]:
+        d[c] = d[c] * to_2013                                      # real 2013 dollars per 1,000 kcal
+    for c in [c for c in d.columns if c.startswith('rel_')]:
+        d[c] = 100 * (np.exp(d[c]) - 1)                             # percent above the national price of the same UPCs
+    st = d.drop_duplicates('store_code_uc')
+    cuts = st['zip_income'].quantile([0.25, 0.75]).values
+    d['quartile'] = np.select([d['zip_income'] <= cuts[0], d['zip_income'] > cuts[1]], ['bottom', 'top'], default='middle')
+    print(f'{len(d):,} store-years, {d.store_code_uc.nunique():,} stores of {s.store_code_uc.nunique():,} RMS stores; '
+          f'store quartile cuts of shopper ZIP income ${cuts[0]:,.0f} and ${cuts[1]:,.0f}')
     return d
+
+
+def axis(ax, title, ylabel):
+    ax.set_title(title, pad=14); ax.set_ylabel(ylabel); ax.set_xlabel(XLAB)
+    ax.set_xticks(MIDS); ax.set_xticklabels(TICKS, rotation=30)
+
+
+def fig_access(m):
+    fig, axes = plt.subplots(2, 2, figsize=(26, 20))
+    fig.subplots_adjust(wspace=0.28, hspace=0.42)
+    for ax, (c, lab, k) in zip(axes.flat, ACCESS):
+        ax.plot(MIDS, k * m[c].values, color=BLUE, lw=4, marker='o', ms=12)
+        axis(ax, lab, '')
+    fig.savefig(FIG / 'store_access_by_income.png', bbox_inches='tight', dpi=100); plt.close(fig)
+    print(f'saved {FIG / "store_access_by_income.png"}')
+
+
+def fig_prices(m, prefix, fname, ylabel):
+    fig, axes = plt.subplots(2, 2, figsize=(26, 20))
+    fig.subplots_adjust(wspace=0.28, hspace=0.42)
+    for ax, (title, a, alab, b, blab) in zip(axes.flat, PANELS):
+        ax.plot(MIDS, m[f'{prefix}{a}'].values, color=BLUE, lw=4, marker='o', ms=12, label=alab)
+        ax.plot(MIDS, m[f'{prefix}{b}'].values, color=RED, lw=4, marker='s', ms=12, label=blab)
+        if prefix == 'rel_':
+            ax.axhline(0, color=GREY, lw=1.2, ls='--')
+        axis(ax, title, ylabel)
+        ax.legend(frameon=False, fontsize=21, loc='best')
+    fig.savefig(FIG / fname, bbox_inches='tight', dpi=100); plt.close(fig)
+    print(f'saved {FIG / fname}')
+
+
+def table(d):
+    q = d[d['quartile'].isin(['top', 'bottom'])].groupby('quartile').mean(numeric_only=True)
+    n = d[d['quartile'].isin(['top', 'bottom'])].groupby('quartile')['store_code_uc'].nunique()
+    lines = ['\\begin{tabular}{lcccccccc}', '\\toprule',
+             ' & \\multicolumn{3}{c}{Top quartile of shopper ZIP income} & \\multicolumn{3}{c}{Bottom quartile} & \\multicolumn{2}{c}{Same products, \\% above national} \\\\',
+             '\\cmidrule(lr){2-4} \\cmidrule(lr){5-7} \\cmidrule(lr){8-9}',
+             ' & Healthier & Less healthy & Ratio & Healthier & Less healthy & Ratio & Top & Bottom \\\\', '\\midrule',
+             '\\multicolumn{9}{l}{\\textit{Price per 1,000 calories of the products offered (2013 dollars); same products: healthier minus less healthy}} \\\\']
+    for title, a, alab, b, blab in PANELS + [('Healthiness score', 'healthy', '4--10', 'unhealthy', '0--3')]:
+        t, bt = q.loc['top'], q.loc['bottom']
+        lines.append(f'{title} ({alab} / {blab}) & \\${t[f"shelf_{a}"]:.2f} & \\${t[f"shelf_{b}"]:.2f} & {t[f"shelf_{a}"] / t[f"shelf_{b}"]:.2f} & '
+                     f'\\${bt[f"shelf_{a}"]:.2f} & \\${bt[f"shelf_{b}"]:.2f} & {bt[f"shelf_{a}"] / bt[f"shelf_{b}"]:.2f} & '
+                     f'{t[f"rel_{a}"] - t[f"rel_{b}"]:+.1f} & {bt[f"rel_{a}"] - bt[f"rel_{b}"]:+.1f} \\\\')
+    lines += ['\\midrule', '\\multicolumn{9}{l}{\\textit{What the stores offer}} \\\\']
+    for c, lab, k in ACCESS:
+        tex_lab = lab.replace('%', '\\%')
+        lines.append(f'{tex_lab} & \\multicolumn{{3}}{{c}}{{{k * q.loc["top", c]:.2f}}} & \\multicolumn{{3}}{{c}}{{{k * q.loc["bottom", c]:.2f}}} & & \\\\')
+    lines += ['\\midrule', f'Stores & \\multicolumn{{3}}{{c}}{{{n["top"]:,}}} & \\multicolumn{{3}}{{c}}{{{n["bottom"]:,}}} & & \\\\', '\\bottomrule', '\\end{tabular}']
+    TAB.parent.mkdir(parents=True, exist_ok=True)
+    TAB.write_text('\n'.join(lines) + '\n')
+    print(f'saved {TAB}')
 
 
 def main():
     d = load()
-    cols = [c for c, _, _ in PANELS] + ['price_healthy', 'price_unhealthy', 'price_gap', 'price_healthy_sold', 'price_unhealthy_sold']
-    m = d.groupby('bin')[cols].mean()
-    n = d.groupby('bin').size()
-    print(pd.concat([m.round(3), n.rename('store_years')], axis=1).to_string())
-    print('top minus bottom bin:', (m.iloc[-1] - m.iloc[0]).round(4).to_dict())
-    if 'channel_code' in d.columns:
-        print(d.groupby(['channel_code', 'bin'])[['hi_1000', 'produce_share', 'price_gap']].mean().unstack(0).round(3).to_string())
-    fig, axes = plt.subplots(2, 3, figsize=(32, 19))
-    fig.subplots_adjust(wspace=0.32, hspace=0.42)
-    for ax, (c, lab, k) in zip(axes.flat, PANELS):
-        ax.plot(MIDS, k * m[c].values, color=BLUE, lw=4, marker='o', ms=12)
-        ax.set_title(lab, pad=14)
-        ax.set_xlabel("Shoppers' ZIP median income ($000s)")
-    ax = axes.flat[5]
-    for c, col, lab in [('price_healthy', BLUE, 'healthy products'), ('price_unhealthy', RED, 'unhealthy products')]:
-        ax.plot(MIDS, 100 * m[c].values, color=col, lw=4, marker='o', ms=12, label=lab)
-    ax.axhline(0, color=GREY, lw=1.2, ls='--')
-    ax.set_title('Price relative to the national price (%)', pad=14)
-    ax.set_xlabel("Shoppers' ZIP median income ($000s)")
-    ax.legend(frameon=False, fontsize=22)
-    for ax in axes.flat:
-        ax.set_xticks(MIDS); ax.set_xticklabels(['<30', '30-40', '40-50', '50-60', '60-70', '70-80', '80-90', '90+'], rotation=30)
+    m = d.groupby('bin').mean(numeric_only=True).reindex(MIDS)
+    show = [c for c, _, _ in ACCESS] + [f'{p}{x}' for p in ('shelf_', 'rel_') for _, a, _, b, _ in PANELS for x in (a, b)]
+    print(pd.concat([m[show].round(3), d.groupby('bin').size().rename('store_years')], axis=1).to_string())
+    print('top minus bottom bin:', (m[show].iloc[-1] - m[show].iloc[0]).round(3).to_dict())
     FIG.mkdir(parents=True, exist_ok=True)
-    fig.savefig(FIG / 'store_access_by_income.png', bbox_inches='tight', dpi=100); plt.close(fig)
-    print(f'saved {FIG / "store_access_by_income.png"}')
+    fig_access(m)
+    fig_prices(m, 'shelf_', 'store_shelf_prices_by_income.png', 'Real price per 1,000 calories (2013 dollars)')
+    fig_prices(m, 'rel_', 'store_same_prices_by_income.png', 'Percent above the national price of the same products')
+    table(d)
 
 
 if __name__ == '__main__':
