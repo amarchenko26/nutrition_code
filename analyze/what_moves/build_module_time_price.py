@@ -21,15 +21,8 @@ preparation / (SERVINGS x calories per serving).
 Healthiness: claude_hi (0-10, interim/rms_variety/claude_hi_scores.parquet) in the fixed ranges HI_CUTS of
 analyze/variety/analyze_variety_price_index.py: 0-2, 3, 4-5, 6-10.
 
-NOVA (2026-11-10, Anya: the same figures with NOVA groups on the x axis): each UPC's group from
-interim/health/upc_dictionary.parquet (`nova`: own ingredient list, else its closest relatives'). Per group, from the
-same UPC rows: real spending (upc_year_spending's nominal spending x the year's real/nominal ratio of
-module_year_price_calories), grams, calories, and minutes = servings / SERVINGS x the module's minutes per preparation.
-nova_main = the group with the largest share of a module's spending, for figures that can only group whole modules
-(the RMS price index).
-
-Outputs: interim/what_moves/module_time_price.parquet, one row per module; interim/what_moves/nova_time_price.parquet,
-one row per NOVA group.
+Output: interim/what_moves/module_time_price.parquet, one row per module. (A NOVA-group version, added and deleted on
+2026-11-10 at Anya's request, also wrote nova_time_price.parquet.)
 """
 import sys
 from pathlib import Path
@@ -45,7 +38,6 @@ import pandas as pd
 from utils.food_measures import package_grams, POWDER_MODULES, POWDER_DENSITY_MIN, GRAMS_PER_QT_PREPARED
 
 OUT = idir / 'what_moves' / 'module_time_price.parquet'
-OUT_NOVA = idir / 'what_moves' / 'nova_time_price.parquet'
 SERVINGS = 4                      # label servings per preparation
 MIN_PER_POINT = 5                 # minutes per preparation-score point above 1
 HI_CUTS, HI_LABELS = [-1, 2, 3, 5, 10], ['0-2', '3', '4-5', '6-10']
@@ -63,18 +55,14 @@ def money():
 
 
 def servings():
-    """Servings and calories bought per module, UPC by UPC; also returns the UPC rows (with real spending and NOVA group)."""
+    """Servings and calories bought per module, UPC by UPC."""
     p = pd.read_csv(rdir / 'products.tsv', sep='\t', dtype={'upc': str, 'size1_units': str}, encoding='latin-1',
                     usecols=['upc', 'upc_ver_uc', 'product_module_code', 'product_group_code', 'multi', 'size1_amount', 'size1_units'])
     p = p.sort_values('upc_ver_uc').drop_duplicates('upc').drop(columns='upc_ver_uc')
-    my = pd.read_parquet(idir / 'health' / 'module_year_price_calories.parquet', columns=['panel_year', 'spend_real', 'spend_nominal']).groupby('panel_year').sum()
-    real = my['spend_real'] / my['spend_nominal']                    # 2013$ per nominal $, by year
-    q = pd.read_parquet(idir / 'health' / 'upc_year_spending.parquet', columns=['upc', 'quantity', 'spending', 'panel_year'])
-    q['spend_real'] = q['spending'] * q['panel_year'].map(real)
-    q = q.groupby('upc', as_index=False)[['quantity', 'spend_real']].sum()
+    q = pd.read_parquet(idir / 'health' / 'upc_year_spending.parquet', columns=['upc', 'quantity']).groupby('upc', as_index=False)['quantity'].sum()
     d = q.merge(p, on='upc', how='inner')
     d['upc_13'] = '0' + d['upc'].str.zfill(12)
-    d = d.merge(pd.read_parquet(idir / 'health' / 'upc_dictionary.parquet', columns=['upc_13', 'cal_per_100g', 'nova']), on='upc_13', how='left')
+    d = d.merge(pd.read_parquet(idir / 'health' / 'upc_dictionary.parquet', columns=['upc_13', 'cal_per_100g']), on='upc_13', how='left')
     d['grams'] = d['quantity'] * package_grams(d)
     d['cals'] = d['grams'] * d['cal_per_100g'] / 100
     lab = pd.read_parquet(idir / 'usda_nielsen_merged' / 'usda_wide.parquet', columns=['upc13', 'serving_size', 'serving_size_unit'])
@@ -93,32 +81,13 @@ def servings():
     own = d.groupby('product_module_code').apply(lambda x: x.loc[x['serv_own'], 'cals'].sum() / x['cals'].sum()).rename('cal_share_own_serving')
     s = s.merge(own.reset_index(), on='product_module_code', how='left')
     s['kcal_serving'] = s['cals_upc'] / s['servings']
-    main = d[d['nova'].notna()].groupby(['product_module_code', 'nova'])['spend_real'].sum().reset_index()
-    main = main.sort_values('spend_real').groupby('product_module_code').tail(1).rename(columns={'nova': 'nova_main'})
-    s = s.merge(main[['product_module_code', 'nova_main']], on='product_module_code', how='left')
     print(f'UPCs with units, size and calories: {len(d):,}; calories on a UPC\'s own label serving: '
           f'{d.loc[d.serv_own, "cals"].sum() / d["cals"].sum():.1%}', flush=True)
-    return s, d
-
-
-def nova_groups(d):
-    """Real spending, grams, calories and minutes of preparation by NOVA group, UPC by UPC."""
-    pt = pd.read_parquet(idir / 'rms_variety' / 'prep_time_scores.parquet', columns=['product_module_code', 'prep_time'])
-    d = d[d['nova'].notna()].merge(pt, on='product_module_code', how='left')
-    d['minutes'] = d['servings'] / SERVINGS * MIN_PER_POINT * (d['prep_time'].fillna(1) - 1)
-    g = d.groupby('nova').agg(spend_g=('spend_real', 'sum'), grams=('grams', 'sum'), cals=('cals', 'sum'), minutes=('minutes', 'sum'),
-                              n_upcs=('upc', 'size')).reset_index()
-    g['usd_kg'] = 1000 * g['spend_g'] / g['grams']
-    g['usd_1000kcal'] = 1000 * g['spend_g'] / g['cals']
-    g['min_1000kcal'] = 1000 * g['minutes'] / g['cals']
-    g.to_parquet(OUT_NOVA, index=False)
-    print(g.round(3).to_string(index=False))
-    print(f'saved {OUT_NOVA}')
+    return s
 
 
 def main():
-    s, d = servings()
-    m = money().merge(s, on='product_module_code', how='left')
+    m = money().merge(servings(), on='product_module_code', how='left')
     hi = pd.read_parquet(idir / 'rms_variety' / 'claude_hi_scores.parquet', columns=['product_module_code', 'claude_hi'])
     pt = pd.read_parquet(idir / 'rms_variety' / 'prep_time_scores.parquet', columns=['product_module_code', 'prep_time'])
     m = m.merge(hi, on='product_module_code', how='left').merge(pt, on='product_module_code', how='left')
@@ -129,7 +98,6 @@ def main():
     OUT.parent.mkdir(parents=True, exist_ok=True)
     m.to_parquet(OUT, index=False)
     print(f'saved {len(m)} modules to {OUT}; share of spending kept {m.spend.sum() / money().spend.sum():.3f}')
-    nova_groups(d)
 
 
 if __name__ == '__main__':

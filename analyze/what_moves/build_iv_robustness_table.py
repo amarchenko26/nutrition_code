@@ -24,7 +24,8 @@ PLACEBO = r'G. Placebo: purchases $t-3$ to $t-2$, before the income change'
 ROWS = [
     (r'A. Fixed effects', [('main', r'Main: household and state-by-year'), ('hh_year', 'Household and year')]),
     (r'B. Purchase window, same income change', [('level_t', r'$t-1$ to $t$'), ('twoyear', r'$t-1$ to $t+1$')]),
-    (r'C. Households', [('same_size', r'Same household size at $t-1$, $t$, $t+1$'), ('geo_movers', 'Keeping households that change county'),
+    (r'C. Households', [('same_size', r'Same household size at $t-1$, $t$, $t+1$'), ('age60', r"Heads' average age under 60 at $t+1$"),
+                        ('geo_movers', 'Keeping households that change county'),
                         ('stayers', r'Group does not change from $t-1$ to $t$'), ('switchers', r'Group changes from $t-1$ to $t$'), ('switch_noNE', 'Group changes, not into not employed')]),
     (r'D. Instrument', [('no_size_bin', 'Group without the size bin'), ('baseline_occ', 'Occupation frozen at the first panel year'), ('predicted', 'Predicted group from $t-1$ characteristics'),
                         ('acs', 'Group income from the ACS'), ('bls', 'National wage of the occupation (BLS)')]),

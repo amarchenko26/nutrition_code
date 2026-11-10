@@ -22,6 +22,8 @@
 //   at t, employed at t-k);
 //   q1-q4 (quartile of income in the household's first panel year);
 //   ql1-ql4 (quartile of income at t-1, cut within each year among non-movers, projection-weighted; mode qlag).
+// `do build_iv_robustness.do age` (2026-11-10): the main row on heads' average age below 65, 62, 60 or 55 at t+1, printed only;
+// `do build_iv_robustness.do <outcome> age60` replaces only the age60 rows (heads' average age under 60 at t+1, Table 7 panel C).
 //
 // `do build_iv_robustness.do <outcome>` writes interim/what_moves/iv_robustness_<outcome>.csv.
 // `do build_iv_robustness.do <outcome> qlag` replaces only the ql1-ql4 rows of that file and prints how the t-1 quartiles
@@ -279,12 +281,40 @@ if "`part'" == "size" {
 	exit
 }
 
+// ---------------------------------------------------------------- without households that may be moving into retirement
+// (Anya 2026-11-10): the main regression on households whose heads' average exact age is below 65, 62, 60 or 55 at t+1, so below
+// the cutoff in every year from t-1 to t+1 (999 = no cutoff, the main estimate). HEI in standard deviations (9.7338 points, the
+// scale of analyze/labor_supply/12_), the ultra-processed share in points; change from t to t+1 (m) and purchases from t-3 to t-2
+// (b); the share of household-years whose group goes into not employed from t-1 to t. Printed only.
+if "`part'" == "age" {
+	gen double hei_sd = hei_usda / 9.7338
+	foreach y in hei_sd upf_share {
+		gen double m_`y' = F.`y' - `y'
+		gen double b_`y' = L2.`y' - L3.`y'
+	}
+	foreach a in 999 65 62 60 55 {
+		local c "movers_f == 0 & clean == 1 & avg_age_hh_head + 1 < `a'"       // age at t+1 from age at t, so the placebo rows need no t+1 record
+		quietly sum into_ne [aw = projection_factor] if `c' & !missing(m_hei_sd, d_inc, d_iv), meanonly
+		local sh = r(mean)
+		foreach y in hei_sd upf_share {
+			foreach w in m b {
+				capture quietly ivreghdfe `w'_`y' (d_inc = d_iv) [pw = projection_factor] if `c', absorb(`FE') cluster(fips)
+				if _rc == 0 di "age < `a' `y' `w': " %8.4f _b[d_inc] " (" %7.4f _se[d_inc] ") F " %6.1f e(widstat) " N " e(N)
+				else di as error "age < `a' `y' `w' failed, rc " _rc
+			}
+		}
+		di "age < `a': share of household-years moving into not employed from t-1 to t " %6.4f `sh'
+	}
+	di "build_iv_robustness.do age complete"
+	exit
+}
+
 // ---------------------------------------------------------------- one outcome, every row
 local v "`part'"
 local mode "`2'"
 global OUT "$idir/what_moves/iv_robustness_`v'.csv"
 cap file close fh
-if "`mode'" != "qlag" {
+if !inlist("`mode'", "qlag", "age60") {
 	file open fh using "$OUT", write replace
 	file write fh "outcome,spec,window,b,se,f,n" _n
 	file close fh
@@ -314,6 +344,21 @@ if "`v'" == "cals_ae_day" local base "`base' & same_size == 1"
 // quartile of income at t-1: cut points within each year among non-movers, projection-weighted. Income comes in brackets, so
 // every cut falls on a bracket; the whole bracket goes to the side that brings the group's share closer to a quarter (from
 // 2017 the top bracket holds more than a quarter of households, and ties sent down would leave the top quartile empty)
+// heads' average age under 60 at t+1 (Anya 2026-11-10, Table 7 panel C): replaces only the age60 rows of $OUT, so the other
+// rows are not re-estimated; the main sequence below writes the same rows on a full run
+if "`mode'" == "age60" {
+	preserve
+	import delimited using "$OUT", clear varnames(1) stringcols(_all)
+	drop if spec == "age60"
+	export delimited using "$OUT", replace
+	restore
+	foreach w in main before {
+		run_iv `v' age60 `w' y_`w' d_inc d_iv "`base' & avg_age_hh_head + 1 < 60" "`FE'"
+	}
+	di "build_iv_robustness.do `v' age60 complete"
+	exit
+}
+
 if "`mode'" == "qlag" {
 	preserve
 	import delimited using "$OUT", clear varnames(1) stringcols(_all)
@@ -364,6 +409,7 @@ foreach w in main before {
 	run_iv `v' no_hhfe `w' y_`w' d_inc d_iv "`base'" "year_state kids avg_age_hh_head hh_comp"
 	run_iv `v' year_only `w' y_`w' d_inc d_iv "`base'" "year kids avg_age_hh_head hh_comp"
 	if "`v'" != "cals_ae_day" run_iv `v' same_size `w' y_`w' d_inc d_iv "`base' & same_size == 1" "`FE'"
+	run_iv `v' age60 `w' y_`w' d_inc d_iv "`base' & avg_age_hh_head + 1 < 60" "`FE'"
 	if "`v'" != "cals_ae_day" run_iv `v' geo_movers `w' y_`w' d_inc d_iv "clean == 1" "`FE'"
 	if "`v'" == "cals_ae_day" run_iv `v' geo_movers `w' y_`w' d_inc d_iv "clean == 1 & same_size == 1" "`FE'"
 	run_iv `v' stayers `w' y_`w' d_inc d_iv "`base' & stayer == 1" "`FE'"

@@ -1,13 +1,11 @@
-"""Price of food by module healthiness and by NOVA group, in money and with preparation time valued (Anya 2026-11-10,
-0_main.tex first section).
+"""Price of food by module healthiness, in money and with preparation time valued (Anya 2026-11-10, 0_main.tex first section).
+The NOVA rows added the same day were deleted at Anya's request ("delete the nova stuff").
 
-Reads interim/what_moves/module_time_price.parquet and nova_time_price.parquet (build_module_time_price.py) and, for the
-variety-adjusted change, interim/rms_variety/price_index_module_year.parquet (build/variety/build_price_index.py, RMS).
-Rows of each figure: healthiness bins of the module (claude_hi 0-2, 3, 4-5, 6-10) on top, NOVA groups 1-4 below.
-A group's price = 1,000 x real spending on purchases with a size / their grams (per kg) or their calories (per 1,000 kcal);
-its minutes per 1,000 kcal = the minutes needed to prepare all the calories the group sold, per 1,000 kcal. NOVA groups
-are each product's own group, except in the variety-adjusted panel, where the price index exists only by module and a
-module counts in the group with the largest share of its spending (nova_main).
+Reads interim/what_moves/module_time_price.parquet (build_module_time_price.py) and, for the variety-adjusted change,
+interim/rms_variety/price_index_module_year.parquet (build/variety/build_price_index.py, RMS). Groups: healthiness bins of the
+module (claude_hi 0-2, 3, 4-5, 6-10). A group's price = 1,000 x real spending on purchases with a size / their grams (per kg) or
+their calories (per 1,000 kcal); its minutes per 1,000 kcal = the minutes needed to prepare all the calories the group sold,
+per 1,000 kcal.
 Variety-adjusted change (Anya chose option (a) on 2026-11-10): real price level in 2020 relative to 2007, continuing
 products (level_ces) and with the Feenstra correction for products entering and leaving (level_va, sigma = 5),
 spending-weighted with 2020 RMS spending over modules passing the 1% coverage gate of
@@ -38,10 +36,7 @@ plt.rcParams.update({'font.size': 24, 'axes.labelsize': 24, 'axes.titlesize': 26
                      'axes.spines.top': False, 'axes.spines.right': False})
 HI_BINS = ['0-2', '3', '4-5', '6-10']
 HI_TICKS = ['0-2\nleast\nhealthy', '3', '4-5', '6-10\nmost\nhealthy']
-NOVA = [1.0, 2.0, 3.0, 4.0]
-NOVA_TICKS = ['1\nunprocessed', '2\nculinary\ningredient', '3\nprocessed', '4\nultra-\nprocessed']
 HI_X = 'Healthiness score of the product module'
-NOVA_X = 'NOVA group of the product'
 WAGES = [(0, GREY, 'money only'), (7.25, ORANGE, '$7.25 an hour'), (15, RED, '$15 an hour'), (30, BLUE, '$30 an hour')]
 BASE_YEAR, END_YEAR = 2007, 2020
 CPI = {2007: 207.3, 2020: 258.8}          # CPI-U annual averages, as in analyze/variety/analyze_variety_price_index.py
@@ -59,31 +54,20 @@ def hi_groups(m, time_scale=1.0):
     return g
 
 
-def nova_groups(time_scale=1.0):
-    g = pd.read_parquet(idir / 'what_moves' / 'nova_time_price.parquet').set_index('nova').reindex(NOVA)
-    g['min_1000kcal'] = time_scale * g['min_1000kcal']
-    g['spend_share'] = g['spend_g'] / g['spend_g'].sum()
-    g['cal_share'] = g['cals'] / g['cals'].sum()
-    return g
-
-
 def variety_change(m):
-    """Real % change of the price level 2007-2020 by healthiness bin and by the module's main NOVA group."""
+    """Real % change of the price level 2007-2020 by healthiness bin."""
     pi = pd.read_parquet(idir / 'rms_variety' / 'price_index_module_year.parquet')
     cov = pd.read_parquet(idir / 'rms_variety' / 'module_healthiness_usda.parquet', columns=['product_module_code', 'pct_coverage'])
     pi = pi[pi['year'] == END_YEAR].merge(cov, on='product_module_code')
-    pi = pi[pi['pct_coverage'] >= 0.01].merge(m[['product_module_code', 'hi_bin', 'nova_main']], on='product_module_code', how='inner')
+    pi = pi[pi['pct_coverage'] >= 0.01].merge(m[['product_module_code', 'hi_bin']], on='product_module_code', how='inner')
     defl = CPI[END_YEAR] / CPI[BASE_YEAR]
-    out = {}
-    for col, keys in [('hi_bin', HI_BINS), ('nova_main', NOVA)]:
-        rows = []
-        for k in keys:
-            g = pi[pi[col] == k]
-            rows.append({'group': k, 'n': len(g),
-                         'ces': 100 * (np.average(g['level_ces'], weights=g['total_spending']) / defl - 1),
-                         'va': 100 * (np.average(g['level_va'], weights=g['total_spending']) / defl - 1)})
-        out[col] = pd.DataFrame(rows).set_index('group')
-    return out
+    rows = []
+    for k in HI_BINS:
+        g = pi[pi['hi_bin'] == k]
+        rows.append({'group': k, 'n': len(g),
+                     'ces': 100 * (np.average(g['level_ces'], weights=g['total_spending']) / defl - 1),
+                     'va': 100 * (np.average(g['level_va'], weights=g['total_spending']) / defl - 1)})
+    return pd.DataFrame(rows).set_index('group')
 
 
 def bars(ax, v, fmt, title, ylabel, ticks, xlabel):
@@ -110,14 +94,12 @@ def change_bars(ax, ch, ticks, xlabel):
     ax.legend(frameon=False, fontsize=20, loc='best')
 
 
-def fig_money(hi, nova, ch):
-    fig, axes = plt.subplots(2, 3, figsize=(36, 22))
-    fig.subplots_adjust(wspace=0.3, hspace=0.55)
-    for r, (g, ticks, xl, key, xl3) in enumerate([(hi, HI_TICKS, HI_X, 'hi_bin', HI_X),
-                                                 (nova, NOVA_TICKS, NOVA_X, 'nova_main', 'NOVA group of most of the module\'s spending')]):
-        bars(axes[r, 0], g['usd_kg'].values, '${:.2f}', 'Per kilogram', 'Real price (2013 dollars)', ticks, xl)
-        bars(axes[r, 1], g['usd_1000kcal'].values, '${:.2f}', 'Per 1,000 calories', 'Real price (2013 dollars)', ticks, xl)
-        change_bars(axes[r, 2], ch[key], ticks, xl3)
+def fig_money(hi, ch):
+    fig, axes = plt.subplots(1, 3, figsize=(36, 11))
+    fig.subplots_adjust(wspace=0.3)
+    bars(axes[0], hi['usd_kg'].values, '${:.2f}', 'Per kilogram', 'Real price (2013 dollars)', HI_TICKS, HI_X)
+    bars(axes[1], hi['usd_1000kcal'].values, '${:.2f}', 'Per 1,000 calories', 'Real price (2013 dollars)', HI_TICKS, HI_X)
+    change_bars(axes[2], ch, HI_TICKS, HI_X)
     FIG.mkdir(parents=True, exist_ok=True)
     fig.savefig(FIG / 'price_by_healthiness.png', bbox_inches='tight', dpi=100); plt.close(fig)
     print(f'saved {FIG / "price_by_healthiness.png"}')
@@ -150,12 +132,11 @@ def full_panel(ax, g, ticks, xl, legend_loc):
     ax.legend(frameon=False, loc=legend_loc, fontsize=22)
 
 
-def fig_full(hi, nova):
-    fig, axes = plt.subplots(2, 2, figsize=(26, 22))
-    fig.subplots_adjust(wspace=0.3, hspace=0.55)
-    for r, (g, ticks, xl, loc) in enumerate([(hi, HI_TICKS, HI_X, 'upper center'), (nova, NOVA_TICKS, NOVA_X, 'upper right')]):
-        bars(axes[r, 0], g['min_1000kcal'].values, '{:.1f}', 'Preparation time per 1,000 calories', 'Minutes', ticks, xl)
-        full_panel(axes[r, 1], g, ticks, xl, loc)
+def fig_full(hi):
+    fig, axes = plt.subplots(1, 2, figsize=(26, 11))
+    fig.subplots_adjust(wspace=0.3)
+    bars(axes[0], hi['min_1000kcal'].values, '{:.1f}', 'Preparation time per 1,000 calories', 'Minutes', HI_TICKS, HI_X)
+    full_panel(axes[1], hi, HI_TICKS, HI_X, 'upper center')
     fig.savefig(FIG / 'full_price_by_healthiness.png', bbox_inches='tight', dpi=100); plt.close(fig)
     print(f'saved {FIG / "full_price_by_healthiness.png"}')
 
@@ -170,19 +151,16 @@ def break_even(g, a, b):
 
 def main():
     m = pd.read_parquet(idir / 'what_moves' / 'module_time_price.parquet')
-    hi, nova = hi_groups(m), nova_groups()
-    cols = ['spend_share', 'cal_share', 'usd_kg', 'usd_1000kcal', 'min_1000kcal']
-    print(hi[['n'] + cols].round(3).to_string()); print(nova[['n_upcs'] + cols].round(3).to_string())
+    hi = hi_groups(m)
+    print(hi[['n', 'spend_share', 'cal_share', 'usd_kg', 'usd_1000kcal', 'min_1000kcal']].round(3).to_string())
     for scale in (0.5, 1.0, 2.0):
-        h, n = hi_groups(m, scale), nova_groups(scale)
-        for lab, g, a, b in [('healthiness', h, '6-10', '0-2'), ('NOVA', n, 1.0, 4.0)]:
-            full = {w: (g['usd_1000kcal'] + w / 60 * g['min_1000kcal']).round(2).tolist() for w, _, _ in WAGES}
-            print(f'minutes x {scale}, {lab}: full price by group {full}; wage at which {a} costs the same as {b}: {break_even(g, a, b):.2f}')
+        g = hi_groups(m, scale)
+        full = {w: (g['usd_1000kcal'] + w / 60 * g['min_1000kcal']).round(2).tolist() for w, _, _ in WAGES}
+        print(f'minutes x {scale}: full price by group {full}; wage at which 6-10 costs the same as 0-2: {break_even(g, "6-10", "0-2"):.2f}')
     ch = variety_change(m)
-    for k, v in ch.items():
-        print(k); print(v.round(1).to_string())
-    fig_money(hi, nova, ch)
-    fig_full(hi, nova)
+    print(ch.round(1).to_string())
+    fig_money(hi, ch)
+    fig_full(hi)
 
 
 if __name__ == '__main__':
