@@ -10,7 +10,6 @@ Outputs:
                                                  survey report (grey), against households that never report it
   figs/what_moves/health/diagnosis_products.png  the same two lines for a diabetes diagnosis: regular soda ounces, diet
                                                  share of soda, any sugar substitute, any dietetic candy
-  tabs/what_moves/diagnosis_events.tex           years 1-3 and 4-6 after the diagnosis year, joint test of the years before
   tabs/what_moves/diagnosis_events_regime.tex    first reports: repeated next survey or not, 2013-2015 vs 2017-2019
   tabs/what_moves/diagnosis_products.tex         diabetes products, by event type, with the other conditions as placebos
   tabs/what_moves/diagnosis_event_quality.tex    how good the events are: recency answers and repeat rates of first reports
@@ -118,27 +117,6 @@ def cell(s, a='post', b='post_se'):
     return est(s[a], s[b], 0) if abs(s[a]) >= 100 or s[b] >= 5 else est(s[a], s[b], 2)
 
 
-def table_events(summ):
-    out = ['\\begin{tabular}{l' + 'c' * len(MAIN) + '}', '\\toprule',
-           ' & ' + ' & '.join(l for _, l, _ in MAIN) + ' \\\\', ' & ' + ' & '.join(u for _, _, u in MAIN) + ' \\\\', '\\midrule']
-    for regime, title in [('dated', 'Panel A: a member says diagnosed less than a year ago'),
-                          ('first', 'Panel B: first survey report of the condition')]:
-        out.append(f'\\multicolumn{{{len(MAIN) + 1}}}{{l}}{{\\textit{{{title}}}}} \\\\')
-        means = [summ[(summ['regime'] == regime) & (summ['outcome'] == o)]['mean_m1'].mean() for o, _, _ in MAIN]
-        out.append('Mean, year before diagnosis & ' + ' & '.join(f'{m:,.2f}' if o == 'hei_usda' else f'{m:,.1f}' for m, (o, _, _) in zip(means, MAIN)) + ' \\\\')
-        for c, clab in CONDS:
-            rows = [pick(summ, c, regime, o).iloc[0] for o, _, _ in MAIN]
-            n = max(int(r['n_events']) for r in rows)
-            out.append(f'{clab} ({n:,}): years 1--3 after & ' + ' & '.join(cell(r) for r in rows) + ' \\\\')
-            out.append('\\quad years 4--6 after & ' + ' & '.join(cell(r, 'late', 'late_se') for r in rows) + ' \\\\')
-            out.append('\\quad years before, joint $p$ & ' + ' & '.join(f'{r["p_pretrend"]:.2f}' for r in rows) + ' \\\\')
-        if regime == 'dated':
-            out.append('\\midrule')
-    out += ['\\bottomrule', '\\end{tabular}']
-    TAB.mkdir(parents=True, exist_ok=True)
-    (TAB / 'diagnosis_events.tex').write_text('\n'.join(out) + '\n')
-
-
 def table_regime(summ):
     out = ['\\begin{tabular}{ll' + 'c' * len(CORE) + '}', '\\toprule',
            'Condition & First reports (households) & ' + ' & '.join(f'{l} ({u})' for _, l, u in CORE) + ' \\\\', '\\midrule']
@@ -182,7 +160,7 @@ def main():
     coefs, summ = load()
     fig_events(coefs, summ)
     fig_products(coefs, summ)
-    table_events(summ); table_regime(summ); table_products(summ); table_quality()
+    table_regime(summ); table_products(summ); table_quality()
     print(f'saved tables in {TAB}')
     pd.set_option('display.width', 220)
     print(summ[summ['regime'] == 'dated'].pivot(index='condition', columns='outcome', values='post').round(3).to_string())

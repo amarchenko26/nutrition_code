@@ -1,7 +1,8 @@
 """Collapses interim/rms_variety/upc_first_year_county.parquet (177M upc x module x county rows, copied from Oscar) into
-two small tables, one row group at a time so memory stays low (2026-11-05):
+a small table, one row group at a time so memory stays low (2026-11-05):
   interim/what_moves/upc_first_year_national.parquet   upc (12-digit string), product_module_code, first_year_national
-  interim/what_moves/new_upc_county_counts.parquet     product_module_code, fips, year, n_new_county (UPCs first seen in that county that year)
+The county counts it also wrote (new_upc_county_counts.parquet) fed only the county demand tables, deleted with their
+code on 2026-11-10.
 2007 is the file's first year, so first_year = 2007 means "already on the shelf"; new products start in 2008.
 """
 import sys
@@ -28,29 +29,21 @@ def to_int(col, typ):
 
 
 def main():
-    pf = pq.ParquetFile(F, read_dictionary=['upc', 'fips'])
-    nat, cty = [], []
+    pf = pq.ParquetFile(F, read_dictionary=['upc'])
+    nat = []
     for i in range(pf.num_row_groups):
-        t = pf.read_row_group(i, columns=['upc', 'product_module_code', 'fips', 'first_year_county', 'first_year_national'])
-        u = to_int(t['upc'], pa.int64()); f = to_int(t['fips'], pa.int32())
+        t = pf.read_row_group(i, columns=['upc', 'product_module_code', 'first_year_national'])
+        u = to_int(t['upc'], pa.int64())
         x = pa.table({'upc': u, 'm': pc.cast(t['product_module_code'], pa.int32()), 'y': pc.cast(t['first_year_national'], pa.int16())})
-        z = pa.table({'m': pc.cast(t['product_module_code'], pa.int32()), 'f': f, 'y': pc.cast(t['first_year_county'], pa.int16())})
-        del t, u, f; gc.collect()
+        del t, u; gc.collect()
         nat.append(x.group_by(['upc', 'm', 'y']).aggregate([]).to_pandas())
         del x; gc.collect()
-        cty.append(z.group_by(['m', 'f', 'y']).aggregate([('y', 'count')]).to_pandas())
-        del z; gc.collect()
-        print(f'row group {i}: national rows {len(nat[-1]):,}, county rows {len(cty[-1]):,}', flush=True)
+        print(f'row group {i}: national rows {len(nat[-1]):,}', flush=True)
     n = pd.concat(nat, ignore_index=True).groupby(['upc', 'm'], as_index=False)['y'].min()
     n['upc'] = n['upc'].astype('int64').astype(str).str.zfill(12)
     n = n.rename(columns={'m': 'product_module_code', 'y': 'first_year_national'})
     n.to_parquet(OUT / 'upc_first_year_national.parquet', index=False)
     print(f'national: {len(n):,} upc-module pairs;', n['first_year_national'].value_counts().sort_index().to_dict())
-    c = pd.concat(cty, ignore_index=True).groupby(['m', 'f', 'y'], as_index=False)['y_count'].sum()
-    c['fips'] = c['f'].astype(str).str.zfill(5)
-    c = c.rename(columns={'m': 'product_module_code', 'y': 'year', 'y_count': 'n_new_county'}).drop(columns='f')
-    c.to_parquet(OUT / 'new_upc_county_counts.parquet', index=False)
-    print(f'county counts: {len(c):,} rows, {c.fips.nunique()} counties')
 
 
 if __name__ == '__main__':

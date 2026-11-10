@@ -2,11 +2,13 @@
 
 Each row is one comparison; the numbers are read from the result files, none are typed here. Columns: HEI points, sugar in grams per
 1,000 kcal, ultra-processed share of calories in percentage points, calories per adult equivalent per day. A blank cell means the
-design was not run for that outcome, or (family changes, income IV on all households) that calories per adult equivalent there mostly
-track the change in the roster that divides them. A dagger marks an estimate whose own test on the period before the event has p < 0.05.
+design was not run for that outcome, or (income IV on all households) that calories per adult equivalent there mostly track the
+change in the roster that divides them. A dagger marks an estimate whose own test on the period before the event has p < 0.05.
+COUNTY_PRICES = False leaves out the three county relative price rows while the Prices section of 0_main.tex is archived (Anya
+2026-11-10); the family-change panel was deleted with its code the same day.
 
 Reads interim/what_moves/ (iv_suboutcomes, iv_suboutcomes_same_size, soda_tax_summary, local_price_regs_county, local_price_timing, policy_shock_coefs,
-policy_shock_pretests, time_events_summary, family_events_summary, diagnosis_events_summary), interim/movers/ (county and retailer
+policy_shock_pretests, time_events_summary, diagnosis_events_summary), interim/movers/ (county and retailer
 summaries) and tabs/what_moves/dynamics_variance.tex (the scale rows).
 Output: tabs/what_moves/summary.tex, printed as well.
 """
@@ -29,6 +31,7 @@ MV = idir / 'movers'
 OUTCOMES = ['hei', 'sugar', 'upf', 'kcal']
 DEC = {'hei': 3, 'sugar': 2, 'upf': 2, 'kcal': 1}
 DAGGER = r'$^{\dagger}$'
+COUNTY_PRICES = False     # True restores the county relative price rows of panel B
 
 
 def two_sided(b, se):
@@ -81,8 +84,8 @@ def main():
     rows = []
     sd = hei_sd()
     def add(panel, label, vals, sign=1.0):
-        # HEI in standard deviations, the paper's unit, except the shares of a gap in panel F, which have no unit
-        share = panel.startswith('F.')
+        # HEI in standard deviations, the paper's unit, except the shares of a gap in panel E, which have no unit
+        share = panel.startswith('E.')
         def one(k):
             b, se = sign * vals[k][0], vals[k][1]
             if k == 'hei' and not share:
@@ -112,8 +115,8 @@ def main():
     soda = {'hei': 'hei_usda', 'sugar': 'sugar_per_1000cal_usda', 'upf': 'upf_share'}
     add(P, 'Philadelphia soda tax 2017: taxed households against never-taxed households in the same state', pick(s, soda, 'post', 'post_se', 'p_pre', design='philadelphia', group='treated'))
     add(P, 'Philadelphia soda tax 2017: adjacent untaxed counties against the same households', pick(s, soda, 'post', 'post_se', 'p_pre', design='philadelphia', group='adjacent'))
-    r = pd.read_csv(WM / 'local_price_regs_county.csv')
-    timing = pd.read_csv(WM / 'local_price_timing.csv')
+    r = pd.read_csv(WM / 'local_price_regs_county.csv') if COUNTY_PRICES else None
+    timing = pd.read_csv(WM / 'local_price_timing.csv') if COUNTY_PRICES else None
     lp = {'hei': ('hei_usda', 'rel_hi_ces'), 'sugar': ('sugar_per_1000cal_usda', 'rel_hi_ces'), 'upf': ('upf_share', 'rel_upf_ces'), 'kcal': ('cals_ae_day', 'rel_hi_ces')}
     def price_p(o, p, spec):
         # each row's own test: next year's actual price for the same-household row; for the predicted-price row the diet change before 2008 on
@@ -127,7 +130,7 @@ def main():
         else:
             x = r[(r['outcome'] == o) & (r['price'] == p) & (r['spec'] == ('dyn_lead' if spec == 'hh_year' else 'placebo_pre_x'))]
         return two_sided(float(x['b'].iloc[0]), float(x['se'].iloc[0])) if len(x) else np.nan
-    for spec, lab in [('hh_year', 'same household across years'), ('iv', 'prices predicted from national module prices'), ('longdiff_hh', 'same household, 2008--10 to 2018--20')]:
+    for spec, lab in [('hh_year', 'same household across years'), ('iv', 'prices predicted from national module prices'), ('longdiff_hh', 'same household, 2008--10 to 2018--20')] if COUNTY_PRICES else []:
         vals = {}
         for k, (o, p) in lp.items():
             x = r[(r['outcome'] == o) & (r['price'] == p) & (r['spec'] == spec)]
@@ -153,14 +156,8 @@ def main():
     for cond, lab in [('diabetes', 'Type 2 diabetes'), ('hypertension', 'High blood pressure'), ('cholesterol', 'High cholesterol'), ('heart', 'Heart disease'), ('obesity', 'Obesity')]:
         add(P, lab, pick(dg, std, 'post', 'post_se', 'p_pretrend', condition=cond, regime='dated'))
 
-    # ---- family
-    P = 'E. Who lives in the household (mean of the 3 years after, against households with no such change)'
-    f = pd.read_csv(WM / 'family_events_summary.csv')
-    for ev, lab in [('birth', 'A young child arrives'), ('emptynest', 'The last child leaves'), ('partner', 'A second head joins'), ('split', 'A couple separates'), ('widowed', 'A head dies')]:
-        add(P, lab, pick(f, nokcal, 'jump', 'jump_se', 'p_pretrend', event=ev))
-
     # ---- place: share of the gap
-    P = 'F. Moving (share of the origin-destination gap closed, not points)'
+    P = 'E. Moving (share of the origin-destination gap closed, not points)'
     for fname, lab in [('county_event_study_summary.csv', 'Moving to another county'), ('retailer_event_study_summary.csv', 'Changing main store')]:
         x = pd.read_csv(MV / fname)
         add(P, lab, pick(x, {'hei': 'hei_usda', 'sugar': 'sugar_1000', 'upf': 'upf_share'}, 'jump', 'jump_se', 'p_pretrend', spec='all'))

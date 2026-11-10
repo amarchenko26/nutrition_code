@@ -8,7 +8,8 @@ Outputs:
       never-changers (blue, 95% band), and the same for movers observed in every year r = -2..2
       (orange dashed). Inside each panel: the mean of the r = 1 to 3 coefficients, its SE, the
       pre-trend p-value.
-  tabs/what_moves/time_events.tex         outcomes x events: post mean (r = 1 to 3), SE, pre-trend p
+  figs/what_moves/time/time_money_events.png  rows = retirement, hours cut, hours increase; columns = income,
+      HEI, preparation score; the main-spec lines of time_events.png (2026-11-10, first section of 0_main.tex)
   tabs/what_moves/time_events_checks.tex  the same outcomes on the balanced window (post mean of
       r = 1, 2, and the r = -2 coefficient) and against never-changers of the same starting
       employment state and age group
@@ -78,26 +79,38 @@ def fig_grid(c, s):
     print(f'saved {FIG / "time_events.png"}')
 
 
+TM_EVENTS = ['retirement', 'hours cut', 'hours increase']
+TM_OUTCOMES = [('real_income', 'Income ($10,000s)', 2), ('hei_usda', 'HEI (SD)', 3), ('prep_time_raw', 'Preparation score', 3)]
+
+
+def fig_time_money(c, s):
+    fig, axes = plt.subplots(len(TM_EVENTS), len(TM_OUTCOMES), figsize=(30, 25), sharex=True, sharey='col')
+    fig.subplots_adjust(wspace=0.25, hspace=0.22)
+    for i, ev in enumerate(TM_EVENTS):
+        n = int(s[(s['spec'] == 'main') & (s['event'] == ev)]['n_movers'].iloc[0])
+        for j, (y, lab, dec) in enumerate(TM_OUTCOMES):
+            ax = axes[i, j]
+            d = c[(c['spec'] == 'main') & (c['outcome'] == y) & (c['event'] == ev)].sort_values('r')
+            r = s[(s['spec'] == 'main') & (s['outcome'] == y) & (s['event'] == ev)].iloc[0]
+            ax.plot(d['r'], d['b'], color=BLUE, lw=3.5, marker='o', ms=9)
+            ax.fill_between(d['r'], d['b'] - 1.96 * d['se'], d['b'] + 1.96 * d['se'], color=BLUE, alpha=0.15, lw=0)
+            ax.axhline(0, color=GREY, lw=1.2, ls='--'); ax.axvline(-0.5, color=GREY, lw=1.2, ls=':')
+            ax.set_xticks([-4, -2, 0, 2, 4])
+            ax.text(0.03, 0.97, f'years 1-3: {r["jump"]:+.{dec}f} ({r["jump_se"]:.{dec}f})\nbefore: p = {r["p_pretrend"]:.2f}',
+                    transform=ax.transAxes, va='top', fontsize=21)
+            if i == 0:
+                ax.set_title(lab, pad=16)
+            if j == 0:
+                ax.set_ylabel(f'{EVENT_TITLES[ev]}\n({n:,} households)')
+            if i == len(TM_EVENTS) - 1:
+                ax.set_xlabel('Year relative to the change')
+    FIG.mkdir(parents=True, exist_ok=True)
+    fig.savefig(FIG / 'time_money_events.png', bbox_inches='tight', dpi=110); plt.close(fig)
+    print(f'saved {FIG / "time_money_events.png"}')
+
+
 def fmt(v, dec):
     return f'{v:.{dec}f}'
-
-
-def table_main(s):
-    m = s[s['spec'] == 'main']
-    ns = {ev: int(m[m['event'] == ev]['n_movers'].iloc[0]) for ev in EVENTS}
-    out = ['\\begin{tabular}{l' + 'c' * len(EVENTS) + '}', '\\toprule',
-           ' & \\multicolumn{3}{c}{More time at home} & \\multicolumn{2}{c}{Less time at home} \\\\', '\\cmidrule(lr){2-4} \\cmidrule(lr){5-6}',
-           ' & ' + ' & '.join(EVENT_TITLES[e] for e in EVENTS) + ' \\\\', 'Households & ' + ' & '.join(f'{ns[e]:,}' for e in EVENTS) + ' \\\\', '\\midrule']
-    for y, lab, dec in TAB_OUTCOMES:
-        rows = [m[(m['outcome'] == y) & (m['event'] == e)].iloc[0] for e in EVENTS]
-        lead = lab
-        out.append(lead + ' & ' + ' & '.join(star_num(r['jump'], r['jump_se'], dec) for r in rows) + ' \\\\')
-        out.append(f'\\quad mean before {sum(r["mean_pre"] for r in rows) / len(rows):.{max(dec - 1, 0) if y != "prep_time_raw" else 2}f} & ' + ' & '.join(f'({fmt(r["jump_se"], dec)}) [{r["p_pretrend"]:.2f}]' for r in rows) + ' \\\\')
-    n0 = int(m['n_controls'].iloc[0])
-    out += ['\\midrule', f'\\multicolumn{{{len(EVENTS) + 1}}}{{l}}{{Comparison group: {n0:,} households whose heads\' employment never changes.}} \\\\', '\\bottomrule', '\\end{tabular}']
-    TAB.mkdir(parents=True, exist_ok=True)
-    (TAB / 'time_events.tex').write_text('\n'.join(out) + '\n')
-    print(f'saved {TAB / "time_events.tex"}')
 
 
 def table_checks(s):
@@ -161,7 +174,7 @@ def main():
                 f.unlink()
     c = pd.read_csv(BASE / 'time_events_coefs.csv'); s = pd.read_csv(BASE / 'time_events_summary.csv')
     c, s = to_sd(c), to_sd(s)     # HEI in standard deviations, the paper's unit
-    fig_grid(c, s); table_main(s); table_checks(s); table_by_head(s)
+    fig_grid(c, s); fig_time_money(c, s); table_checks(s); table_by_head(s)
 
 
 if __name__ == '__main__':

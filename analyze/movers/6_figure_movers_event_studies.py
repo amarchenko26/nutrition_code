@@ -256,7 +256,8 @@ COUNTY_OUTCOMES = [('hei_usda', 'HEI'), ('hi_usda', 'Simple index (USDA)'),
 
 def fig_county_movers(cc, cs, place='county', noun='county'):
     """figs/what_moves/place/<place>_movers.png: theta_r = share of the origin-destination gap closed by households
-    that move county or switch main retailer (1_ --places county|retailer, 4_ county|retailer), one panel per outcome."""
+    that move county (1_ --places county, 4_ county), one panel per outcome. The main-retailer version (retailer_movers.png)
+    was deleted from the paper on 2026-11-10; 1_ --places retailer and 4_ retailer still feed Table 1's store-change row."""
     fig, axes = plt.subplots(2, 4, figsize=(22, 10), sharex=True, sharey=True)
     fig.subplots_adjust(wspace=0.12, hspace=0.45)
     for ax, (outcome, title) in zip(axes.flat, COUNTY_OUTCOMES):
@@ -478,8 +479,6 @@ def main():
     table_results(summ, isum)
     if (BASE / 'county_event_study_summary.csv').exists():
         fig_county_movers(pd.read_csv(BASE / 'county_event_study_coefs.csv'), pd.read_csv(BASE / 'county_event_study_summary.csv'))
-    if (BASE / 'retailer_event_study_summary.csv').exists():
-        fig_county_movers(pd.read_csv(BASE / 'retailer_event_study_coefs.csv'), pd.read_csv(BASE / 'retailer_event_study_summary.csv'), 'retailer', 'retailer')
     if (BASE / 'other_switches_summary.csv').exists():
         fig_other_switches(pd.read_csv(BASE / 'other_switches_coefs.csv'), pd.read_csv(BASE / 'other_switches_summary.csv'))
         fig_life_events(pd.read_csv(BASE / 'other_switches_coefs.csv'), pd.read_csv(BASE / 'other_switches_summary.csv'))
