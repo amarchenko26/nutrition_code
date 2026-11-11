@@ -31,6 +31,8 @@ Output: /users/amarche4/scratch/store_choice/store_choice_sets_<year>.parquet.
 Usage: python build_store_choice_sets_rms.py <year> [n_modules]   (n_modules: stop after that many food modules, a test);
 python build_store_choice_sets_rms.py combine writes store_choice_sets.parquet (all years), copied to interim/what_moves/.
 """
+import gc
+import io
 import re
 import sys
 import tarfile
@@ -139,8 +141,11 @@ def main(year, n_modules=None):
         for m in tf:
             name = m.name
             if re.search(r'stores_\d{4}\.tsv$', name):
-                stores = pd.read_csv(tf.extractfile(m), sep='\t', dtype=str)
-                log(f'stores file {name}: {len(stores):,} rows')
+                try:                                       # bytes first: pandas cannot read a stream it cannot seek
+                    stores = pd.read_csv(io.BytesIO(tf.extractfile(m).read()), sep='\t', dtype=str)
+                    log(f'stores file {name}: {len(stores):,} rows')
+                except Exception as e:
+                    log(f'stores file {name} not read: {e}')
             hit = re.search(r'Movement_Files/\d+_\d+/(\d+)_\d+\.tsv$', name)
             if hit and int(hit.group(1)) in food_modules and (n_modules is None or done < n_modules):
                 d = read_movement(tf.extractfile(m))
@@ -148,6 +153,8 @@ def main(year, n_modules=None):
                     s = module_sums(d, attr)
                     if s is not None:
                         acc.append(s)
+                del d
+                gc.collect()
                 done += 1
                 if done % 25 == 0:
                     acc = [pd.concat(acc).groupby(level=0).sum(min_count=1)]

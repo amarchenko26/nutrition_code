@@ -4,7 +4,7 @@
 #SBATCH --job-name=store_choice
 #SBATCH --output=/users/amarche4/scratch/store_choice_%A_%a.log
 #SBATCH --time=8:00:00
-#SBATCH --mem=32G
+#SBATCH --mem=64G
 #SBATCH --cpus-per-task=4
 #SBATCH -p batch
 #SBATCH --array=2006-2020
