@@ -1,5 +1,7 @@
 """Tables for build_iv_robustness.do (2026-11-06): tabs/what_moves/iv_robustness.tex, the income IV on HEI, the ultra-processed share,
-the produce share and calories under other fixed effects, timing, samples, instruments and windows, with stars at 10, 5 and 1 percent. Prints where the estimate comes from
+the produce share and calories under other fixed effects, timing, samples, instruments and windows, with stars at 10, 5 and 1 percent;
+tabs/what_moves/iv_size_changes.tex (2026-11-10, from iv_size_changes.csv of `do build_iv_robustness.do sizetab`): household size changes
+on the instrument itself, per $10k of group income, for the main group, the group without the size bin and the t-1 group held fixed. Prints where the estimate comes from
 (iv_unpack.csv, iv_zero_first_stage.csv) and how the price paid per calorie varies with income. Reads interim/what_moves/iv_robustness_<outcome>.csv.
 """
 import sys
@@ -100,7 +102,36 @@ def main():
     pth.columns = ['table', 'outcome', 'k', 'group', 'per_group_income', 'se', 'per_own_income', 'se_own', 'f', 'n']
     print(pth.drop(columns='table').round(3).to_string(index=False))
     print(pd.read_csv(WM / 'iv_zero_first_stage.csv').round(4).to_string(index=False))
+    if (WM / 'iv_size_changes.csv').exists():
+        size_table()
     price_slopes()
+
+
+SIZE_ROWS = [(1, r'Size changes from $t$ to $t+1$ (\%)', 2), (2, r'\quad households of the same size at $t-1$ and $t$', 2),
+             (3, r'Change in members from $t$ to $t+1$', 3), (4, r'\quad households of the same size at $t-1$ and $t$', 3),
+             (5, r'Same size at $t-1$, $t$ and $t+1$ (\%)', 2), (6, r'Size changes from $t-1$ to $t$ (\%)', 2),
+             (7, r'Size changes from $t-3$ to $t-2$ (\%)', 2)]
+SIZE_INSTR = ['d_iv', 'd_ivx', 'd_ivf']
+
+
+def size_table():
+    t = pd.read_csv(WM / 'iv_size_changes.csv')
+    lines = [r'\begin{tabular}{lccccc}', r'\toprule',
+             r' & Main & Group without & Group at $t-1$ & Mean & Household- \\',
+             r' & group & the size bin & held fixed & & years \\', r'\midrule',
+             r'\multicolumn{6}{l}{\textit{After the income change}} \\']
+    for r, lab, dec in SIZE_ROWS:
+        if r == 6:
+            lines += [r'\midrule', r'\multicolumn{6}{l}{\textit{During and before the income change}} \\']
+        x = t[t['row'] == r].set_index('instrument')
+        cells = [est(x.loc[z], dec) if z in x.index else '' for z in SIZE_INSTR]
+        m = x.loc['d_iv']
+        lines.append(f"{lab} & " + ' & '.join(cells) + f" & {m['mean']:.{dec}f} & {int(m['n']):,} \\\\")
+    lines += [r'\bottomrule', r'\end{tabular}']
+    out = tdir / 'what_moves' / 'iv_size_changes.tex'
+    out.write_text('\n'.join(lines) + '\n')
+    print('\n'.join(lines))
+    print(f'saved {out}')
 
 
 def price_slopes():
