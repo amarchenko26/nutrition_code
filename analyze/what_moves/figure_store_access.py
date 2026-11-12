@@ -12,7 +12,7 @@ Outputs (figs/what_moves/prices/):
   store_shelf_prices_by_income.png  real price per 1,000 kcal of the UPCs offered (each once; stocking and prices both enter), for
                                     the healthy and unhealthy side of each panel: added sugar at most / above 25 g per 1,000 kcal,
                                     whole-grain / other bread, fruit and vegetables / other food, Health Index above / at or below 0
-                                    (non-produce)
+                                    (fruit and vegetables included, all above 0, since 2026-11-12)
   store_same_prices_by_income.png   the same sides, price of the same UPCs relative to their national price (%)
   tabs/what_moves/store_prices_by_income.tex  stores in the top vs bottom quartile of shopper ZIP income (quartiles of stores), in
                                     the layout of local_prices_by_income.tex: healthy (claude_hi 4-10) and unhealthy (0-3) shelf
