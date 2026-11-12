@@ -1,5 +1,6 @@
-"""Tables for build_iv_robustness.do (2026-11-06): tabs/what_moves/iv_robustness.tex, the income IV on HEI, the ultra-processed share,
-the produce share and calories under other fixed effects, timing, samples, instruments and windows, with stars at 10, 5 and 1 percent;
+"""Tables for build_iv_robustness.do (2026-11-06): tabs/what_moves/iv_robustness.tex (Table 9), the income IV on HEI, the ultra-processed
+share, the produce share and calories in other samples, instruments, purchase windows, longer changes and baseline income quartiles, with
+the HEI placebo (purchases t-3 to t-2 on the same income change) as the second column (layout of 2026-11-12) and stars at 10, 5, 1 percent;
 tabs/what_moves/iv_size_changes.tex (Table 10, from iv_size_changes.csv of `do build_iv_robustness.do sizetab`; one regression since
 2026-11-12): whether household size changes from t to t+1, on the instrument alone, per $10k of group income. Prints where the estimate comes from
 (iv_unpack.csv, iv_zero_first_stage.csv) and how the price paid per calorie varies with income. Reads interim/what_moves/iv_robustness_<outcome>.csv.
@@ -21,21 +22,18 @@ from scipy.stats import norm
 
 WM = idir / 'what_moves'
 OUTS = [('hei_usda', 3), ('upf_share', 2), ('produce_share', 2), ('cals_ae_day', 1)]
-# the same income change on purchases before it (Anya 2026-11-09: placebos for the main row and the two groups that do not move
-# with household size, and for the same-size row so that the rows of Panel A of the summary table are all here)
-PLACEBO = r'G. Placebo: purchases $t-3$ to $t-2$, before the income change'
+# Layout of 2026-11-12 (Anya): Panel A = the samples, from every household employed at t-1 to non-movers under 60 of the same
+# size; the purchase windows in words, right above the longer changes; the placebo (purchases t-3 to t-2, the same income change)
+# is the second column for every row, and its own panel is gone.
 ROWS = [
-    (r'A. Fixed effects', [('main', r'Main: household and state-by-year'), ('hh_year', 'Household and year')]),
-    (r'B. Purchase window, same income change', [('level_t', r'$t-1$ to $t$'), ('twoyear', r'$t-1$ to $t+1$')]),
-    (r'C. Households', [('same_size', r'Same household size at $t-1$, $t$, $t+1$'), ('age60', r"Heads' average age under 60 at $t+1$"),
-                        ('geo_movers', 'Keeping households that change county'),
-                        ('stayers', r'Group does not change from $t-1$ to $t$'), ('switchers', r'Group changes from $t-1$ to $t$'), ('switch_noNE', 'Group changes, not into not employed')]),
-    (r'D. Instrument', [('no_size_bin', 'Group without the size bin'), ('baseline_occ', 'Occupation frozen at the first panel year'), ('predicted', 'Predicted group from $t-1$ characteristics'),
+    (r'A. Sample', [('geo_movers', r'Employed at $t-1$, movers and non-movers'), ('main', r'Non-movers, employed at $t-1$'),
+                    ('age60', r'Non-movers, employed at $t-1$, under 60'),
+                    ('age60_size', r'Non-movers, employed at $t-1$, under 60, same size at $t-1$, $t$, $t+1$')]),
+    (r'B. Instrument', [('no_size_bin', 'Group without the size bin'), ('baseline_occ', 'Occupation frozen at the first panel year'), ('predicted', 'Predicted group from $t-1$ characteristics'),
                         ('acs', 'Group income from the ACS'), ('bls', 'National wage of the occupation (BLS)')]),
-    (r'E. Longer changes', [('k2', r'Changes over 2 years'), ('k3', r'Changes over 3 years'), ('k5', r'Changes over 5 years'), ('k8', r'Changes over 8 years')]),
-    (r'F. Quartile of income in the first panel year', [('q1', 'Bottom'), ('q2', 'Second'), ('q3', 'Third'), ('q4', 'Top')]),
-    (PLACEBO, [('main', 'Main'), ('same_size', r'Same household size at $t-1$, $t$, $t+1$'), ('no_size_bin', 'Group without the size bin'),
-               ('predicted', 'Predicted group from $t-1$ characteristics')]),
+    (r'C. Purchase window, same income change', [('level_t', 'Same year as the income change'), ('twoyear', 'Same year and the next')]),
+    (r'D. Longer changes', [('k2', r'Changes over 2 years'), ('k3', r'Changes over 3 years'), ('k5', r'Changes over 5 years'), ('k8', r'Changes over 8 years')]),
+    (r'E. Quartile of income in the first panel year', [('q1', 'Bottom'), ('q2', 'Second'), ('q3', 'Third'), ('q4', 'Top')]),
 ]
 
 
@@ -70,15 +68,15 @@ def main():
             return 'no first stage'
         return est(x, dec)
 
-    tex = [r'\begin{tabular}{lccccccc}', r'\toprule', r' & HEI & HEI, purchases & Ultra-processed & Produce & Calories per & First- & Household- \\',
-           r'Specification & (SD) & before ($t-3$ to $t-2$) & (\% of calories) & (\% of calories) & adult eq. per day & stage F & years \\']
+    tex = [r'\begin{tabular}{lccccccc}', r'\toprule', r' & HEI & HEI, & Ultra-processed & Produce & Calories per & First- & Household- \\',
+           r'Specification & (SD) & placebo (SD) & (\% of calories) & (\% of calories) & adult eq. per day & stage F & years \\']
     for panel, rows in ROWS:
-        w = 'before' if panel == PLACEBO else 'main'
+        w = 'main'
         tex += [r'\midrule', rf'\multicolumn{{8}}{{l}}{{\textit{{{panel}}}}} \\']
         for spec, lab in rows:
             cells = [cell('hei_usda', spec, 3, w)]
             b = get('hei_usda', spec, 'before')
-            cells.append('' if w == 'before' or b is None or b['f'] < 1 else est(b, 3))
+            cells.append('' if b is None or b['f'] < 1 else est(b, 3))
             for o, dec in OUTS[1:]:
                 cells.append(cell(o, spec, dec, w))
             x = get('hei_usda', spec, w)

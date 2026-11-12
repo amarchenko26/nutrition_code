@@ -23,7 +23,9 @@
 //   q1-q4 (quartile of income in the household's first panel year);
 //   ql1-ql4 (quartile of income at t-1, cut within each year among non-movers, projection-weighted; mode qlag).
 // `do build_iv_robustness.do age` (2026-11-10): the main row on heads' average age below 65, 62, 60 or 55 at t+1, printed only;
-// `do build_iv_robustness.do <outcome> age60` replaces only the age60 rows (heads' average age under 60 at t+1, Table 7 panel C).
+// `do build_iv_robustness.do <outcome> age60` replaces only the age60 rows (heads' average age under 60 at t+1), and
+// `do build_iv_robustness.do <outcome> age60_size` only the age60_size rows (the same, and the same size at t-1, t and t+1; Anya
+// 2026-11-12, Panel A of Table 9).
 // `do build_iv_robustness.do purge` (printed, 2026-11-10) and `sizetab` (interim/what_moves/iv_size_changes.csv for Table 10:
 // whether household size changes from t to t+1, on the instrument alone, 2026-11-12).
 //
@@ -384,7 +386,7 @@ local v "`part'"
 local mode "`2'"
 global OUT "$idir/what_moves/iv_robustness_`v'.csv"
 cap file close fh
-if !inlist("`mode'", "qlag", "age60") {
+if !inlist("`mode'", "qlag", "age60", "age60_size") {
 	file open fh using "$OUT", write replace
 	file write fh "outcome,spec,window,b,se,f,n" _n
 	file close fh
@@ -416,16 +418,18 @@ if "`v'" == "cals_ae_day" local base "`base' & same_size == 1"
 // 2017 the top bracket holds more than a quarter of households, and ties sent down would leave the top quartile empty)
 // heads' average age under 60 at t+1 (Anya 2026-11-10, Table 7 panel C): replaces only the age60 rows of $OUT, so the other
 // rows are not re-estimated; the main sequence below writes the same rows on a full run
-if "`mode'" == "age60" {
+if inlist("`mode'", "age60", "age60_size") {
+	local cnd "`base' & avg_age_hh_head + 1 < 60"
+	if "`mode'" == "age60_size" local cnd "`cnd' & same_size == 1"
 	preserve
 	import delimited using "$OUT", clear varnames(1) stringcols(_all)
-	drop if spec == "age60"
+	drop if spec == "`mode'"
 	export delimited using "$OUT", replace
 	restore
 	foreach w in main before {
-		run_iv `v' age60 `w' y_`w' d_inc d_iv "`base' & avg_age_hh_head + 1 < 60" "`FE'"
+		run_iv `v' `mode' `w' y_`w' d_inc d_iv "`cnd'" "`FE'"
 	}
-	di "build_iv_robustness.do `v' age60 complete"
+	di "build_iv_robustness.do `v' `mode' complete"
 	exit
 }
 
@@ -480,6 +484,7 @@ foreach w in main before {
 	run_iv `v' year_only `w' y_`w' d_inc d_iv "`base'" "year kids avg_age_hh_head hh_comp"
 	if "`v'" != "cals_ae_day" run_iv `v' same_size `w' y_`w' d_inc d_iv "`base' & same_size == 1" "`FE'"
 	run_iv `v' age60 `w' y_`w' d_inc d_iv "`base' & avg_age_hh_head + 1 < 60" "`FE'"
+	run_iv `v' age60_size `w' y_`w' d_inc d_iv "`base' & avg_age_hh_head + 1 < 60 & same_size == 1" "`FE'"
 	if "`v'" != "cals_ae_day" run_iv `v' geo_movers `w' y_`w' d_inc d_iv "clean == 1" "`FE'"
 	if "`v'" == "cals_ae_day" run_iv `v' geo_movers `w' y_`w' d_inc d_iv "clean == 1 & same_size == 1" "`FE'"
 	run_iv `v' stayers `w' y_`w' d_inc d_iv "`base' & stayer == 1" "`FE'"
