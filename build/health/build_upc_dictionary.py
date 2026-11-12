@@ -7,7 +7,8 @@ moves with that share. One set of values per UPC, independent of the year, remov
 relatives of the product (Anya 2026-11-03; extended from calories to every nutrient 2026-11-05).
 
 Usage: python build_upc_dictionary.py usda     -> interim/health/upc_dictionary.parquet
-       python build_upc_dictionary.py syndigo  -> interim/health/upc_dictionary_syndigo.parquet
+       python build_upc_dictionary.py syndigo  -> interim/health/upc_dictionary_syndigo.parquet (added sugar since 2026-11-12, from
+                                                  clean/syndigo/clean_syndigo_added_sugar.py)
 
 For each nutrient separately, the value per 100 g is, in order:
   1  the UPC's own label;
@@ -55,8 +56,11 @@ SOURCES = {
     'usda': (idir / 'usda_nielsen_merged' / 'usda_wide.parquet', 'upc13', idir / 'health' / 'upc_dictionary.parquet',
              ['cal', 'sugar', 'satfat', 'chol', 'sodium', 'fiber', 'addsugar', 'totfat', 'mufat', 'pufat']),
     'syndigo': (idir / 'syndigo_nielsen_merged' / 'syndigo_wide.parquet', 'upc', idir / 'health' / 'upc_dictionary_syndigo.parquet',
-                ['cal', 'sugar', 'satfat', 'chol', 'sodium', 'fiber', 'totfat', 'mofat', 'pofat']),
+                ['cal', 'sugar', 'satfat', 'chol', 'sodium', 'fiber', 'addsugar', 'totfat', 'mofat', 'pofat']),
 }
+# Syndigo's added sugar is not in syndigo_wide (clean_syndigo.py keeps the label year with the most nutrient lines, and a line only
+# post-2016 labels carry would change that choice): clean/syndigo/clean_syndigo_added_sugar.py writes it apart (2026-11-12).
+SYNDIGO_ADDSUGAR = idir / 'syndigo_nielsen_merged' / 'syndigo_added_sugar.parquet'
 CAPS = {'cal': 900, 'sugar': 100, 'addsugar': 100, 'satfat': 100, 'totfat': 100, 'mufat': 100, 'pufat': 100, 'mofat': 100, 'pofat': 100,
         'fiber': 100, 'sodium': 40, 'chol': 3}
 # USDA Standard Reference, raw, kcal per 100 g
@@ -122,7 +126,12 @@ def main(source):
     prod = prod[prod['product_module_code'].isin(food_modules)].copy()
     print(f'{len(prod):,} food UPCs ({time.time() - t0:.0f}s)')
     cols = [f'{n}_per_100g' for n in nuts]
-    wide = pd.read_parquet(path, columns=[key] + cols).rename(columns={key: 'upc_13'}).drop_duplicates('upc_13')
+    if source == 'syndigo':
+        wide = pd.read_parquet(path, columns=[key] + [c for c in cols if c != 'addsugar_per_100g']).drop_duplicates(key)
+        wide = wide.merge(pd.read_parquet(SYNDIGO_ADDSUGAR, columns=['upc', 'addsugar_per_100g']), on='upc', how='left')[[key] + cols]
+    else:
+        wide = pd.read_parquet(path, columns=[key] + cols)
+    wide = wide.rename(columns={key: 'upc_13'}).drop_duplicates('upc_13')
     # impossible labels
     n_dense = int((wide['cal_per_100g'] > CAPS['cal']).sum())
     wide.loc[wide['cal_per_100g'] > CAPS['cal'], cols] = np.nan

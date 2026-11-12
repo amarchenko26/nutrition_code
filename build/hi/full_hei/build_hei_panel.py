@@ -44,6 +44,10 @@ Conventions before 2026-11-05 (superseded where they conflict with the paragraph
 
 Outputs: interim/panel_dataset/hei_usda_panel.parquet + .dta
          (hei_usda 0-100, hei_usda_90, 13 component scores hei_c_*, lhei_usda = the uncapped linear HEI of Allcott et al.)
+Usage: python build_hei_panel.py [usda | syndigo]. Since 2026-11-12 (Anya) `syndigo` builds the same panel from the Syndigo labels
+         (interim/health/upc_dictionary_syndigo.parquet, added sugar from clean/syndigo/clean_syndigo_added_sugar.py)
+         -> hei_syndigo_panel.parquet + .dta with hei_syndigo, hei_syndigo_90, lhei_syndigo; the food groups come from the
+         module crosswalk in both, so the two differ in calories, sodium, added sugar, saturated fat and the fatty acids.
 """
 import sys
 from pathlib import Path
@@ -60,8 +64,9 @@ import warnings
 warnings.filterwarnings('ignore')
 from utils.food_measures import package_grams, adult_equivalents, in_sample, MIN_PACKAGE_KCAL
 
+SOURCE    = sys.argv[1] if len(sys.argv) > 1 else 'usda'
 PURCHASES = idir / 'purchases_food'
-USDA      = idir / 'health' / 'upc_dictionary.parquet'
+DICT      = idir / 'health' / {'usda': 'upc_dictionary.parquet', 'syndigo': 'upc_dictionary_syndigo.parquet'}[SOURCE]
 CROSSWALK = idir / 'hei' / 'module_hei_crosswalk.parquet'
 PANELISTS = idir / 'panelists' / 'panelists_all_years.parquet'
 PRODUCTS  = rdir / 'products.tsv'
@@ -73,9 +78,10 @@ PURCH_COLS = ['upc','household_code','quantity','multi','size1_amount','size1_un
 
 def log(m): print(m, flush=True)
 
-log("Loading USDA dictionary + crosswalk...")
-wide = pd.read_parquet(USDA, columns=['upc_13','cal_per_100g','satfat_per_100g','sodium_per_100g','addsugar_per_100g',
-                                      'mufat_per_100g','pufat_per_100g'])
+log(f"Loading {SOURCE} dictionary + crosswalk...")
+FATS = {'usda': ['mufat_per_100g','pufat_per_100g'], 'syndigo': ['mofat_per_100g','pofat_per_100g']}[SOURCE]
+wide = pd.read_parquet(DICT, columns=['upc_13','cal_per_100g','satfat_per_100g','sodium_per_100g','addsugar_per_100g'] + FATS)
+wide.columns = ['upc_13','cal_per_100g','satfat_per_100g','sodium_per_100g','addsugar_per_100g','mufat_per_100g','pufat_per_100g']
 cw = pd.read_parquet(CROSSWALK, columns=['product_module_code','hei_group','grams_per_equiv','whole_share'])
 log(f"  dict {len(wide):,} UPCs; crosswalk {len(cw):,} modules")
 
@@ -199,13 +205,15 @@ log(f"Final: {len(d):,} HH-years")
 log("Component means:")
 log(d[comp + ['hei_usda','hei_usda_90']].mean().round(2).to_string())
 
+if SOURCE != 'usda':
+    d = d.rename(columns={'hei_usda': f'hei_{SOURCE}', 'hei_usda_90': f'hei_{SOURCE}_90', 'lhei_usda': f'lhei_{SOURCE}'})
 OUT_DIR.mkdir(parents=True, exist_ok=True)
-d.to_parquet(OUT_DIR / 'hei_usda_panel.parquet', index=False)
+d.to_parquet(OUT_DIR / f'hei_{SOURCE}_panel.parquet', index=False)
 dd = d.copy()
 dd['household_code'] = dd['household_code'].astype('int64')
 dd['panel_year'] = dd['panel_year'].astype('int32')
 for c in dd.columns:
     if c not in ('household_code','panel_year'):
         dd[c] = dd[c].astype('float64')
-dd.to_stata(OUT_DIR / 'hei_usda_panel.dta', write_index=False, version=118)
-log(f"Saved {OUT_DIR/'hei_usda_panel.parquet'} + .dta")
+dd.to_stata(OUT_DIR / f'hei_{SOURCE}_panel.dta', write_index=False, version=118)
+log(f"Saved {OUT_DIR / f'hei_{SOURCE}_panel.parquet'} + .dta")
