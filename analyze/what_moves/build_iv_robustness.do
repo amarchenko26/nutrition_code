@@ -13,7 +13,8 @@
 // Rows (spec column):
 //   main; hh_year (household + year FE); no_hhfe (state-by-year FE only); year_only (year FE only);
 //   levels (outcome at t+1 on income at t, instrument = cell income at t, household + state-by-year FE);
-//   twoyear (t-1 to t+1 on the same income change); level_t (t-1 to t on the same income change);
+//   level_t (t-1 to t on the same income change; the t-1 to t+1 row on the same one-year income change was deleted 2026-11-12,
+//   Anya: the outcome and income changes must span the same length of time);
 //   same_size; geo_movers (households changing county kept); stayers (cell unchanged t-1 to t); switchers (cell changed);
 //   switch_noNE (cell changed, and not into not employed); no_size_bin (occupation x education cells);
 //   predicted (predicted-share instrument, labor_supply/26_); baseline_occ (occupation frozen at first panel year);
@@ -412,7 +413,6 @@ end
 
 gen double y_main = F.`v' - `v'
 gen double y_before = L2.`v' - L3.`v'
-gen double y_two = F.`v' - L.`v'
 gen double y_t = `v' - L.`v'
 gen double y_lev = F.`v'
 // calories: households of the same size only, in every row
@@ -505,11 +505,7 @@ foreach w in main before {
 		run_iv `v' q`q' `w' y_`w' d_inc d_iv "`base' & inc_q == `q'" "`FE'"
 	}
 }
-run_iv `v' twoyear main y_two d_inc d_iv "`base'" "`FE'"
 run_iv `v' level_t main y_t d_inc d_iv "`base'" "`FE'"
-forvalues q = 1/4 {
-	run_iv `v' q`q' twoyear y_two d_inc d_iv "`base' & inc_q == `q'" "`FE'"
-}
 // levels: outcome at t+1 on income at t
 capture ivreghdfe y_lev (real_income = iv_income_fips) [pw = projection_factor] if `base', absorb(`FE') cluster(fips)
 if _rc == 0 {

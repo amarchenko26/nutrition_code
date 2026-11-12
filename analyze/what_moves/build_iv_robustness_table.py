@@ -25,14 +25,15 @@ WM = idir / 'what_moves'
 OUTS = [('hei_usda', 3), ('lhei_sd', 3), ('upf_share', 2), ('produce_share', 2), ('cals_ae_day', 1)]
 # Layout of 2026-11-12 (Anya): Panel A = the samples, from every household employed at t-1 to non-movers under 60 of the same
 # size; the purchase windows in words, right above the longer changes; the placebo (purchases t-3 to t-2, the same income change)
-# is the second column for every row, and its own panel is gone.
+# is the second column for every row, and its own panel is gone. 'Same year and the next' (purchases t-1 to t+1 on the one-year income
+# change) deleted 2026-11-12 (Anya: the outcome and income changes must span the same length of time).
 ROWS = [
     (r'A. Sample', [('geo_movers', r'All, employed at $t-1$'), ('main', r'Non-movers, employed at $t-1$'),
                     ('age60', r'Non-movers, employed at $t-1$, under 60'),
                     ('age60_sizet', r'Non-movers, employed at $t-1$, under 60, same size at $t-1$ and $t$')]),
     (r'B. Instrument, non-movers employed at $t-1$', [('no_size_bin', 'Group without the size bin'), ('baseline_occ', 'Occupation frozen at the first panel year'), ('predicted', 'Predicted group from $t-1$ characteristics'),
                         ('acs', 'Group income from the ACS'), ('bls', 'National wage of the occupation (BLS)')]),
-    (r'C. Purchase window, same income change', [('level_t', 'Same year as the income change'), ('twoyear', 'Same year and the next')]),
+    (r'C. Purchase window, same income change', [('level_t', 'Same year as the income change')]),
     (r'D. Longer changes', [('k2', r'Changes over 2 years'), ('k3', r'Changes over 3 years'), ('k5', r'Changes over 5 years'), ('k8', r'Changes over 8 years')]),
     (r'E. Quartile of income in the first panel year', [('q1', 'Bottom'), ('q2', 'Second'), ('q3', 'Third'), ('q4', 'Top')]),
 ]
