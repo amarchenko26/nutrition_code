@@ -13,7 +13,9 @@ Outputs (figs/what_moves/prices/):
                                     whole-grain / other bread, fruit and vegetables / other food, Health Index above / at or below 0
                                     (non-produce)
   store_same_prices_by_income.png   the same sides, price of the same UPCs relative to their national price (%)
-  tabs/what_moves/store_prices_by_income.tex  stores in the top vs bottom quartile of shopper ZIP income (quartiles of stores)
+  tabs/what_moves/store_prices_by_income.tex  stores in the top vs bottom quartile of shopper ZIP income (quartiles of stores), in
+                                    the layout of local_prices_by_income.tex: healthy (claude_hi 4-10) and unhealthy (0-3) shelf
+                                    prices and their ratio, same-product prices, and the four Figure II measures
 Prints the bin means and the top-minus-bottom differences.
 """
 import sys
@@ -99,23 +101,25 @@ def fig_prices(m, prefix, fname, ylabel):
 
 
 def table(d):
-    q = d[d['quartile'].isin(['top', 'bottom'])].groupby('quartile').mean(numeric_only=True)
-    n = d[d['quartile'].isin(['top', 'bottom'])].groupby('quartile')['store_code_uc'].nunique()
-    lines = ['\\begin{tabular}{lcccccccc}', '\\toprule',
-             ' & \\multicolumn{3}{c}{Top quartile of shopper ZIP income} & \\multicolumn{3}{c}{Bottom quartile} & \\multicolumn{2}{c}{Same products, \\% above national} \\\\',
-             '\\cmidrule(lr){2-4} \\cmidrule(lr){5-7} \\cmidrule(lr){8-9}',
-             ' & Healthier & Less healthy & Ratio & Healthier & Less healthy & Ratio & Top & Bottom \\\\', '\\midrule',
-             '\\multicolumn{9}{l}{\\textit{Price per 1,000 calories of the products offered (2013 dollars); same products: healthier minus less healthy}} \\\\']
-    for title, a, alab, b, blab in PANELS + [('Healthiness score', 'healthy', '4--10', 'unhealthy', '0--3')]:
-        t, bt = q.loc['top'], q.loc['bottom']
-        lines.append(f'{title} ({alab} / {blab}) & \\${t[f"shelf_{a}"]:.2f} & \\${t[f"shelf_{b}"]:.2f} & {t[f"shelf_{a}"] / t[f"shelf_{b}"]:.2f} & '
-                     f'\\${bt[f"shelf_{a}"]:.2f} & \\${bt[f"shelf_{b}"]:.2f} & {bt[f"shelf_{a}"] / bt[f"shelf_{b}"]:.2f} & '
-                     f'{t[f"rel_{a}"] - t[f"rel_{b}"]:+.1f} & {bt[f"rel_{a}"] - bt[f"rel_{b}"]:+.1f} \\\\')
-    lines += ['\\midrule', '\\multicolumn{9}{l}{\\textit{What the stores offer}} \\\\']
-    for c, lab, k in ACCESS:
-        tex_lab = lab.replace('%', '\\%')
-        lines.append(f'{tex_lab} & \\multicolumn{{3}}{{c}}{{{k * q.loc["top", c]:.2f}}} & \\multicolumn{{3}}{{c}}{{{k * q.loc["bottom", c]:.2f}}} & & \\\\')
-    lines += ['\\midrule', f'Stores & \\multicolumn{{3}}{{c}}{{{n["top"]:,}}} & \\multicolumn{{3}}{{c}}{{{n["bottom"]:,}}} & & \\\\', '\\bottomrule', '\\end{tabular}']
+    t = d[d['quartile'].isin(['top', 'bottom'])]
+    q = t.groupby('quartile').mean(numeric_only=True)
+    n = t.groupby('quartile')['store_code_uc'].nunique()
+    rows = [('top', 'Top quartile of shopper ZIP income'), ('bottom', 'Bottom quartile')]
+    lines = ['\\begin{tabular}{lccccc}', '\\toprule',
+             ' & \\multicolumn{3}{c}{Price per 1,000 calories of the products offered} & \\multicolumn{2}{c}{Same products, \\% above national price} \\\\',
+             '\\cmidrule(lr){2-4} \\cmidrule(lr){5-6}',
+             ' & Healthy & Unhealthy & Ratio & Healthy & Unhealthy \\\\', '\\midrule']
+    for k, lab in rows:
+        r = q.loc[k]
+        lines.append(f'{lab} & \\${r["shelf_healthy"]:.2f} & \\${r["shelf_unhealthy"]:.2f} & {r["shelf_healthy"] / r["shelf_unhealthy"]:.3f} & '
+                     f'{r["rel_healthy"]:.1f} & {r["rel_unhealthy"]:.1f} \\\\')
+    lines += ['\\midrule', ' & Added sugar & Whole-grain & Fruit and vegetables & Health Index & Stores \\\\',
+              ' & (g per 1,000 kcal) & share of bread (\\%) & (\\% of calories) & (per 1,000 kcal) & \\\\', '\\midrule']
+    for k, lab in rows:
+        r = q.loc[k]
+        lines.append(f'{lab} & {r["addsugar_1000"]:.1f} & {100 * r["whole_share"]:.1f} & {100 * r["produce_share"]:.2f} & '
+                     f'{r["hi_1000"]:.2f} & {n[k]:,} \\\\')
+    lines += ['\\bottomrule', '\\end{tabular}']
     TAB.parent.mkdir(parents=True, exist_ok=True)
     TAB.write_text('\n'.join(lines) + '\n')
     print(f'saved {TAB}')
@@ -129,8 +133,8 @@ def main():
     print('top minus bottom bin:', (m[show].iloc[-1] - m[show].iloc[0]).round(3).to_dict())
     FIG.mkdir(parents=True, exist_ok=True)
     fig_access(m)
-    fig_prices(m, 'shelf_', 'store_shelf_prices_by_income.png', 'Real price per 1,000 calories (2013 dollars)')
-    fig_prices(m, 'rel_', 'store_same_prices_by_income.png', 'Percent above the national price of the same products')
+    fig_prices(m, 'shelf_', 'store_shelf_prices_by_income.png', '\\$ per 1,000 calories (2013)')
+    fig_prices(m, 'rel_', 'store_same_prices_by_income.png', '% above national price')
     table(d)
 
 
