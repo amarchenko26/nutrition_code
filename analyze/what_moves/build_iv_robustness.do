@@ -27,7 +27,8 @@
 // `do build_iv_robustness.do <outcome> age60` replaces only the age60 rows (heads' average age under 60 at t+1), and
 // `do build_iv_robustness.do <outcome> age60_sizet` only the age60_sizet rows (the same, and the same size at t-1 and t; Anya
 // 2026-11-12, Panel A of Table 9). `do build_iv_robustness.do lhei_sd` runs the linearized HEI of Allcott et al. (their published
-// Health Index, lhei_usda of build_hei_panel.py) in SD, standardized like HEI (Table 9 column 3).
+// Health Index, lhei_usda of build_hei_panel.py) in SD, standardized like HEI (Table 9). `do build_iv_robustness.do hei_syn_sd` and
+// `lhei_syn_sd` (2026-11-12) run HEI and the linearized HEI from Syndigo labels (hei_syndigo_panel.dta), each in SD of its own.
 // `do build_iv_robustness.do purge` (printed, 2026-11-10) and `sizetab` (interim/what_moves/iv_size_changes.csv for Table 10:
 // whether household size changes from t to t+1, on the instrument alone, 2026-11-12).
 //
@@ -60,6 +61,7 @@ merge 1:1 household_code panel_year using "$idir/panel_dataset/iv_income_acs.dta
 merge 1:1 household_code panel_year using "$idir/panel_dataset/iv_predicted.dta", keepusing(d_iv_pred) keep(master match) nogen
 merge 1:1 household_code panel_year using "$idir/panel_dataset/iv_income_baseline_occ.dta", keepusing(iv_income_baseline_fips) keep(master match) nogen
 merge 1:1 household_code panel_year using "$idir/panel_dataset/hei_usda_panel.dta", keepusing(lhei_usda) keep(master match) nogen
+merge 1:1 household_code panel_year using "$idir/panel_dataset/hei_syndigo_panel.dta", keepusing(hei_syndigo lhei_syndigo) keep(master match) nogen
 ren household_code hhid
 ren panel_year year
 gen occ_src = male_head_occupation
@@ -99,6 +101,12 @@ gen byte same_size_t = hh_size == L.hh_size if !missing(hh_size, L.hh_size)
 // linearized HEI in SD, standardized like HEI (utils/hei_units.py: projection-weighted, geographic non-movers, all years)
 quietly sum lhei_usda [aw = projection_factor] if movers_f == 0
 gen double lhei_sd = lhei_usda / r(sd)
+// HEI and the linearized HEI from Syndigo labels (build_hei_panel.py syndigo), each in SD of its own, standardized the same way
+// (Table 9, Anya 2026-11-12)
+foreach s in hei lhei {
+	quietly sum `s'_syndigo [aw = projection_factor] if movers_f == 0
+	gen double `s'_syn_sd = `s'_syndigo / r(sd)
+}
 cap drop inc_q baseline_income
 bysort hhid (year): gen baseline_income = real_income[1]
 xtile inc_q = baseline_income [aw = projection_factor] if movers_f == 0, nquantiles(4)
