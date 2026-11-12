@@ -16,14 +16,18 @@ measures describe access, not consumption:
   nova4_share     share of package calories that are ultra-processed (NOVA 4), over UPCs with a NOVA group
   claude_hi_mean  mean module healthiness score (0-10)
   Prices (Anya 2026-11-10), for each side of each panel: sug_lo / sug_hi (added sugar at most / above 25 g per 1,000 kcal, 10%
-  of calories), whole / refined (bread), prod / nonprod (fruit and vegetables or not), hipos / hineg (non-produce UPCs with a
-  Health Index above / at or below 0), healthy / unhealthy (claude_hi 4-10 / 0-3):
+  of calories), whole / refined (bread), prod / nonprod (fruit and vegetables or not), hipos / hineg (UPCs with a Health Index
+  above / at or below 0, the products of hi_1000, so fruit and vegetables are in, all above 0 at the fixed score of
+  GetHealthIndex.do; non-produce only until 2026-11-12, when Anya asked for the same products as the access figure),
+  healthy / unhealthy (claude_hi 4-10 / 0-3):
   shelf_<side>   price of the UPCs offered per 1,000 kcal, each UPC once: 1,000 x the sum of the store's price of one package
                  (spending / units over the year) / the sum of the packages' calories (nominal dollars). Differences in what
                  stores stock and in what they charge both enter.
   rel_<side>     the same UPCs only: mean of log(store unit value / national unit value), clipped at the UPC's 1st and 99th
                  percentiles across stores, weighted by package calories. What stores charge for the same products.
   n_<side>       UPCs offered
+  pk_, kc_, rl_, wr_<side>  the sums behind shelf_ and rel_ (prices, package calories, calorie-weighted log relative prices,
+                 their weights), kept so that sides can be combined later without a rerun
   rel_healthy_sold, rel_unhealthy_sold: rel_ weighted by national calories sold (the weights of their price figure)
   n_upcs, food_spend (all food UPCs kept)
 Store attributes from the year's stores file: channel_code, store_zip3, fips (state x 1000 + county), retailer_code, parent_code.
@@ -112,7 +116,7 @@ def module_sums(d, attr):
     hi_ok = d['hi_1000'].notna() & np.isfinite(d['hi_1000'])
     prod, bread, whole, h = d['produce'] == 1, d['bread'] == 1, d['whole'] == 1, d['healthy'] == 1
     side = {'sug_lo': sug <= ADDSUGAR_CUT, 'sug_hi': sug > ADDSUGAR_CUT, 'whole': bread & whole, 'refined': bread & ~whole,
-            'prod': prod, 'nonprod': ~prod, 'hipos': ~prod & hi_ok & (d['hi_1000'] > 0), 'hineg': ~prod & hi_ok & (d['hi_1000'] <= 0),
+            'prod': prod, 'nonprod': ~prod, 'hipos': hi_ok & (d['hi_1000'] > 0), 'hineg': hi_ok & (d['hi_1000'] <= 0),
             'healthy': h, 'unhealthy': ~h}
     x = {'store': d['store'], 'n': 1, 'spend': d['spend'], 'kc': k, 'add': d['addsugar_unit'].where(k.notna()),
          'kc_add': k.where(d['addsugar_unit'].notna()), 'prod_kc': k * d['produce'], 'hi': (k * d['hi_1000']).where(hi_ok),
@@ -171,6 +175,8 @@ def main(year, n_modules=None):
         cols[f'n_{nm}'] = s[f'n_{nm}']
         cols[f'shelf_{nm}'] = 1000 * s[f'pk_{nm}'] / s[f'kc_{nm}']
         cols[f'rel_{nm}'] = s[f'rl_{nm}'] / s[f'wr_{nm}']
+        for sm in ('pk', 'kc', 'rl', 'wr'):
+            cols[f'{sm}_{nm}'] = s[f'{sm}_{nm}']
     out = pd.DataFrame(cols)
     out.index.name = 'store_code_uc'
     out = out.reset_index()

@@ -24,7 +24,8 @@
 //   ql1-ql4 (quartile of income at t-1, cut within each year among non-movers, projection-weighted; mode qlag).
 // `do build_iv_robustness.do age` (2026-11-10): the main row on heads' average age below 65, 62, 60 or 55 at t+1, printed only;
 // `do build_iv_robustness.do <outcome> age60` replaces only the age60 rows (heads' average age under 60 at t+1, Table 7 panel C).
-// `do build_iv_robustness.do purge` (printed) and `sizetab` (interim/what_moves/iv_size_changes.csv for the size table), 2026-11-10.
+// `do build_iv_robustness.do purge` (printed, 2026-11-10) and `sizetab` (interim/what_moves/iv_size_changes.csv for Table 10:
+// whether household size changes from t to t+1, on the instrument alone, 2026-11-12).
 //
 // `do build_iv_robustness.do <outcome>` writes interim/what_moves/iv_robustness_<outcome>.csv.
 // `do build_iv_robustness.do <outcome> qlag` replaces only the ql1-ql4 rows of that file and prints how the t-1 quartiles
@@ -310,8 +311,8 @@ if "`part'" == "age" {
 	exit
 }
 
-// ---------------------------------------------------------------- the t-1 group's own income change (both parts below)
-if inlist("`part'", "purge", "sizetab") {
+// ---------------------------------------------------------------- the t-1 group's own income change (purge below)
+if "`part'" == "purge" {
 	preserve
 	use household_code panel_year d_iv_frozen using "$idir/panel_dataset/iv_predicted.dta", clear
 	ren (household_code panel_year) (hhid year)
@@ -353,43 +354,27 @@ if "`part'" == "purge" {
 	exit
 }
 
-// ---------------------------------------------------------------- does the instrument predict household size changes? (table)
-// (Anya 2026-11-10). Each size outcome on the instrument itself (reduced form), per $10k of group income, main fixed effects:
-// the main group (d_iv), the group without the size bin (d_ivx), the household's t-1 group held fixed (d_ivf). Rows: any size
-// change from t to t+1 (pp; all, and households of the same size at t-1 and t), change in members from t to t+1 (same two),
-// same size at t-1, t and t+1 (pp), any size change from t-1 to t and from t-3 to t-2 (pp).
-// Output: interim/what_moves/iv_size_changes.csv, read by build_iv_robustness_table.py.
+// ---------------------------------------------------------------- does the instrument predict a change in household size? (Table 10)
+// (Anya 2026-11-12) One regression: whether the number of members changes from t to t+1 (100 or 0) on the instrument alone, no
+// income, on the household-years of the main HEI regression (column 3 of tabs/labor_supply/ols_iv_clean.tex), with its fixed effects,
+// weights and clustering. Output: interim/what_moves/iv_size_changes.csv, read by build_iv_robustness_table.py.
 if "`part'" == "sizetab" {
 	gen double sz_f = 100 * (F.hh_size != hh_size) if !missing(F.hh_size, hh_size)
-	gen double dsz_f = F.hh_size - hh_size
-	gen double sz_3 = 100 * same_size
-	gen double sz_t = 100 * (hh_size != L.hh_size) if !missing(hh_size, L.hh_size)
-	gen double sz_b = 100 * (L2.hh_size != L3.hh_size) if !missing(L2.hh_size, L3.hh_size)
-	gen byte keep_t = hh_size == L.hh_size if !missing(hh_size, L.hh_size)
+	gen double y_main = F.hei_usda - hei_usda
+	quietly ivreghdfe y_main (d_inc = d_iv) [pw = projection_factor] if movers_f == 0 & clean == 1, absorb(`FE') cluster(fips)
+	gen byte msamp = e(sample)
+	di "main HEI regression: N " e(N)
+	quietly reghdfe sz_f d_iv [pw = projection_factor] if msamp == 1, absorb(`FE') cluster(fips)
+	local b = _b[d_iv]
+	local se = _se[d_iv]
+	local n = e(N)
+	quietly sum sz_f [aw = projection_factor] if e(sample), meanonly
 	cap file close fh
 	file open fh using "$idir/what_moves/iv_size_changes.csv", write replace
-	file write fh "row,outcome,sample,instrument,b,se,n,mean" _n
-	local r 0
-	foreach spec in "sz_f|all" "sz_f|keep_t" "dsz_f|all" "dsz_f|keep_t" "sz_3|all" "sz_t|all" "sz_b|all" {
-		local ++r
-		gettoken y smp : spec, parse("|")
-		local smp = substr("`smp'", 2, .)
-		local c "movers_f == 0 & clean == 1"
-		if "`smp'" == "keep_t" local c "`c' & keep_t == 1"
-		foreach z in d_iv d_ivx d_ivf {
-			capture quietly reghdfe `y' `z' [pw = projection_factor] if `c' & !missing(`z'), absorb(`FE') cluster(fips)
-			if _rc == 0 {
-				local b = _b[`z']
-				local se = _se[`z']
-				local n = e(N)
-				quietly sum `y' [aw = projection_factor] if e(sample), meanonly
-				file write fh "`r',`y',`smp',`z'," (`b') "," (`se') "," (`n') "," (r(mean)) _n
-				di "sizetab `y' `smp' `z': " %8.3f `b' " (" %7.3f `se' ") N " `n' " mean " %7.3f r(mean)
-			}
-			else di as error "sizetab `y' `smp' `z' failed, rc " _rc
-		}
-	}
+	file write fh "outcome,b,se,n,mean" _n
+	file write fh "sz_f," (`b') "," (`se') "," (`n') "," (r(mean)) _n
 	file close fh
+	di "sizetab sz_f d_iv: " %8.3f `b' " (" %7.3f `se' ") N " `n' " mean " %7.3f r(mean)
 	di "build_iv_robustness.do sizetab complete"
 	exit
 }
