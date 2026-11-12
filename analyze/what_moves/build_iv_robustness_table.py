@@ -21,15 +21,16 @@ import pyreadstat
 from scipy.stats import norm
 
 WM = idir / 'what_moves'
-OUTS = [('hei_usda', 3), ('upf_share', 2), ('produce_share', 2), ('cals_ae_day', 1)]
+# lhei_sd: the linearized HEI of Allcott et al., their published Health Index, already in SD (Table 9 column 3, Anya 2026-11-12)
+OUTS = [('hei_usda', 3), ('lhei_sd', 3), ('upf_share', 2), ('produce_share', 2), ('cals_ae_day', 1)]
 # Layout of 2026-11-12 (Anya): Panel A = the samples, from every household employed at t-1 to non-movers under 60 of the same
 # size; the purchase windows in words, right above the longer changes; the placebo (purchases t-3 to t-2, the same income change)
 # is the second column for every row, and its own panel is gone.
 ROWS = [
-    (r'A. Sample', [('geo_movers', r'Employed at $t-1$, movers and non-movers'), ('main', r'Non-movers, employed at $t-1$'),
+    (r'A. Sample', [('geo_movers', r'All, employed at $t-1$'), ('main', r'Non-movers, employed at $t-1$'),
                     ('age60', r'Non-movers, employed at $t-1$, under 60'),
-                    ('age60_size', r'Non-movers, employed at $t-1$, under 60, same size at $t-1$, $t$, $t+1$')]),
-    (r'B. Instrument', [('no_size_bin', 'Group without the size bin'), ('baseline_occ', 'Occupation frozen at the first panel year'), ('predicted', 'Predicted group from $t-1$ characteristics'),
+                    ('age60_sizet', r'Non-movers, employed at $t-1$, under 60, same size at $t-1$ and $t$')]),
+    (r'B. Instrument, non-movers employed at $t-1$', [('no_size_bin', 'Group without the size bin'), ('baseline_occ', 'Occupation frozen at the first panel year'), ('predicted', 'Predicted group from $t-1$ characteristics'),
                         ('acs', 'Group income from the ACS'), ('bls', 'National wage of the occupation (BLS)')]),
     (r'C. Purchase window, same income change', [('level_t', 'Same year as the income change'), ('twoyear', 'Same year and the next')]),
     (r'D. Longer changes', [('k2', r'Changes over 2 years'), ('k3', r'Changes over 3 years'), ('k5', r'Changes over 5 years'), ('k8', r'Changes over 8 years')]),
@@ -59,7 +60,7 @@ def main():
         if o == 'cals_ae_day' and spec == 'levels':
             return ''
         # these outcomes come from the panel of analyze/movers/1_, which holds non-movers only
-        if o != 'hei_usda' and spec == 'geo_movers':
+        if o not in ('hei_usda', 'lhei_sd') and spec == 'geo_movers':
             return ''
         if x is None or x['f'] != x['f']:
             return ''
@@ -68,11 +69,12 @@ def main():
             return 'no first stage'
         return est(x, dec)
 
-    tex = [r'\begin{tabular}{lccccccc}', r'\toprule', r' & HEI & HEI, & Ultra-processed & Produce & Calories per & First- & Household- \\',
-           r'Specification & (SD) & placebo (SD) & (\% of calories) & (\% of calories) & adult eq. per day & stage F & years \\']
+    tex = [r'\begin{tabular}{lcccccccc}', r'\toprule',
+           r' & HEI & HEI, & Linearized HEI & Ultra-processed & Produce & Calories per & First- & Household- \\',
+           r'Specification & (SD) & placebo (SD) & (Allcott et al.; SD) & (\% of calories) & (\% of calories) & adult eq. per day & stage F & years \\']
     for panel, rows in ROWS:
         w = 'main'
-        tex += [r'\midrule', rf'\multicolumn{{8}}{{l}}{{\textit{{{panel}}}}} \\']
+        tex += [r'\midrule', rf'\multicolumn{{9}}{{l}}{{\textit{{{panel}}}}} \\']
         for spec, lab in rows:
             cells = [cell('hei_usda', spec, 3, w)]
             b = get('hei_usda', spec, 'before')
