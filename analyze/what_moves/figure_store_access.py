@@ -5,7 +5,8 @@ Reads interim/what_moves/store_choice_sets.parquet (build_store_choice_sets_rms.
 measures over the food UPCs the store sold, each UPC counted once and weighted by the calories in one package) and
 store_shopper_income.parquet (build_store_shopper_income.py: trip-weighted ACS 2011-2015 median household income of the panel
 shoppers' home ZIP codes). Stores with MIN_TRIPS or more panel trips from MIN_HH or more households. Points: means across
-store-years 2006-2020 in $10,000 bins of shopper ZIP income, as in their figure.
+store-years 2006-2020 in the bins of their figure (PrepZipCodeData.do: $10,000 bins, under $30,000 pooled and plotted at 25,
+$80,000 or more pooled and plotted at 100).
 Outputs (figs/what_moves/prices/):
   store_access_by_income.png        added sugar per 1,000 kcal, whole-grain share of bread, fruit and vegetable share, Health Index
   store_shelf_prices_by_income.png  real price per 1,000 kcal of the UPCs offered (each once; stocking and prices both enter), for
@@ -38,9 +39,9 @@ BLUE, RED, ORANGE, GREY = '#2c5f8a', '#a63d40', '#fc8d59', '#999999'
 plt.rcParams.update({'font.size': 24, 'axes.labelsize': 24, 'axes.titlesize': 26, 'xtick.labelsize': 21, 'ytick.labelsize': 22,
                      'axes.spines.top': False, 'axes.spines.right': False})
 MIN_TRIPS, MIN_HH = 50, 10
-EDGES = [0, 30, 40, 50, 60, 70, 80, 90, np.inf]            # $000s of shopper ZIP median household income (2015 dollars)
-MIDS = [25, 35, 45, 55, 65, 75, 85, 95]
-TICKS = ['<30', '30-40', '40-50', '50-60', '60-70', '70-80', '80-90', '90+']
+EDGES = [0, 30, 40, 50, 60, 70, 80, np.inf]                # $000s of shopper ZIP median household income (2015 dollars)
+MIDS = [25, 35, 45, 55, 65, 75, 100]                        # Allcott et al.'s ZipMedIncomeGroup values
+TICKS = ['<30', '30-40', '40-50', '50-60', '60-70', '70-80', '80+']
 XLAB = "Shoppers' ZIP median income ($000s)"
 CPI = {2006: 201.6, 2007: 207.3, 2008: 215.3, 2009: 214.5, 2010: 218.1, 2011: 224.9, 2012: 229.6, 2013: 233.0, 2014: 236.7,
        2015: 237.0, 2016: 240.0, 2017: 245.1, 2018: 251.1, 2019: 255.7, 2020: 258.8}       # CPI-U, as in analyze_variety_price_index.py
