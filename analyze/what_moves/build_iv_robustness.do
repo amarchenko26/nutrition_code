@@ -30,6 +30,7 @@
 // 2026-11-12, Panel A of Table 9). `do build_iv_robustness.do lhei_sd` runs the linearized HEI of Allcott et al. (their published
 // Health Index, lhei_usda of build_hei_panel.py) in SD, standardized like HEI (Table 9). `do build_iv_robustness.do hei_syn_sd` and
 // `lhei_syn_sd` (2026-11-12) run HEI and the linearized HEI from Syndigo labels (hei_syndigo_panel.dta), each in SD of its own.
+// `do build_iv_robustness.do sizefix` (printed, 2026-11-13): first stage and 2SLS with the size group held at t-1, next to the main instrument.
 // `do build_iv_robustness.do <outcome> acs` (2026-11-13) replaces only the acs rows, and prints them clustered on county too.
 // `do build_iv_robustness.do purge` (printed, 2026-11-10) and `sizetab` (interim/what_moves/iv_size_changes.csv for Table 10:
 // whether household size changes from t to t+1, on the instrument alone, 2026-11-12).
@@ -395,6 +396,43 @@ if "`part'" == "sizetab" {
 	file close fh
 	di "sizetab sz_f d_iv: " %8.3f `b' " (" %7.3f `se' ") N " `n' " mean " %7.3f r(mean)
 	di "build_iv_robustness.do sizetab complete"
+	exit
+}
+
+// ---------------------------------------------------------------- the main instrument with the size group held at t-1
+// (Anya 2026-11-13): build/iv/build_iv_size_fixed.py, d_iv_sizefix = income at t of the group with the household's occupation and
+// schooling at t and its size group at t-1, minus its group's income at t-1, in other counties; equal to the main instrument where
+// the size group does not change. First stage (own income change on the instrument), 2SLS for HEI in SD (t to t+1) and the placebo
+// (t-3 to t-2), main instrument and size-fixed instrument on the same household-years, main fixed effects. Printed only.
+if "`part'" == "sizefix" {
+	preserve
+	use household_code panel_year d_iv_sizefix size_switch using "$idir/panel_dataset/iv_size_fixed.dta", clear
+	ren (household_code panel_year) (hhid year)
+	tempfile sf
+	save `sf'
+	restore
+	merge 1:1 hhid year using `sf', keep(master match) nogen
+	sort hhid year
+	xtset hhid year
+	gen double d_ivs = d_iv_sizefix / 10                       // $10k, like d_iv
+	gen double hei_sd = hei_usda / 9.7338
+	gen double m_hei_sd = F.hei_sd - hei_sd
+	gen double b_hei_sd = L2.hei_sd - L3.hei_sd
+	local c "movers_f == 0 & clean == 1 & !missing(d_iv, d_ivs)"
+	gen double gap = abs(d_ivs - d_iv) if size_switch == 0 & `c'
+	quietly sum gap
+	di "RESULT largest gap between the instruments where the size group does not change: " r(max)
+	quietly sum size_switch [aw = projection_factor] if `c' & !missing(m_hei_sd, d_inc)
+	di "RESULT share of household-years changing size group: " %6.4f r(mean)
+	foreach z in d_iv d_ivs {
+		quietly reghdfe d_inc `z' [pw = projection_factor] if `c' & !missing(m_hei_sd), absorb(`FE') cluster(fips)
+		di "RESULT `z' first stage: " %8.4f _b[`z'] " (" %7.4f _se[`z'] ") N " e(N)
+		foreach w in m b {
+			quietly ivreghdfe `w'_hei_sd (d_inc = `z') [pw = projection_factor] if `c', absorb(`FE') cluster(fips)
+			di "RESULT `z' 2SLS `w': " %8.4f _b[d_inc] " (" %7.4f _se[d_inc] ") F " %6.1f e(widstat) " N " e(N)
+		}
+	}
+	di "build_iv_robustness.do sizefix complete"
 	exit
 }
 
