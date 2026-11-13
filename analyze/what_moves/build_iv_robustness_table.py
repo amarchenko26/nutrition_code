@@ -36,7 +36,9 @@ ALL_HH = {o for o, _, _ in INDICES}
 # size; the purchase windows in words, right above the longer changes; each index has its placebo next to it, and the placebo
 # panel is gone. 'Same year and the next' (purchases t-1 to t+1 on the one-year income change) deleted 2026-11-12 (Anya: the
 # outcome and income changes must span the same length of time). Standard errors on their own row and long labels on two lines,
-# so the table fits a landscape page. A label is a string or (estimate-row text, standard-error-row text).
+# so the table fits a landscape page. A label is a string or (estimate-row text, standard-error-row text). The ACS row since
+# 2026-11-13 (Anya): the household keeps its group of t-1, income change from the ACS, clustered on that group; it replaces the
+# row on the household's group in each year.
 ROWS = [
     (r'A. Sample', [('geo_movers', r'All, employed at $t-1$'), ('main', r'Non-movers, employed at $t-1$'),
                     ('age60', (r'Non-movers, employed at $t-1$,', 'under 60')),
@@ -44,7 +46,7 @@ ROWS = [
     (r'B. Instrument, non-movers employed at $t-1$', [('no_size_bin', 'Group without the size bin'),
                                                       ('baseline_occ', ('Occupation frozen at the', 'first panel year')),
                                                       ('predicted', ('Predicted group from', '$t-1$ characteristics')),
-                                                      ('acs', 'Group income from the ACS'),
+                                                      ('acs', ('Group at $t-1$, income', 'from the ACS')),
                                                       ('bls', ('National wage of the', 'occupation (BLS)'))]),
     (r'C. Purchase window, same income change', [('level_t', 'Same year as the income change')]),
     (r'D. Longer changes', [('k2', r'Changes over 2 years'), ('k3', r'Changes over 3 years'), ('k5', r'Changes over 5 years'), ('k8', r'Changes over 8 years')]),

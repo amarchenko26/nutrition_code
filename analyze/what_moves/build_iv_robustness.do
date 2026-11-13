@@ -18,7 +18,8 @@
 //   same_size; geo_movers (households changing county kept); stayers (cell unchanged t-1 to t); switchers (cell changed);
 //   switch_noNE (cell changed, and not into not employed); no_size_bin (occupation x education cells);
 //   predicted (predicted-share instrument, labor_supply/26_); baseline_occ (occupation frozen at first panel year);
-//   bls (national OEWS wage of the occupation); acs (ACS cell income);
+//   bls (national OEWS wage of the occupation); acs (the household's group at t-1: its ACS income at t minus at t-1,
+//   build/iv/build_acs_cell_iv.py, clustered on that group; until 2026-11-13 the group of each year, in current dollars);
 //   k2, k3, k5, k8 (k-year change in the outcome ending at t+1 on the k-year change in income and instrument ending
 //   at t, employed at t-k);
 //   q1-q4 (quartile of income in the household's first panel year);
@@ -29,6 +30,7 @@
 // 2026-11-12, Panel A of Table 9). `do build_iv_robustness.do lhei_sd` runs the linearized HEI of Allcott et al. (their published
 // Health Index, lhei_usda of build_hei_panel.py) in SD, standardized like HEI (Table 9). `do build_iv_robustness.do hei_syn_sd` and
 // `lhei_syn_sd` (2026-11-12) run HEI and the linearized HEI from Syndigo labels (hei_syndigo_panel.dta), each in SD of its own.
+// `do build_iv_robustness.do <outcome> acs` (2026-11-13) replaces only the acs rows, and prints them clustered on county too.
 // `do build_iv_robustness.do purge` (printed, 2026-11-10) and `sizetab` (interim/what_moves/iv_size_changes.csv for Table 10:
 // whether household size changes from t to t+1, on the instrument alone, 2026-11-12).
 //
@@ -57,7 +59,7 @@ merge 1:1 hhid year using `subs', keep(master match) nogen
 merge 1:1 hhid year using "$idir/what_moves/price_per_kcal.dta", keep(master match) nogen keepusing(price_1000)
 ren hhid household_code
 ren year panel_year
-merge 1:1 household_code panel_year using "$idir/panel_dataset/iv_income_acs.dta", keepusing(iv_income_acs) keep(master match) nogen
+merge 1:1 household_code panel_year using "$idir/panel_dataset/iv_income_acs.dta", keepusing(d_iv_acs_t1 acs_grp_t1) keep(master match) nogen
 merge 1:1 household_code panel_year using "$idir/panel_dataset/iv_predicted.dta", keepusing(d_iv_pred) keep(master match) nogen
 merge 1:1 household_code panel_year using "$idir/panel_dataset/iv_income_baseline_occ.dta", keepusing(iv_income_baseline_fips) keep(master match) nogen
 merge 1:1 household_code panel_year using "$idir/panel_dataset/hei_usda_panel.dta", keepusing(lhei_usda) keep(master match) nogen
@@ -78,7 +80,7 @@ gen d_inc = D.real_income
 gen d_iv  = D.iv_income_fips / 10
 gen d_ivx = D.iv_income_occedu_fips / 10
 gen d_ivb = D.iv_income_baseline_fips / 10
-gen d_acs = D.iv_income_acs / 10
+gen d_acs = d_iv_acs_t1 / 10          // the household's group at t-1: its ACS income at t minus at t-1
 gen d_bls = D.bls_occ_wage / 10000
 gen d_prd = d_iv_pred / 10
 // type of cell change t-1 to t, the bins of build_iv.py
@@ -401,15 +403,16 @@ local v "`part'"
 local mode "`2'"
 global OUT "$idir/what_moves/iv_robustness_`v'.csv"
 cap file close fh
-if !inlist("`mode'", "qlag", "age60", "age60_sizet") {
+if !inlist("`mode'", "qlag", "age60", "age60_sizet", "acs") {
 	file open fh using "$OUT", write replace
 	file write fh "outcome,spec,window,b,se,f,n" _n
 	file close fh
 }
 cap program drop run_iv
 program define run_iv
-	args v spec window yvar xvar zvar cond fe
-	capture ivreghdfe `yvar' (`xvar' = `zvar') [pw = projection_factor] if `cond', absorb(`fe') cluster(fips)
+	args v spec window yvar xvar zvar cond fe cl
+	if "`cl'" == "" local cl fips
+	capture ivreghdfe `yvar' (`xvar' = `zvar') [pw = projection_factor] if `cond', absorb(`fe') cluster(`cl')
 	if _rc == 0 {
 		file open fh using "$OUT", write append
 		file write fh "`v',`spec',`window'," (_b[`xvar']) "," (_se[`xvar']) "," (e(widstat)) "," (e(N)) _n
@@ -444,6 +447,30 @@ if inlist("`mode'", "age60", "age60_sizet") {
 		run_iv `v' `mode' `w' y_`w' d_inc d_iv "`cnd'" "`FE'"
 	}
 	di "build_iv_robustness.do `v' `mode' complete"
+	exit
+}
+
+// the household's group at t-1, income from the ACS (2026-11-13, Anya: replaces the row on the group of each year): replaces
+// only the acs rows of $OUT, clustered on the group; printed clustered on county as well
+if "`mode'" == "acs" {
+	preserve
+	import delimited using "$OUT", clear varnames(1) stringcols(_all)
+	drop if spec == "acs"
+	export delimited using "$OUT", replace
+	restore
+	foreach w in main before {
+		run_iv `v' acs `w' y_`w' d_inc d_acs "`base'" "`FE'" acs_grp_t1
+		di "`v' acs `w': " e(N_clust) " groups"
+		if "`w'" == "main" {
+			foreach c in acs_grp_t1 fips {
+				capture reghdfe d_inc d_acs [pw = projection_factor] if `base' & !missing(y_main), absorb(`FE') cluster(`c')
+				if _rc == 0 di "`v' acs first stage, clustered on `c': " %8.3f _b[d_acs] " (" %7.3f _se[d_acs] ") N " e(N) " clusters " e(N_clust)
+			}
+		}
+		capture ivreghdfe y_`w' (d_inc = d_acs) [pw = projection_factor] if `base', absorb(`FE') cluster(fips)
+		if _rc == 0 di "`v' acs `w', clustered on county: " %8.3f _b[d_inc] " (" %7.3f _se[d_inc] ") F " %6.1f e(widstat) " N " e(N)
+	}
+	di "build_iv_robustness.do `v' acs complete"
 	exit
 }
 
@@ -508,7 +535,7 @@ foreach w in main before {
 	run_iv `v' predicted `w' y_`w' d_inc d_prd "`base'" "`FE'"
 	run_iv `v' baseline_occ `w' y_`w' d_inc d_ivb "`base'" "`FE'"
 	run_iv `v' bls `w' y_`w' d_inc d_bls "`base'" "`FE'"
-	run_iv `v' acs `w' y_`w' d_inc d_acs "`base'" "`FE'"
+	run_iv `v' acs `w' y_`w' d_inc d_acs "`base'" "`FE'" acs_grp_t1
 	forvalues q = 1/4 {
 		run_iv `v' q`q' `w' y_`w' d_inc d_iv "`base' & inc_q == `q'" "`FE'"
 	}
