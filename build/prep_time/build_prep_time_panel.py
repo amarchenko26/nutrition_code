@@ -15,6 +15,14 @@ Output: interim/panel_dataset/panel_prep_time.parquet
   sh_open, sh_little, sh_cook: % of the household's spending on scored modules that goes to open-and-eat (score 1), little
   preparation (2-3) and cooking (4-9) modules, the denominator of prep_time_raw (added 2026-11-15 for the income IV on time
   intensity, analyze/what_moves/build_iv_time.do)
+  sh_rte: % of that spending on ready-to-eat meals (entrees, dinners, pizza, sandwiches, frozen breakfasts, soup, chili, stews,
+  canned pasta meals, prepared meals and salads; RTE_RULE below); sh_open_rte: open-and-eat or ready-to-eat; sh_scratch: % on
+  scratch ingredients (raw unbreaded meat, poultry and seafood, eggs, fresh vegetables that need cooking, flour and meal, dry beans
+  and grains, regular rice, dry pasta, baking supplies; SCRATCH_RULE below) (all three added 2026-11-15)
+  prep_min_ae_day: minutes of preparation the year's food purchases imply, per adult equivalent per day: spending on each module x
+  its minutes per dollar (min_1000kcal / usd_1000kcal of interim/what_moves/module_time_price.parquet, build_module_time_price.py:
+  5 minutes per score point above 1 per preparation of four label servings; modules without a score 0), divided by ae_total of
+  interim/health/nova_calorie_panel.parquet x 365 (added 2026-11-15)
 """
 
 import sys
@@ -42,6 +50,18 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 OUT_PATH  = OUT_DIR / 'panel_prep_time.parquet'
 
 YEARS           = range(2004, 2021)
+TIME_PRICE      = idir / 'what_moves' / 'module_time_price.parquet'
+CAL_PANEL       = idir / 'health' / 'nova_calorie_panel.parquet'
+RTE_GROUPS = {'PREPARED FOODS-FROZEN', 'PIZZA/SNACKS/HORS DOEURVES-FRZN', 'PREPARED FOOD-READY-TO-SERVE', 'SOUP',
+              'DRESSINGS/SALADS/PREP FOODS-DELI', 'BREAKFAST FOODS-FROZEN'}
+RTE_RULE = (r'ENTREE|DINNER|PIZZA|SANDWICH|COMBINATION LUNCH|BREAKFAST|WAFFLE|SOUP|CHOWDER|CHILI|STEW|RAVIOLI|SPAGHETTI - CANNED|'
+            r'LASAGNA|MACARONI PRODUCTS|INSTANT MEALS|PREPARED MEAL|PREPARED APPETIZER|HORS D|CORN DOGS|POT PIES|HASH|CHOW MEIN|'
+            r'MEXICAN DINNERS|BEANS WITH MEAT|READY MADE SALADS|PREPARED SALAD|POTATO SALAD')
+RTE_EXCLUDE = r'MIX|CRUST|SPREAD|STARTER|BOUILLON|BROTH'
+SCRATCH_GROUPS = {'FRESH MEAT', 'UNPREP MEAT/POULTRY/SEAFOOD-FRZN', 'EGGS', 'FLOUR', 'BAKING SUPPLIES', 'VEGETABLES AND GRAINS - DRIED',
+                  'PASTA', 'FRESH PRODUCE'}
+SCRATCH_EXCLUDE = (r'(?<!UN)BREADED|INSTANT|STUFFING|CROUTON|FROSTING|DECORATION|ICING|SHELL|GRAHAM|GLAZED|COCONUT|TAPIOCA|CAPERS|'
+                   r'PROTECTOR|MATZO|ORIENTAL NOODLES|SPECIALTY DRIED BREAD|BREADING')
 MIN_ANNUAL_SPEND = 50.0   # drop HH-years below this real spend threshold (2013$)
 
 # ============================================================
@@ -54,6 +74,19 @@ scores_df = scores_df[scores_df['prep_time'].notna()].copy()
 score_map = dict(zip(scores_df['product_module_code'].astype(int),
                      scores_df['prep_time'].astype(float)))
 log(f"  {len(score_map):,} modules with prep time scores")
+# ready-to-eat meals and scratch ingredients, among scored modules
+d = scores_df['product_module_descr'].fillna('')
+rte = scores_df['product_group_descr'].isin(RTE_GROUPS) & d.str.contains(RTE_RULE) & ~d.str.contains(RTE_EXCLUDE)
+scr = (scores_df['product_group_descr'].isin(SCRATCH_GROUPS) & ~d.str.contains(SCRATCH_EXCLUDE)
+       & ((scores_df['product_group_descr'] != 'FRESH PRODUCE') | (scores_df['prep_time'] >= 4)))
+RTE_MODS = set(scores_df.loc[rte, 'product_module_code'].astype(int))
+SCR_MODS = set(scores_df.loc[scr, 'product_module_code'].astype(int))
+log(f"  ready-to-eat modules {len(RTE_MODS)}: " + '; '.join(sorted(scores_df.loc[rte, 'product_module_descr'])))
+log(f"  scratch-ingredient modules {len(SCR_MODS)}: " + '; '.join(sorted(scores_df.loc[scr, 'product_module_descr'])))
+# minutes of preparation per real dollar, by module (unscored modules 0)
+tp = pd.read_parquet(TIME_PRICE, columns=['product_module_code', 'min_1000kcal', 'usd_1000kcal'])
+tp = tp[(tp['usd_1000kcal'] > 0) & tp['min_1000kcal'].notna()]
+min_per_usd = dict(zip(tp['product_module_code'].astype(int), tp['min_1000kcal'] / tp['usd_1000kcal']))
 
 # ============================================================
 # LOAD PANELISTS (projection factors for weighted normalization)
@@ -86,6 +119,7 @@ for year in YEARS:
     # Merge prep time score; rows without a score (excluded or unscored) become NaN
     purch['prep_time'] = purch['product_module_code'].map(score_map)
     purch['spend']     = purch['total_price_paid_real_2013'].clip(lower=0)
+    purch['prep_min']  = purch['spend'] * purch['product_module_code'].map(min_per_usd).fillna(0)
 
     # Keep only rows with a valid score and positive spend
     purch_scored = purch[purch['prep_time'].notna() & (purch['spend'] > 0)].copy()
@@ -108,12 +142,24 @@ for year in YEARS:
     agg = agg.merge(gs, on='household_code', how='left')
     for g in ['sh_open', 'sh_little', 'sh_cook']:
         agg[g] = 100 * agg[g] / agg['sum_spend']
+    purch_scored['rte'] = purch_scored['product_module_code'].isin(RTE_MODS)
+    purch_scored['scr'] = purch_scored['product_module_code'].isin(SCR_MODS)
+    purch_scored['s_rte'] = purch_scored['spend'] * purch_scored['rte']
+    purch_scored['s_scr'] = purch_scored['spend'] * purch_scored['scr']
+    purch_scored['s_ore'] = purch_scored['spend'] * (purch_scored['rte'] | (purch_scored['prep_time'] <= 1))
+    ex = purch_scored.groupby('household_code')[['s_rte', 's_scr', 's_ore']].sum().reset_index()
+    agg = agg.merge(ex, on='household_code', how='left')
+    agg['sh_rte'] = 100 * agg['s_rte'] / agg['sum_spend']
+    agg['sh_scratch'] = 100 * agg['s_scr'] / agg['sum_spend']
+    agg['sh_open_rte'] = 100 * agg['s_ore'] / agg['sum_spend']
+    agg = agg.merge(purch.groupby('household_code')['prep_min'].sum().rename('prep_min_year'), on='household_code', how='left')
 
     # Also track total real spend (for the minimum spend filter)
     total_spend = purch.groupby('household_code')['spend'].sum().rename('total_spend')
     agg = agg.merge(total_spend, on='household_code', how='left')
 
-    hh_year_list.append(agg[['household_code', 'panel_year', 'prep_time_raw', 'sh_open', 'sh_little', 'sh_cook', 'total_spend']])
+    hh_year_list.append(agg[['household_code', 'panel_year', 'prep_time_raw', 'sh_open', 'sh_little', 'sh_cook', 'sh_rte', 'sh_open_rte',
+                             'sh_scratch', 'prep_min_year', 'total_spend']])
     log(f"    scored rows: {n_scored/n_total*100:.0f}%, {len(agg):,} HHs")
     del purch, purch_scored, agg
     gc.collect()
@@ -143,7 +189,12 @@ log(f"  normalized: mean≈0, sd≈1 (projection-factor weighted)")
 # ============================================================
 # SAVE
 # ============================================================
-out = panel[['household_code', 'panel_year', 'prep_time_raw', 'prep_time', 'sh_open', 'sh_little', 'sh_cook']].copy()
+ae = pd.read_parquet(CAL_PANEL, columns=['household_code', 'panel_year', 'ae_total'])
+panel = panel.merge(ae, on=['household_code', 'panel_year'], how='left')
+panel['prep_min_ae_day'] = panel['prep_min_year'] / (panel['ae_total'].where(panel['ae_total'] > 0) * 365)
+log(f"  minutes of preparation per adult equivalent per day: mean {panel['prep_min_ae_day'].mean():.1f}, median {panel['prep_min_ae_day'].median():.1f}")
+out = panel[['household_code', 'panel_year', 'prep_time_raw', 'prep_time', 'sh_open', 'sh_little', 'sh_cook', 'sh_rte', 'sh_open_rte',
+             'sh_scratch', 'prep_min_ae_day']].copy()
 out.to_parquet(OUT_PATH, index=False)
 stata_path = OUT_PATH.with_suffix('.dta')
 out.to_stata(stata_path, write_index=False)

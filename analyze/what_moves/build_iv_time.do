@@ -8,7 +8,9 @@
 // Outcomes from build/prep_time/build_prep_time_panel.py (interim/panel_dataset/panel_prep_time.dta), over the spending on modules
 // with a preparation score (condiments, sauces, toppings and sweeteners have none): prep_time_raw = spending-weighted preparation
 // score (1-9); sh_open, sh_little, sh_cook = % of that spending on open-and-eat (score 1), little preparation (2-3) and cooking (4-9)
-// modules.
+// modules; sh_rte = ready-to-eat meals, sh_open_rte = open and eat or ready to eat, sh_scratch = scratch ingredients (module lists in
+// the builder); prep_min_ae_day = minutes of preparation the groceries imply per adult equivalent per day, on households of the same
+// size at t-1, t and t+1 (a household total over adult equivalents, as calories in the robustness table).
 // Output: interim/what_moves/iv_time.csv (read by build_iv_time_table.py), printed as well.
 // ============================================================================
 clear all
@@ -18,7 +20,7 @@ do "/Users/anyamarchenko/Documents/GitHub/nutrition_code/paths.do"
 use "$gdir/labor_supply_reg_data.dta", clear
 ren hhid household_code
 ren year panel_year
-merge 1:1 household_code panel_year using "$idir/panel_dataset/panel_prep_time.dta", keepusing(prep_time_raw sh_open sh_little sh_cook) keep(master match) nogen
+merge 1:1 household_code panel_year using "$idir/panel_dataset/panel_prep_time.dta", keepusing(prep_time_raw sh_open sh_little sh_cook sh_rte sh_open_rte sh_scratch prep_min_ae_day) keep(master match) nogen
 ren household_code hhid
 ren panel_year year
 gen occ_src = male_head_occupation
@@ -32,9 +34,10 @@ cap drop d_iv
 cap drop d_inc
 gen double d_inc = D.real_income
 gen double d_iv = D.iv_income_fips / 10
+gen byte same_size = hh_size == L.hh_size & hh_size == F.hh_size if !missing(hh_size, L.hh_size, F.hh_size)
 local FE "year_state hhid kids avg_age_hh_head hh_comp"
 local base "movers_f == 0 & clean == 1"
-foreach v in prep_time_raw sh_open sh_little sh_cook {
+foreach v in prep_time_raw sh_open sh_little sh_cook sh_rte sh_open_rte sh_scratch prep_min_ae_day {
 	gen double m_`v' = F.`v' - `v'
 	gen double b_`v' = L2.`v' - L3.`v'
 }
@@ -60,8 +63,10 @@ program define run_one
 	else di as error "`v' `window' failed, rc " _rc
 end
 
-foreach v in prep_time_raw sh_open sh_little sh_cook {
+foreach v in prep_time_raw sh_open sh_little sh_cook sh_rte sh_open_rte sh_scratch {
 	run_one `v' main m_`v' `v' "`base'" "`FE'"
 	run_one `v' before b_`v' `v' "`base'" "`FE'"
 }
+run_one prep_min_ae_day main m_prep_min_ae_day prep_min_ae_day "`base' & same_size == 1" "`FE'"
+run_one prep_min_ae_day before b_prep_min_ae_day prep_min_ae_day "`base' & same_size == 1" "`FE'"
 di "build_iv_time.do complete"

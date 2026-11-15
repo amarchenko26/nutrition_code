@@ -16,8 +16,12 @@ import pandas as pd
 
 ROWS = [('prep_time_raw', 'Preparation score of the groceries (1--9)', 3, 2),
         ('sh_open', r'Open and eat, \% of spending', 2, 1),
+        ('sh_rte', r'Ready-to-eat meals, \% of spending', 2, 1),
+        ('sh_open_rte', r'Open and eat or ready-to-eat, \% of spending', 2, 1),
         ('sh_little', r'Little preparation, \% of spending', 2, 1),
-        ('sh_cook', r'Cooking, \% of spending', 2, 1)]
+        ('sh_cook', r'Cooking, \% of spending', 2, 1),
+        ('sh_scratch', r'Scratch ingredients, \% of spending', 2, 1),
+        ('prep_min_ae_day', 'Minutes of preparation per adult equivalent per day', 2, 1)]
 
 
 def main():
