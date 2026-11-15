@@ -42,7 +42,11 @@ ALL_HH = {o for o, _, _ in INDICES}
 ROWS = [
     (r'A. Sample', [('geo_movers', r'All, employed at $t-1$'), ('main', r'Non-movers, employed at $t-1$'),
                     ('age60', (r'Non-movers, employed at $t-1$,', 'under 60')),
-                    ('age60_sizet', (r'Non-movers, employed at $t-1$,', r'under 60, same size at $t-1$ and $t$'))]),
+                    ('age60_sizet', (r'Non-movers, employed at $t-1$,', r'under 60, same size at $t-1$ and $t$')),
+                    # the main instrument with one part of the group held at t-1 (Anya 2026-11-13, build_iv_part_fixed.py)
+                    ('sizefix', (r'Non-movers, employed at $t-1$,', r'size group held at $t-1$')),
+                    ('occfix', (r'Non-movers, employed at $t-1$,', r'occupation held at $t-1$')),
+                    ('educfix', (r'Non-movers, employed at $t-1$,', r'schooling held at $t-1$'))]),
     (r'B. Instrument, non-movers employed at $t-1$', [('no_size_bin', 'Group without the size bin'),
                                                       ('baseline_occ', ('Occupation frozen at the', 'first panel year')),
                                                       ('predicted', ('Predicted group from', '$t-1$ characteristics')),

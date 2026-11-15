@@ -20,6 +20,8 @@
 //   predicted (predicted-share instrument, labor_supply/26_); baseline_occ (occupation frozen at first panel year);
 //   bls (national OEWS wage of the occupation); acs (the household's group at t-1: its ACS income at t minus at t-1,
 //   build/iv/build_acs_cell_iv.py, clustered on that group; until 2026-11-13 the group of each year, in current dollars);
+//   sizefix, occfix, educfix (the main instrument with the household's size group, occupation or schooling of t-1 held in both
+//   years, the other two parts as in each year; build/iv/build_iv_part_fixed.py, Anya 2026-11-13);
 //   k2, k3, k5, k8 (k-year change in the outcome ending at t+1 on the k-year change in income and instrument ending
 //   at t, employed at t-k);
 //   q1-q4 (quartile of income in the household's first panel year);
@@ -30,7 +32,8 @@
 // 2026-11-12, Panel A of Table 9). `do build_iv_robustness.do lhei_sd` runs the linearized HEI of Allcott et al. (their published
 // Health Index, lhei_usda of build_hei_panel.py) in SD, standardized like HEI (Table 9). `do build_iv_robustness.do hei_syn_sd` and
 // `lhei_syn_sd` (2026-11-12) run HEI and the linearized HEI from Syndigo labels (hei_syndigo_panel.dta), each in SD of its own.
-// `do build_iv_robustness.do sizefix` (printed, 2026-11-13): first stage and 2SLS with the size group held at t-1, next to the main instrument.
+// `do build_iv_robustness.do <outcome> partfix` (2026-11-13) replaces only the sizefix, occfix and educfix rows and prints the first
+// stages of the three instruments and of the main one.
 // `do build_iv_robustness.do <outcome> acs` (2026-11-13) replaces only the acs rows, and prints them clustered on county too.
 // `do build_iv_robustness.do purge` (printed, 2026-11-10) and `sizetab` (interim/what_moves/iv_size_changes.csv for Table 10:
 // whether household size changes from t to t+1, on the instrument alone, 2026-11-12).
@@ -61,6 +64,7 @@ merge 1:1 hhid year using "$idir/what_moves/price_per_kcal.dta", keep(master mat
 ren hhid household_code
 ren year panel_year
 merge 1:1 household_code panel_year using "$idir/panel_dataset/iv_income_acs.dta", keepusing(d_iv_acs_t1 acs_grp_t1) keep(master match) nogen
+merge 1:1 household_code panel_year using "$idir/panel_dataset/iv_part_fixed.dta", keepusing(d_iv_sizefix d_iv_occfix d_iv_educfix) keep(master match) nogen
 merge 1:1 household_code panel_year using "$idir/panel_dataset/iv_predicted.dta", keepusing(d_iv_pred) keep(master match) nogen
 merge 1:1 household_code panel_year using "$idir/panel_dataset/iv_income_baseline_occ.dta", keepusing(iv_income_baseline_fips) keep(master match) nogen
 merge 1:1 household_code panel_year using "$idir/panel_dataset/hei_usda_panel.dta", keepusing(lhei_usda) keep(master match) nogen
@@ -82,6 +86,9 @@ gen d_iv  = D.iv_income_fips / 10
 gen d_ivx = D.iv_income_occedu_fips / 10
 gen d_ivb = D.iv_income_baseline_fips / 10
 gen d_acs = d_iv_acs_t1 / 10          // the household's group at t-1: its ACS income at t minus at t-1
+gen d_ivs = d_iv_sizefix / 10         // the main instrument with one part of the group held at t-1: size group,
+gen d_ivo = d_iv_occfix / 10          // occupation,
+gen d_ive = d_iv_educfix / 10         // schooling
 gen d_bls = D.bls_occ_wage / 10000
 gen d_prd = d_iv_pred / 10
 // type of cell change t-1 to t, the bins of build_iv.py
@@ -399,49 +406,12 @@ if "`part'" == "sizetab" {
 	exit
 }
 
-// ---------------------------------------------------------------- the main instrument with the size group held at t-1
-// (Anya 2026-11-13): build/iv/build_iv_size_fixed.py, d_iv_sizefix = income at t of the group with the household's occupation and
-// schooling at t and its size group at t-1, minus its group's income at t-1, in other counties; equal to the main instrument where
-// the size group does not change. First stage (own income change on the instrument), 2SLS for HEI in SD (t to t+1) and the placebo
-// (t-3 to t-2), main instrument and size-fixed instrument on the same household-years, main fixed effects. Printed only.
-if "`part'" == "sizefix" {
-	preserve
-	use household_code panel_year d_iv_sizefix size_switch using "$idir/panel_dataset/iv_size_fixed.dta", clear
-	ren (household_code panel_year) (hhid year)
-	tempfile sf
-	save `sf'
-	restore
-	merge 1:1 hhid year using `sf', keep(master match) nogen
-	sort hhid year
-	xtset hhid year
-	gen double d_ivs = d_iv_sizefix / 10                       // $10k, like d_iv
-	gen double hei_sd = hei_usda / 9.7338
-	gen double m_hei_sd = F.hei_sd - hei_sd
-	gen double b_hei_sd = L2.hei_sd - L3.hei_sd
-	local c "movers_f == 0 & clean == 1 & !missing(d_iv, d_ivs)"
-	gen double gap = abs(d_ivs - d_iv) if size_switch == 0 & `c'
-	quietly sum gap
-	di "RESULT largest gap between the instruments where the size group does not change: " r(max)
-	quietly sum size_switch [aw = projection_factor] if `c' & !missing(m_hei_sd, d_inc)
-	di "RESULT share of household-years changing size group: " %6.4f r(mean)
-	foreach z in d_iv d_ivs {
-		quietly reghdfe d_inc `z' [pw = projection_factor] if `c' & !missing(m_hei_sd), absorb(`FE') cluster(fips)
-		di "RESULT `z' first stage: " %8.4f _b[`z'] " (" %7.4f _se[`z'] ") N " e(N)
-		foreach w in m b {
-			quietly ivreghdfe `w'_hei_sd (d_inc = `z') [pw = projection_factor] if `c', absorb(`FE') cluster(fips)
-			di "RESULT `z' 2SLS `w': " %8.4f _b[d_inc] " (" %7.4f _se[d_inc] ") F " %6.1f e(widstat) " N " e(N)
-		}
-	}
-	di "build_iv_robustness.do sizefix complete"
-	exit
-}
-
 // ---------------------------------------------------------------- one outcome, every row
 local v "`part'"
 local mode "`2'"
 global OUT "$idir/what_moves/iv_robustness_`v'.csv"
 cap file close fh
-if !inlist("`mode'", "qlag", "age60", "age60_sizet", "acs") {
+if !inlist("`mode'", "qlag", "age60", "age60_sizet", "acs", "partfix") {
 	file open fh using "$OUT", write replace
 	file write fh "outcome,spec,window,b,se,f,n" _n
 	file close fh
@@ -512,6 +482,27 @@ if "`mode'" == "acs" {
 	exit
 }
 
+// one part of the group held at t-1 (2026-11-13, Anya): replaces only the sizefix, occfix and educfix rows of $OUT, and prints the
+// first stage of each instrument and of the main one on the household-years of the main window
+if "`mode'" == "partfix" {
+	preserve
+	import delimited using "$OUT", clear varnames(1) stringcols(_all)
+	drop if inlist(spec, "sizefix", "occfix", "educfix")
+	export delimited using "$OUT", replace
+	restore
+	foreach z in d_iv d_ivs d_ivo d_ive {
+		quietly reghdfe d_inc `z' [pw = projection_factor] if `base' & !missing(y_main), absorb(`FE') cluster(fips)
+		di "`v' first stage `z': " %8.4f _b[`z'] " (" %7.4f _se[`z'] ") N " e(N)
+	}
+	foreach w in main before {
+		run_iv `v' sizefix `w' y_`w' d_inc d_ivs "`base'" "`FE'"
+		run_iv `v' occfix `w' y_`w' d_inc d_ivo "`base'" "`FE'"
+		run_iv `v' educfix `w' y_`w' d_inc d_ive "`base'" "`FE'"
+	}
+	di "build_iv_robustness.do `v' partfix complete"
+	exit
+}
+
 if "`mode'" == "qlag" {
 	preserve
 	import delimited using "$OUT", clear varnames(1) stringcols(_all)
@@ -564,6 +555,9 @@ foreach w in main before {
 	if "`v'" != "cals_ae_day" run_iv `v' same_size `w' y_`w' d_inc d_iv "`base' & same_size == 1" "`FE'"
 	run_iv `v' age60 `w' y_`w' d_inc d_iv "`base' & avg_age_hh_head + 1 < 60" "`FE'"
 	run_iv `v' age60_sizet `w' y_`w' d_inc d_iv "`base' & avg_age_hh_head + 1 < 60 & same_size_t == 1" "`FE'"
+	run_iv `v' sizefix `w' y_`w' d_inc d_ivs "`base'" "`FE'"
+	run_iv `v' occfix `w' y_`w' d_inc d_ivo "`base'" "`FE'"
+	run_iv `v' educfix `w' y_`w' d_inc d_ive "`base'" "`FE'"
 	if "`v'" != "cals_ae_day" run_iv `v' geo_movers `w' y_`w' d_inc d_iv "clean == 1" "`FE'"
 	if "`v'" == "cals_ae_day" run_iv `v' geo_movers `w' y_`w' d_inc d_iv "clean == 1 & same_size == 1" "`FE'"
 	run_iv `v' stayers `w' y_`w' d_inc d_iv "`base' & stayer == 1" "`FE'"
