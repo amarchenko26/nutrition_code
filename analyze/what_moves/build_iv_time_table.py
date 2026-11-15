@@ -21,7 +21,8 @@ ROWS = [('prep_time_raw', 'Preparation score of the groceries (1--9)', 3, 2),
         ('sh_little', r'Little preparation, \% of spending', 2, 1),
         ('sh_cook', r'Cooking, \% of spending', 2, 1),
         ('sh_scratch', r'Scratch ingredients, \% of spending', 2, 1),
-        ('prep_min_ae_day', 'Minutes of preparation per adult equivalent per day', 2, 1)]
+        ('prep_min_ae_day', 'Minutes of preparation per adult equivalent per day', 2, 1),
+        ('ing_per_trip', 'Distinct ingredients per shopping trip', 3, 2)]
 
 
 def main():

@@ -23,6 +23,10 @@ Output: interim/panel_dataset/panel_prep_time.parquet
   its minutes per dollar (min_1000kcal / usd_1000kcal of interim/what_moves/module_time_price.parquet, build_module_time_price.py:
   5 minutes per score point above 1 per preparation of four label servings; modules without a score 0), divided by ae_total of
   interim/health/nova_calorie_panel.parquet x 365 (added 2026-11-15)
+  ing_per_trip: distinct ingredient barcodes per food shopping trip, the household's trip mean over the year; an ingredient is a
+  barcode in NOVA group 1 (unprocessed or minimally processed: fresh produce, milk, eggs, plain frozen vegetables, dry pasta, rice,
+  flour) or 2 (culinary ingredients: sugar, oils, butter, salt) in interim/health/upc_dictionary.parquet (`nova`, own ingredient
+  list or the nearest labelled relative); trips = distinct trip_code_uc with a food purchase (added 2026-11-15)
 """
 
 import sys
@@ -52,6 +56,7 @@ OUT_PATH  = OUT_DIR / 'panel_prep_time.parquet'
 YEARS           = range(2004, 2021)
 TIME_PRICE      = idir / 'what_moves' / 'module_time_price.parquet'
 CAL_PANEL       = idir / 'health' / 'nova_calorie_panel.parquet'
+DICT            = idir / 'health' / 'upc_dictionary.parquet'
 RTE_GROUPS = {'PREPARED FOODS-FROZEN', 'PIZZA/SNACKS/HORS DOEURVES-FRZN', 'PREPARED FOOD-READY-TO-SERVE', 'SOUP',
               'DRESSINGS/SALADS/PREP FOODS-DELI', 'BREAKFAST FOODS-FROZEN'}
 RTE_RULE = (r'ENTREE|DINNER|PIZZA|SANDWICH|COMBINATION LUNCH|BREAKFAST|WAFFLE|SOUP|CHOWDER|CHILI|STEW|RAVIOLI|SPAGHETTI - CANNED|'
@@ -87,6 +92,11 @@ log(f"  scratch-ingredient modules {len(SCR_MODS)}: " + '; '.join(sorted(scores_
 tp = pd.read_parquet(TIME_PRICE, columns=['product_module_code', 'min_1000kcal', 'usd_1000kcal'])
 tp = tp[(tp['usd_1000kcal'] > 0) & tp['min_1000kcal'].notna()]
 min_per_usd = dict(zip(tp['product_module_code'].astype(int), tp['min_1000kcal'] / tp['usd_1000kcal']))
+# ingredient barcodes: NOVA group 1 or 2
+dic = pd.read_parquet(DICT, columns=['upc_13', 'nova'])
+ING = set(dic.loc[dic['nova'].isin([1, 2]), 'upc_13'])
+log(f"  {len(ING):,} ingredient barcodes (NOVA 1-2) of {len(dic):,} in the dictionary")
+del dic
 
 # ============================================================
 # LOAD PANELISTS (projection factors for weighted normalization)
@@ -111,7 +121,7 @@ for year in YEARS:
 
     purch = pd.read_parquet(purch_path, columns=[
         'household_code', 'product_module_code', 'total_price_paid_real_2013',
-        'department_descr',
+        'department_descr', 'trip_code_uc', 'upc',
     ])
     purch = purch[purch['department_descr'] != 'MAGNET DATA']
     purch['product_module_code'] = purch['product_module_code'].astype(int)
@@ -153,14 +163,20 @@ for year in YEARS:
     agg['sh_scratch'] = 100 * agg['s_scr'] / agg['sum_spend']
     agg['sh_open_rte'] = 100 * agg['s_ore'] / agg['sum_spend']
     agg = agg.merge(purch.groupby('household_code')['prep_min'].sum().rename('prep_min_year'), on='household_code', how='left')
+    # distinct ingredient barcodes per food trip
+    ing = purch.loc[('0' + purch['upc'].astype(str).str.zfill(12)).isin(ING), ['household_code', 'trip_code_uc', 'upc']].drop_duplicates()
+    agg = agg.merge(ing.groupby('household_code').size().rename('ing_pairs'), on='household_code', how='left')
+    agg = agg.merge(purch.groupby('household_code')['trip_code_uc'].nunique().rename('food_trips'), on='household_code', how='left')
+    agg['ing_per_trip'] = agg['ing_pairs'].fillna(0) / agg['food_trips']
+    del ing
 
     # Also track total real spend (for the minimum spend filter)
     total_spend = purch.groupby('household_code')['spend'].sum().rename('total_spend')
     agg = agg.merge(total_spend, on='household_code', how='left')
 
     hh_year_list.append(agg[['household_code', 'panel_year', 'prep_time_raw', 'sh_open', 'sh_little', 'sh_cook', 'sh_rte', 'sh_open_rte',
-                             'sh_scratch', 'prep_min_year', 'total_spend']])
-    log(f"    scored rows: {n_scored/n_total*100:.0f}%, {len(agg):,} HHs")
+                             'sh_scratch', 'prep_min_year', 'ing_per_trip', 'total_spend']])
+    log(f"    scored rows: {n_scored/n_total*100:.0f}%, {len(agg):,} HHs, {agg['ing_per_trip'].mean():.2f} ingredient barcodes per trip")
     del purch, purch_scored, agg
     gc.collect()
 
@@ -194,7 +210,7 @@ panel = panel.merge(ae, on=['household_code', 'panel_year'], how='left')
 panel['prep_min_ae_day'] = panel['prep_min_year'] / (panel['ae_total'].where(panel['ae_total'] > 0) * 365)
 log(f"  minutes of preparation per adult equivalent per day: mean {panel['prep_min_ae_day'].mean():.1f}, median {panel['prep_min_ae_day'].median():.1f}")
 out = panel[['household_code', 'panel_year', 'prep_time_raw', 'prep_time', 'sh_open', 'sh_little', 'sh_cook', 'sh_rte', 'sh_open_rte',
-             'sh_scratch', 'prep_min_ae_day']].copy()
+             'sh_scratch', 'prep_min_ae_day', 'ing_per_trip']].copy()
 out.to_parquet(OUT_PATH, index=False)
 stata_path = OUT_PATH.with_suffix('.dta')
 out.to_stata(stata_path, write_index=False)

@@ -10,7 +10,9 @@
 // score (1-9); sh_open, sh_little, sh_cook = % of that spending on open-and-eat (score 1), little preparation (2-3) and cooking (4-9)
 // modules; sh_rte = ready-to-eat meals, sh_open_rte = open and eat or ready to eat, sh_scratch = scratch ingredients (module lists in
 // the builder); prep_min_ae_day = minutes of preparation the groceries imply per adult equivalent per day, on households of the same
-// size at t-1, t and t+1 (a household total over adult equivalents, as calories in the robustness table).
+// size at t-1, t and t+1 (a household total over adult equivalents, as calories in the robustness table); ing_per_trip = distinct
+// ingredient barcodes (NOVA group 1 or 2) per food shopping trip, also on households of the same size (a larger household buys more
+// items on a trip).
 // Output: interim/what_moves/iv_time.csv (read by build_iv_time_table.py), printed as well.
 // ============================================================================
 clear all
@@ -20,7 +22,7 @@ do "/Users/anyamarchenko/Documents/GitHub/nutrition_code/paths.do"
 use "$gdir/labor_supply_reg_data.dta", clear
 ren hhid household_code
 ren year panel_year
-merge 1:1 household_code panel_year using "$idir/panel_dataset/panel_prep_time.dta", keepusing(prep_time_raw sh_open sh_little sh_cook sh_rte sh_open_rte sh_scratch prep_min_ae_day) keep(master match) nogen
+merge 1:1 household_code panel_year using "$idir/panel_dataset/panel_prep_time.dta", keepusing(prep_time_raw sh_open sh_little sh_cook sh_rte sh_open_rte sh_scratch prep_min_ae_day ing_per_trip) keep(master match) nogen
 ren household_code hhid
 ren panel_year year
 gen occ_src = male_head_occupation
@@ -37,7 +39,7 @@ gen double d_iv = D.iv_income_fips / 10
 gen byte same_size = hh_size == L.hh_size & hh_size == F.hh_size if !missing(hh_size, L.hh_size, F.hh_size)
 local FE "year_state hhid kids avg_age_hh_head hh_comp"
 local base "movers_f == 0 & clean == 1"
-foreach v in prep_time_raw sh_open sh_little sh_cook sh_rte sh_open_rte sh_scratch prep_min_ae_day {
+foreach v in prep_time_raw sh_open sh_little sh_cook sh_rte sh_open_rte sh_scratch prep_min_ae_day ing_per_trip {
 	gen double m_`v' = F.`v' - `v'
 	gen double b_`v' = L2.`v' - L3.`v'
 }
@@ -69,4 +71,6 @@ foreach v in prep_time_raw sh_open sh_little sh_cook sh_rte sh_open_rte sh_scrat
 }
 run_one prep_min_ae_day main m_prep_min_ae_day prep_min_ae_day "`base' & same_size == 1" "`FE'"
 run_one prep_min_ae_day before b_prep_min_ae_day prep_min_ae_day "`base' & same_size == 1" "`FE'"
+run_one ing_per_trip main m_ing_per_trip ing_per_trip "`base' & same_size == 1" "`FE'"
+run_one ing_per_trip before b_ing_per_trip ing_per_trip "`base' & same_size == 1" "`FE'"
 di "build_iv_time.do complete"
