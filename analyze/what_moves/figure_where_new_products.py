@@ -6,7 +6,9 @@ modules; (2) UPCs sold per module, modules present in every year 2009-2020, 2009
 (build_new_product_types.py): new brand, new variant of an existing brand, new size of an existing product, store brand, re-coded.
 Table tabs/what_moves/variety_national_modules.tex: across modules (WLS on 2009-2011 spending, robust SE), the change from
 2009-2011 to 2018-2020 in spending, in UPCs, in the price of continuing products and in the variety-adjusted price, and the mean
-new-product share, on the module's buyer-income tilt (rich_z, capped at +/-4) and on its group; prints the slope of price
+new-product share, on the module's buyer-income tilt (rich_z, capped at +/-4) and on its group; since 2026-11-15 (Anya) a last
+panel with one dummy per healthiness x preparation group (unhealthy 0-3 / middle 4-5 / healthy 6-10 x open and eat 1 / little
+preparation 2-3 / cooking 4-9), healthy cooking modules the comparison, and the module counts of each set of rows; prints the slope of price
 change on nominal spending growth (nominal, so no division bias from deflating by the same price) and the group gaps without the
 four chip modules, whose new-product share is 30-36% in odd years and 3-5% in even years.
 """
@@ -128,6 +130,7 @@ def table_modules(m):
     lines.append('Buyers richer by 1 SD & ' + ' & '.join(star_num(fit[y].params['rich_z'], fit[y].bse['rich_z'], 3) for y, _ in ys) + ' \\\\')
     lines.append(' & ' + ' & '.join(f"({fit[y].bse['rich_z']:.3f})" for y, _ in ys) + ' \\\\')
     lines.append('\\midrule')
+    nobs = {}
     for gv, base, labs in [('upf_group', 1.0, {2.0: 'Mostly ultra-processed (vs not)'}), ('hi_group', 3.0, {1.0: 'Unhealthy (vs healthy)', 2.0: 'Middle (vs healthy)'}), ('prep_group', 3.0, {1.0: 'Open and eat (vs cooking)', 2.0: 'Little preparation (vs cooking)'})]:
         fg = {}
         for y, _ in ys:
@@ -138,8 +141,27 @@ def table_modules(m):
             lines.append(f'{lab} & ' + ' & '.join(star_num(fg[y].params[nm], fg[y].bse[nm], 3) for y, _ in ys) + ' \\\\')
             lines.append(' & ' + ' & '.join(f"({fg[y].bse[nm]:.3f})" for y, _ in ys) + ' \\\\')
             res[lab] = {y: (round(fg[y].params[nm], 3), round(fg[y].bse[nm], 3)) for y, _ in ys}
+        nobs[gv] = {y: int(fg[y].nobs) for y, _ in ys}
         lines.append('\\midrule')
+    # healthiness x preparation, one regression, healthy cooking modules the comparison (Anya 2026-11-15)
+    cells = [(1.0, 1.0, 'Unhealthy, open and eat'), (1.0, 2.0, 'Unhealthy, little preparation'), (1.0, 3.0, 'Unhealthy, cooking'),
+             (2.0, 1.0, 'Middle, open and eat'), (2.0, 2.0, 'Middle, little preparation'), (2.0, 3.0, 'Middle, cooking'),
+             (3.0, 1.0, 'Healthy, open and eat'), (3.0, 2.0, 'Healthy, little preparation')]
+    fc = {}
+    for y, _ in ys:
+        z = m.dropna(subset=['hi_group', 'prep_group', y]).copy()
+        z['cell'] = (10 * z['hi_group'] + z['prep_group']).astype(int)
+        fc[y] = smf.wls(f'{y} ~ C(cell, Treatment(reference=33))', data=z, weights=z['sp0']).fit(cov_type='HC1')
+    lines.append('\\multicolumn{6}{l}{\\textit{Healthiness $\\times$ preparation (vs healthy, cooking)}} \\\\')
+    for h, pr, lab in cells:
+        nm = f'C(cell, Treatment(reference=33))[T.{int(10 * h + pr)}]'
+        lines.append(f'{lab} & ' + ' & '.join(star_num(fc[y].params[nm], fc[y].bse[nm], 3) for y, _ in ys) + ' \\\\')
+        lines.append(' & ' + ' & '.join(f"({fc[y].bse[nm]:.3f})" for y, _ in ys) + ' \\\\')
+        res[lab] = {y: (round(fc[y].params[nm], 3), round(fc[y].bse[nm], 3)) for y, _ in ys}
+    lines.append('\\midrule')
     lines.append('Modules & ' + ' & '.join(str(int(fit[y].nobs)) for y, _ in ys) + ' \\\\')
+    lines.append('Modules, ultra-processed row & ' + ' & '.join(str(nobs['upf_group'][y]) for y, _ in ys) + ' \\\\')
+    lines.append('Modules, preparation rows & ' + ' & '.join(str(nobs['prep_group'][y]) for y, _ in ys) + ' \\\\')
     lines += ['\\bottomrule', '\\end{tabular}']
     out = tdir / 'what_moves' / 'variety_national_modules.tex'
     out.write_text('\n'.join(lines) + '\n')
