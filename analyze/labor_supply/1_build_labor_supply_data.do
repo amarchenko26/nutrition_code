@@ -27,8 +27,17 @@ use "$data/final/final_reg_data.dta", clear
 ren hhid household_code
 ren year panel_year
 
+// Refresh the household-cell IVs: final_reg_data carries the vintage from its
+// last build_hi.do run, and the occupation bins were corrected 2026-09-10
+// (codes 7/10/11; build_iv.py). update replace overwrites the stale values.
+merge 1:1 household_code panel_year using "$data/interim/panel_dataset/iv_income.dta", ///
+	keepusing(iv_income_fips iv_income_zip) ///
+	keep(master match match_update match_conflict) update replace
+drop _merge
+
 merge 1:1 household_code panel_year using "$data/interim/panelists/panelists_all_years.dta", ///
-	keepusing(male_head_employment female_head_employment female_head_occupation marital_status) ///
+	keepusing(male_head_employment female_head_employment female_head_occupation ///
+	          marital_status household_income_midpoint_earned) ///
 	keep(master match)
 drop _merge
 
@@ -39,10 +48,57 @@ merge 1:1 household_code panel_year using "$data/interim/panel_dataset/iv_income
 	keep(master match)
 drop _merge
 
+// Retiree-only IV: cell averages computed on households with NO working head,
+// so no other households' working spouses enter the cell income
+// (build/iv/build_iv_retiree.py; defined only for no-working-head HH-years)
+merge 1:1 household_code panel_year using "$data/interim/panel_dataset/iv_income_retiree.dta", ///
+	keepusing(iv_income_retiree_fips iv_cell_n_lo_retiree_fips) ///
+	keep(master match)
+drop _merge
+
+// Occupation x education cell IVs -- no household-size bin -- for the
+// cell-definition robustness check (build/iv/build_iv_occ_edu.py):
+// male-preferred household assignment + each head's own cell
+merge 1:1 household_code panel_year using "$data/interim/panel_dataset/iv_income_occ_edu.dta", ///
+	keepusing(iv_income_occedu_fips iv_income_male_occedu_fips iv_income_female_occedu_fips) ///
+	keep(master match)
+drop _merge
+
+// EARNED-income IVs (Kilts Note 3: the panel-year-t file reports calendar
+// t-2 income, so year-t earned income comes from the t+2 file; cells pair
+// year-t occupation/educ/size with year-t earnings; build_iv_earned.py)
+merge 1:1 household_code panel_year using "$data/interim/panel_dataset/iv_income_earned.dta", ///
+	keepusing(iv_income_earned_fips iv_income_occedu_earned_fips) ///
+	keep(master match)
+drop _merge
+
 ren household_code hhid
 ren panel_year year
 
 xtset hhid year
+
+// ============================================================================
+// Real EARNED income: household_income_midpoint_earned (the t+2 file's
+// report = income actually earned in year t, per Kilts Note 3), deflated by
+// the EARNINGS year's CPI to 2013$ and scaled to $10k -- the same base and
+// scale as real_income (build_hi_panel.py deflates, build_hi.do divides by
+// 10), so coefficients stay per-$10k comparable.
+// ============================================================================
+
+cap drop cpi real_income_earned
+gen cpi = .
+local cpis 2004 188.9 2005 195.3 2006 201.6 2007 207.3 2008 215.3 ///
+           2009 214.5 2010 218.1 2011 224.9 2012 229.6 2013 233.0 ///
+           2014 236.7 2015 237.0 2016 240.0 2017 245.1 2018 251.1 ///
+           2019 255.7 2020 258.8 2021 271.0 2022 292.7 2023 304.7 2024 314.0
+while "`cpis'" != "" {
+	gettoken y cpis : cpis
+	gettoken v cpis : cpis
+	quietly replace cpi = `v' if year == `y'
+}
+gen real_income_earned = household_income_midpoint_earned * (233.0 / cpi) / 10000
+label var real_income_earned "HH income earned in year (Note 3 timing), 2013$, $10k units"
+drop cpi
 
 // ============================================================================
 // Per-head labor supply outcomes
@@ -101,13 +157,53 @@ label var f_female_head_hours "Change in female head hours (t+1 - t)"
 // real_income in the main regressions.
 // ============================================================================
 
-cap drop d_iv d_iv_male d_iv_female
-gen d_iv        = D.iv_income_fips        / 10
-gen d_iv_male   = D.iv_income_male_fips   / 10
-gen d_iv_female = D.iv_income_female_fips / 10
-label var d_iv        "HH shock (male-preferred cell, $10k)"
-label var d_iv_male   "Male head shock ($10k)"
-label var d_iv_female "Female head shock ($10k)"
+cap drop d_iv d_iv_male d_iv_female d_iv_retiree
+gen d_iv         = D.iv_income_fips         / 10
+gen d_iv_male    = D.iv_income_male_fips    / 10
+gen d_iv_female  = D.iv_income_female_fips  / 10
+gen d_iv_retiree = D.iv_income_retiree_fips / 10
+label var d_iv         "HH shock (male-preferred cell, $10k)"
+label var d_iv_male    "Male head shock ($10k)"
+label var d_iv_female  "Female head shock ($10k)"
+label var d_iv_retiree "Retiree-only cell shock ($10k)"
+
+// Working-head shock: assign the household the shock of the head who works.
+// A head "works" if their occupation is an employed occupation: codes 1-6,
+// 8, 9, 11 (labor_supply.tex "Measurement of key variables", 2026-09-16).
+// Code 7 (armed forces) is excluded from all cells; codes 10 (students, who
+// report no paid work in the data) and 12 are not employed; 0 = no head.
+// "No female head" is coded 0 through 2010 and BLANK from 2011, so a missing
+// female occupation also means no such head (review 2026-09-15, §2).
+//   one head works  -> that head's own-cell IV (regardless of sex)
+//   both work       -> average of the two heads' own-cell IVs
+//   neither works   -> missing (no meaningful labor demand shock)
+foreach h in male female {
+	cap drop `h'_works
+	gen byte `h'_works = inlist(`h'_head_occupation, 1, 2, 3, 4, 5, 6, 8, 9, 11) ///
+		if !missing(`h'_head_occupation)
+	replace `h'_works = 0 if `h'_head_occupation == 0 | missing(`h'_head_occupation)
+	label var `h'_works "`h' head in an employed occupation cell"
+}
+
+cap drop iv_income_working_fips n_working_heads
+gen _iv_m_w = iv_income_male_fips   if male_works   == 1
+gen _iv_f_w = iv_income_female_fips if female_works == 1
+egen iv_income_working_fips = rowmean(_iv_m_w _iv_f_w)
+egen n_working_heads = rowtotal(male_works female_works)
+drop _iv_m_w _iv_f_w
+label var iv_income_working_fips "Working-head cell income IV (avg if both work)"
+label var n_working_heads "Heads in an employed occupation cell (0-2)"
+
+cap drop d_iv_working
+gen d_iv_working = D.iv_income_working_fips / 10
+label var d_iv_working "Working-head shock ($10k)"
+
+// Same working-head configuration at t-1 and t (shock not driven by the
+// assignment switching between heads, e.g. he retires and it flips to her)
+cap drop working_assign_stable
+gen byte working_assign_stable = (male_works == L.male_works & female_works == L.female_works) ///
+	if !missing(male_works, female_works, L.male_works, L.female_works)
+label var working_assign_stable "Same working-head assignment as t-1"
 
 // Own-occupation stability: the head's occupation code is unchanged from t-1,
 // so their shock reflects movement in the cell's income, not the head

@@ -33,11 +33,12 @@ SIZE_LABELS = ['1', '2', '3-4', '5+']
 EDUC_BINS   = [0, 11.9, 12.9, 15.9, np.inf]
 EDUC_LABELS = ['lt_hs', 'hs', 'some_col', 'col_plus']
 
+# corrected to the Kilts codebook 2026-09-10 (see build_iv.py)
 OCC_MAP = {
     0: np.nan, 1: 'white', 2: 'white',   3: 'white',   4: 'white',
-    5: 'blue',  6: 'blue',  7: 'blue',
-    8: 'service', 9: 'service', 11: 'service',
-    10: 'not_emp', 12: 'not_emp',
+    5: 'blue',  6: 'blue',  11: 'blue',
+    8: 'service', 9: 'service', 7: 'service', 10: 'service',
+    12: 'not_emp',
 }
 
 # ============================================================

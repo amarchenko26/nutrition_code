@@ -68,9 +68,15 @@ COLUMN_RENAME = {
 # Income code mapping
 # ---------------------------------------------------------------------------
 # Codes 3-26 are consistent across all years.
-# Code 27 = $100,000+ in 2004-2005 and 2010+ (midpoint $140,000),
-#           $100,000-$124,999 in 2006-2009 (midpoint $112,500).
-# Codes 28-30 only exist in 2006-2009.
+# The top bracket changes: code 27 = $100,000+ in 2004-2005 and 2010+, but in
+# 2006-2009 Nielsen split the top into 27 = $100-125k, 28 = $125-150k,
+# 29 = $150-200k, 30 = $200k+. So that the income variable has the SAME
+# bracket structure in every year (the IV design is in first differences,
+# and a bracket change is a mechanical income "shock"), codes 27-30 are all
+# collapsed to "$100,000+" with a single midpoint of $140,000 in every year
+# (decision 2026-09-16). The 2006-09 detail supports that value: the mean of
+# the detailed midpoints among top-coded households in those years is
+# $135-141k.
 # ---------------------------------------------------------------------------
 
 INCOME_LABEL = {
@@ -90,9 +96,9 @@ INCOME_LABEL = {
     23: '$60,000-$69,999',
     26: '$70,000-$99,999',
     27: '$100,000+',
-    28: '$125,000-$149,999',
-    29: '$150,000-$199,999',
-    30: '$200,000+',
+    28: '$100,000+',   # 2006-09 detail ($125-150k) collapsed, see above
+    29: '$100,000+',   # 2006-09 detail ($150-200k) collapsed
+    30: '$100,000+',   # 2006-09 detail ($200k+) collapsed
 }
 
 INCOME_MIDPOINT = {
@@ -111,14 +117,11 @@ INCOME_MIDPOINT = {
     21: 55000,
     23: 65000,
     26: 85000,
-    28: 137500,
-    29: 175000,
-    30: 250000,
+    27: 140000,   # $100,000+ in every year (codes 28-30 collapsed into it)
+    28: 140000,
+    29: 140000,
+    30: 140000,
 }
-
-# Code 27 midpoint depends on year
-INCOME_MIDPOINT_27_EXPANDED = 112500   # 2006-2009: $100,000-$124,999
-INCOME_MIDPOINT_27_DEFAULT  = 140000   # all other years: $100,000+
 
 HOUSEHOLD_COMPOSITION_LABEL = {
     1: 'Married',
@@ -213,8 +216,25 @@ MEMBER_ADULT_MALE_CODES   = {3, 5}   # exclude Son (1)
 PARTNER_AGE_WINDOW = 15              # yrs from head's (binned) age to count as spouse-like
 # Member_N_Employment is BINARY (1 = employed / blank only) — no hours detail.
 
-# Head binned-age code → representative age, for spouse-age matching
-HEAD_AGE_MID = {1: 22, 2: 27, 3: 32, 4: 37, 5: 42, 6: 47, 7: 52, 8: 60, 9: 70}
+# Head binned-age code → representative age (codebook bin midpoints; 73 for 65+
+# is the observed mean, as in Allcott et al.). Used only as a FALLBACK when a
+# head's birth year is missing or implausible; the exact age from
+# *_head_birth is preferred everywhere (decision 2026-09-16).
+HEAD_AGE_MID = {1: 22, 2: 27, 3: 32, 4: 37, 5: 42, 6: 47, 7: 52, 8: 60, 9: 73}
+
+
+def head_exact_age(df, birth_col, age_code_col):
+    """Head age = panel year - reported birth year; codebook midpoint fallback.
+
+    Birth years outside 1900-2010 are treated as missing. Returns NaN where
+    there is no such head (age code 0 / blank).
+    """
+    yr    = pd.to_numeric(df['panel_year'], errors='coerce')
+    birth = pd.to_numeric(df[birth_col], errors='coerce')
+    code  = pd.to_numeric(df[age_code_col], errors='coerce')
+    exact = (yr - birth).where(birth.between(1900, 2010))
+    fallback = code.map(lambda v: HEAD_AGE_MID.get(int(v)) if pd.notna(v) else np.nan)
+    return exact.where(exact.notna(), fallback).where(code > 0)
 
 
 def head_status(code):
@@ -230,15 +250,18 @@ def add_labor_supply_measures(df):
     Build household labor-supply measures and a head/adult-level long panel.
 
     Heads (intensive margin, from hours bins):
+      {male,female}_head_age_exact  age from the reported birth year (codebook
+                                    midpoint fallback); NaN if no such head
       {male,female}_head_status     FT / PT / NE / <NA>
       {male,female}_head_employed   1 / 0 / <NA>
     Household extensive margin (counts of earning adults):
       n_heads                 number of designated heads (1 or 2, self-reported)
       n_head_earners          employed heads (0/1/2)
       hh_total_workhours      summed head hours (absent head = 0 hrs)
-      has_recovered_partner   an opposite-sex, spouse-aged (+/-15 yrs), adult
-                              NON-CHILD member in a SINGLE-head HH — the partner
-                              the household declined to mark as a head
+      has_recovered_partner   an opposite-sex, spouse-aged (+/-15 yrs of the
+                              head's exact age), adult NON-CHILD member in a
+                              SINGLE-head HH — the partner the household
+                              declined to mark as a head
       n_recovered_partner_earners  employed such members (binary employment only)
       n_earners_total         n_head_earners + recovered partner earners
 
@@ -250,8 +273,9 @@ def add_labor_supply_measures(df):
     """
     yr = pd.to_numeric(df['panel_year'], errors='coerce')
 
-    # --- heads: status, employed indicator, presence, summed hours ---------
+    # --- heads: exact age, status, employed indicator, presence, summed hours
     for sex in ['male', 'female']:
+        df[f'{sex}_head_age_exact'] = head_exact_age(df, f'{sex}_head_birth', f'{sex}_head_age')
         emp = pd.to_numeric(df[f'{sex}_head_employment'], errors='coerce')
         df[f'{sex}_head_status']   = emp.map(head_status).astype('object')
         df[f'{sex}_head_employed'] = emp.map(
@@ -267,10 +291,9 @@ def add_labor_supply_measures(df):
     single = df['n_heads'] == 1
     head_is_male   = single & df['_male_present']
     head_is_female = single & df['_female_present']
-    # single head's binned-age midpoint (whichever head exists)
-    head_age_code = df['male_head_age'].where(df['_male_present'], df['female_head_age'])
-    head_age_code = pd.to_numeric(head_age_code, errors='coerce')
-    head_age_mid  = head_age_code.map(lambda v: HEAD_AGE_MID.get(int(v)) if pd.notna(v) else np.nan)
+    # single head's age (whichever head exists): exact from birth year,
+    # codebook midpoint as fallback
+    head_age_mid = df['male_head_age_exact'].where(df['_male_present'], df['female_head_age_exact'])
 
     has_partner       = pd.Series(False, index=df.index)
     n_partner_earners = pd.Series(0.0, index=df.index)
@@ -420,13 +443,38 @@ def main():
     # Map to labels
     panelists['household_income_label'] = panelists['household_income'].map(INCOME_LABEL)
 
-    # Map to midpoints (code 27 is year-dependent)
+    # Map to midpoints (codes 27-30 share the collapsed $100,000+ midpoint)
     panelists['household_income_midpoint'] = panelists['household_income'].map(INCOME_MIDPOINT)
 
-    expanded_years = panelists['panel_year'].between(2006, 2009)
-    is_code_27 = panelists['household_income'] == 27
-    panelists.loc[is_code_27 & expanded_years, 'household_income_midpoint'] = INCOME_MIDPOINT_27_EXPANDED
-    panelists.loc[is_code_27 & ~expanded_years, 'household_income_midpoint'] = INCOME_MIDPOINT_27_DEFAULT
+    # ------------------------------------------------------------------
+    # Income attributed to the year it was EARNED (Kilts manual Note 3)
+    # ------------------------------------------------------------------
+    # Panelists are surveyed in the fall BEFORE the panel year about their
+    # total annual income as of year-end of the PREVIOUS calendar year, so
+    # the income in the panel-year-t file is CALENDAR-YEAR t-2 income (e.g.
+    # the 2021 panel is surveyed in September 2020 about income at the end
+    # of 2019). household_income[_midpoint]_earned at year t is therefore
+    # the value reported in the household's t+2 file — attributed by a merge
+    # on (household, t+2), so a household observed at t and t+2 but not t+1
+    # still gets earned income at t; a household's last two panel years have
+    # none. VALIDATION-ONLY series (see CLAUDE.md, income timing): do not
+    # estimate with it.
+    rep = panelists[['household_code', 'panel_year', 'household_income',
+                     'household_income_midpoint']].copy()
+    rep['earn_year'] = rep['panel_year'] - 2
+    rep = rep.rename(columns={
+        'household_income': 'household_income_earned',
+        'household_income_midpoint': 'household_income_midpoint_earned'})
+    panelists = panelists.merge(
+        rep[['household_code', 'earn_year', 'household_income_earned',
+             'household_income_midpoint_earned']],
+        left_on=['household_code', 'panel_year'],
+        right_on=['household_code', 'earn_year'],
+        how='left').drop(columns='earn_year')
+    n_earned = panelists['household_income_midpoint_earned'].notna().sum()
+    print(f"\n  Earned-income attribution (Note 3, from the t+2 file): "
+          f"{n_earned:,}/{len(panelists):,} HH-years covered "
+          f"({100 * n_earned / len(panelists):.1f}%)")
 
     # Check unmapped
     unmapped = panelists['household_income_label'].isna() & panelists['household_income'].notna()
