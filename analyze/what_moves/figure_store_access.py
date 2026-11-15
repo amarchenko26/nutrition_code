@@ -9,6 +9,7 @@ store-years 2006-2020 in the bins of their figure (PrepZipCodeData.do: $10,000 b
 $80,000 or more pooled and plotted at 100).
 Outputs (figs/what_moves/prices/):
   store_access_by_income.png        added sugar per 1,000 kcal, whole-grain share of bread, fruit and vegetable share, Health Index
+                                    (dots, as the income gradient figures, since 2026-11-15)
   store_shelf_prices_by_income.png  real price per 1,000 kcal of the UPCs offered (each once; stocking and prices both enter), for
                                     the healthy and unhealthy side of each panel: added sugar at most / above 25 g per 1,000 kcal,
                                     whole-grain / other bread, fruit and vegetables / other food, Health Index above / at or below 0
@@ -81,7 +82,9 @@ def fig_access(m):
     fig, axes = plt.subplots(2, 2, figsize=(26, 20))
     fig.subplots_adjust(wspace=0.28, hspace=0.42)
     for ax, (c, lab, k) in zip(axes.flat, ACCESS):
-        ax.plot(MIDS, k * m[c].values, color=BLUE, lw=4, marker='o', ms=12)
+        # dots only, in the style of the income gradients (figs/gradients/, Anya 2026-11-15)
+        ax.scatter(MIDS, k * m[c].values, color=RED, s=260, zorder=5, edgecolors='white', linewidth=1)
+        ax.grid(True, alpha=0.3)
         axis(ax, lab, '')
     fig.savefig(FIG / 'store_access_by_income.png', bbox_inches='tight', dpi=100); plt.close(fig)
     print(f'saved {FIG / "store_access_by_income.png"}')
