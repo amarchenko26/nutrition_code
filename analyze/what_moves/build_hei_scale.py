@@ -1,14 +1,16 @@
 """Expected health change with HEI 0.031 SD higher (2026-11-09, Anya: Table 4 of 0_main.tex is the health outcomes only; its panels on the
 components, purchases and food of the 0.55 SD income gap were deleted the same day, with their code).
-Output: tabs/what_moves/hei_scale.tex; everything else is printed.
+Outputs: tabs/what_moves/hei_scale.tex (items asked in every survey year) and hei_scale_bmi.tex (BMI); everything else is printed.
 
-1. Health: adults' BMI, BMI of 30 or more, reported obesity (added 2026-11-12, Anya asked for obesity as an outcome: the survey item
-   'Obesity / Overweight', which the respondent marks for each member, beside the BMI measure under one Obesity header) and type 2
-   diabetes on the household's mean HEI in standard deviations across household-years (the SD that analyze/labor_supply/12_
-   standardizes with), from the 2016-17 Health Care Survey (weight and height brackets), unweighted like Allcott et al. (2019,
-   ValidateHealthMeasures.do), without and with controls and ZIP dummies. The table: the coefficient with controls times the main
-   income IV, 0.031 SD per $10k (interim/labor_supply/iv_main_estimates.csv, written by 12_); standard error by the delta method, the
-   two estimates taken as independent.
+1. Health: each outcome on the household's mean HEI in standard deviations across household-years (the SD that
+   analyze/labor_supply/12_ standardizes with), unweighted like Allcott et al. (2019, ValidateHealthMeasures.do), without and with
+   controls and ZIP dummies. Two tables since 2026-11-15 (Anya: the same sample in each table): hei_scale.tex = the items asked in
+   every year of the Health Care Survey, reported obesity ('Obesity / Overweight'), type 2 diabetes and hypertension, adults 20+ in
+   2011-2023 (members 13+ report for themselves in 2011-2015, one respondent for every member from 2016), with survey-year dummies;
+   hei_scale_bmi.tex = BMI and BMI of 30 or more from the weight and height brackets asked in 2016-17 only. The tables: the
+   coefficient with controls times the main income IV, 0.031 SD per $10k (interim/labor_supply/iv_main_estimates.csv, written by
+   12_); standard error by the delta method, the two estimates taken as independent. Until 2026-11-15 one table of BMI, BMI 30+,
+   reported obesity and type 2 diabetes, all on the 2016-17 BMI sample.
 2. By age: the change in HEI within a household by age of the heads, net of the calendar year. Age and year rise together, so differences across ages
    are identified and the common level is not.
 3. The linear HEI (lhei_usda) against the two numbers Allcott et al. publish for theirs: correlation with HEI 0.91, top minus bottom income quartile
@@ -29,8 +31,9 @@ import pandas as pd
 import pyreadstat
 import statsmodels.api as sm
 
-OUTCOMES = [('bmi', 'BMI', ''), ('obese', 'BMI of 30 or more', '(percentage points)'), ('obese_rep', 'Reported', '(percentage points)'),
-            ('diab', 'Type 2 diabetes', '(percentage points)')]
+TAB_ALL = [('obese_rep', 'Reported obesity', '(percentage points)'), ('diab', 'Type 2 diabetes', '(percentage points)'),
+           ('hyper', 'Hypertension', '(percentage points)')]
+TAB_BMI = [('bmi', 'BMI', ''), ('obese', 'BMI of 30 or more', '(percentage points)')]
 
 
 def wm(x, w):
@@ -38,42 +41,30 @@ def wm(x, w):
     return np.average(x[ok], weights=w[ok])
 
 
-def write_table(health, b_iv):
-    """tabs/what_moves/hei_scale.tex, one column per outcome as in iv_suboutcomes.tex; columns 2 and 3 under one Obesity header."""
-    tex = [r'\begin{tabular}{lcccc}', r'\toprule', r' & (1) & (2) & (3) & (4) \\', r' &  & \multicolumn{2}{c}{Obesity} &  \\', r'\cmidrule(lr){3-4}',
-           ' & ' + ' & '.join(lab for _, lab, _ in OUTCOMES) + r' \\', ' & ' + ' & '.join(u for _, _, u in OUTCOMES) + r' \\', r'\midrule',
-           f'HEI {b_iv:.3f} SD higher & ' + ' & '.join(star_num(health[y]['b'], health[y]['se'], 3) for y, _, _ in OUTCOMES) + r' \\',
-           ' & ' + ' & '.join(f"({health[y]['se']:.3f})" for y, _, _ in OUTCOMES) + r' \\', r'\midrule',
-           'Mean of the outcome & ' + ' & '.join(f"{health[y]['mean']:.1f}" for y, _, _ in OUTCOMES) + r' \\',
-           'Adults & ' + ' & '.join(f"{health[y]['n']:,}" for y, _, _ in OUTCOMES) + r' \\', r'\bottomrule', r'\end{tabular}']
-    (tdir / 'what_moves' / 'hei_scale.tex').write_text('\n'.join(tex) + '\n')
+def write_table(health, b_iv, outs, fname):
+    """One column per outcome as in iv_suboutcomes.tex."""
+    tex = [r'\begin{tabular}{l' + 'c' * len(outs) + '}', r'\toprule', ' & ' + ' & '.join(f'({k + 1})' for k in range(len(outs))) + r' \\',
+           ' & ' + ' & '.join(lab for _, lab, _ in outs) + r' \\', ' & ' + ' & '.join(u for _, _, u in outs) + r' \\', r'\midrule',
+           f'HEI {b_iv:.3f} SD higher & ' + ' & '.join(star_num(health[y]['b'], health[y]['se'], 3) for y, _, _ in outs) + r' \\',
+           ' & ' + ' & '.join(f"({health[y]['se']:.3f})" for y, _, _ in outs) + r' \\', r'\midrule',
+           'Mean of the outcome & ' + ' & '.join(f"{health[y]['mean']:.1f}" for y, _, _ in outs) + r' \\',
+           'Adult-years & ' + ' & '.join(f"{health[y]['n']:,}" for y, _, _ in outs) + r' \\', r'\bottomrule', r'\end{tabular}']
+    (tdir / 'what_moves' / fname).write_text('\n'.join(tex) + '\n')
     print('\n'.join(tex))
 
 
-def main():
-    h, sd = household_means()
-    d = pd.read_parquet(idir / 'panel_dataset' / 'hei_usda_panel.parquet', columns=['household_code', 'panel_year', 'hei_usda', 'lhei_usda', 'projection_factor'])
-    iv = pd.read_csv(idir / 'labor_supply' / 'iv_main_estimates.csv').set_index('outcome').loc['hei_usda']
-    b_iv, se_iv = float(iv['b']), float(iv['se'])
-    print(f'SD of HEI as in 12_: {sd:.3f}; main income IV {b_iv:.4f} ({se_iv:.4f}) SD per $10k')
-
-    # ---- 1. health
-    print('\n1. Health, adults 20+, 2016-17')
-    mem = pd.read_parquet(idir / 'ailments' / 'ailments_members.parquet', columns=['household_code', 'panel_year', 'member', 'age', 'gender', 'bmi', 'diabetes_type2', 'obesity', 'answered'])
-    mem = mem[mem['panel_year'].isin([2016, 2017]) & (mem['age'] >= 20) & mem['bmi'].notna() & mem['bmi'].between(12, 80)].copy()
-    mem['obese'] = 100 * (mem['bmi'] >= 30).astype(float)
-    mem['diab'] = 100 * mem['diabetes_type2'].fillna(0).astype(float)
-    mem['obese_rep'] = 100 * mem['obesity'].fillna(0).astype(float)
-    lh = d.groupby('household_code').agg(lhei=('lhei_usda', 'mean')).reset_index()
-    hh = h.drop(columns=['w']).merge(lh, left_on='hhid', right_on='household_code', how='left')
+def health_table(mem, hh, sd, lsd, b_iv, se_iv, outs, fname):
+    """Each outcome on the household's mean HEI (SD), one sample for every column; survey-year dummies with the controls."""
     x = mem.merge(hh, on='household_code', how='inner')
     x['age5m'] = (np.floor(x['age'] / 5) * 5).astype(int)
     x['agesex'] = x['age5m'].astype(str) + '_' + x['gender'].astype(str)
-    lsd = np.sqrt(np.average((d.lhei_usda - wm(d.lhei_usda, d.projection_factor)) ** 2, weights=d.projection_factor))
     x['hei_z'] = x['hei'] / sd       # household mean HEI in SD across household-years
     x['lhei_z'] = x['lhei'] / lsd
-    print(f"  {len(x):,} adults, {x['household_code'].nunique():,} households; BMI mean {x.bmi.mean():.1f}, SD {x.bmi.std():.1f}; BMI 30+ {x.obese.mean():.1f}%; reported obesity {x.obese_rep.mean():.1f}%; diabetes {x.diab.mean():.1f}%; household mean HEI SD {x.hei_z.std():.2f} household-year SDs")
-    ctrl = pd.get_dummies(x[['agesex', 'inc_b', 'educ_b', 'race', 'hisp', 'size_b', 'kids', 'region']].astype(str), drop_first=True, dtype=float)
+    x = x.dropna(subset=[y for y, _, _ in outs] + ['hei_z']).reset_index(drop=True)
+    early = x['panel_year'] <= 2015
+    print(f"  {len(x):,} adult-years ({early.sum():,} in 2011-2015, {(~early).sum():,} from 2016), {x['household_code'].nunique():,} households; "
+          + '; '.join(f"{lab} {x[y].mean():.1f}" for y, lab, _ in outs) + f"; household mean HEI SD {x.hei_z.std():.2f} household-year SDs")
+    ctrl = pd.get_dummies(x[['agesex', 'inc_b', 'educ_b', 'race', 'hisp', 'size_b', 'kids', 'region', 'panel_year']].astype(str), drop_first=True, dtype=float)
 
     def run(y, v, X=None, zipfe=False):
         Y, V = x[y].astype(float), x[v].astype(float)
@@ -89,14 +80,37 @@ def main():
         r = sm.OLS(Yk, Zk).fit(cov_type='cluster', cov_kwds={'groups': x.loc[keep, 'household_code'].values})
         return r.params['v'], r.bse['v'], int(keep.sum()), Y[keep].mean()
     health = {}
-    for y, lab, _ in OUTCOMES:
-        for name, X, z in [('no controls', None, False), ('age x sex, income, education, race, Hispanic, size, children, region', ctrl, False), ('same + ZIP', ctrl, True)]:
+    for y, lab, _ in outs:
+        for name, X, z in [('no controls', None, False), ('age x sex, income, education, race, Hispanic, size, children, region, survey year', ctrl, False), ('same + ZIP', ctrl, True)]:
             b, se, n, mean = run(y, 'hei_z', X, z)
             bl, sel, _, _ = run(y, 'lhei_z', X, z)
             print(f"  {lab}, {name}: per SD of HEI {b:+.3f} ({se:.3f}); per {b_iv:.3f} SD {b * b_iv:+.4f}; per 0.56 SD of the linear HEI {bl * 0.56:+.3f} ({sel * 0.56:.3f})")
             if X is not None and not z:
                 health[y] = {'b': b * b_iv, 'se': np.sqrt((b_iv * se) ** 2 + (b * se_iv) ** 2), 'n': n, 'mean': mean}
-    write_table(health, b_iv)
+    write_table(health, b_iv, outs, fname)
+
+
+def main():
+    h, sd = household_means()
+    d = pd.read_parquet(idir / 'panel_dataset' / 'hei_usda_panel.parquet', columns=['household_code', 'panel_year', 'hei_usda', 'lhei_usda', 'projection_factor'])
+    iv = pd.read_csv(idir / 'labor_supply' / 'iv_main_estimates.csv').set_index('outcome').loc['hei_usda']
+    b_iv, se_iv = float(iv['b']), float(iv['se'])
+    print(f'SD of HEI as in 12_: {sd:.3f}; main income IV {b_iv:.4f} ({se_iv:.4f}) SD per $10k')
+
+    # ---- 1. health
+    mem = pd.read_parquet(idir / 'ailments' / 'ailments_members.parquet', columns=['household_code', 'panel_year', 'member', 'age', 'gender', 'bmi', 'diabetes_type2', 'hypertension', 'obesity', 'answered'])
+    mem = mem[mem['age'] >= 20].copy()
+    mem['obese_rep'] = 100 * mem['obesity'].fillna(0).astype(float)
+    mem['diab'] = 100 * mem['diabetes_type2'].fillna(0).astype(float)
+    mem['hyper'] = 100 * mem['hypertension'].fillna(0).astype(float)
+    mem['obese'] = np.where(mem['bmi'].notna(), 100 * (mem['bmi'] >= 30).astype(float), np.nan)
+    lh = d.groupby('household_code').agg(lhei=('lhei_usda', 'mean')).reset_index()
+    hh = h.drop(columns=['w']).merge(lh, left_on='hhid', right_on='household_code', how='left')
+    lsd = np.sqrt(np.average((d.lhei_usda - wm(d.lhei_usda, d.projection_factor)) ** 2, weights=d.projection_factor))
+    print('\n1a. Health items asked every year, adults 20+, 2011-2023')
+    health_table(mem, hh, sd, lsd, b_iv, se_iv, TAB_ALL, 'hei_scale.tex')
+    print('\n1b. BMI, adults 20+, 2016-17')
+    health_table(mem[mem['panel_year'].isin([2016, 2017]) & mem['bmi'].between(12, 80)], hh, sd, lsd, b_iv, se_iv, TAB_BMI, 'hei_scale_bmi.tex')
 
     # ---- 2. age
     print('\n2. HEI within a household by age of the heads')
