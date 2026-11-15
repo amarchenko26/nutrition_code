@@ -95,7 +95,7 @@ from paths import *
 ```
 
 New `.do` files start with `do "/Users/anyamarchenko/Documents/GitHub/nutrition_code/paths.do"` — the one
-permitted full path in a `.do` file. Existing scripts still hardcode the Dropbox DATA paths (the Overleaf path in 46 of them was repointed to the
+permitted full path in a `.do` file. Existing scripts still hardcode the Dropbox DATA paths (38 active .py files on 2026-11-15) (the Overleaf path in 46 of them was repointed to the
 git clone by a sweep on 2026-11-05); migrate a script to `paths.py`/`paths.do` whenever you edit it, and do
 not add new hardcoded paths.
 
@@ -246,6 +246,7 @@ in the note (no "small", "flat", "rules out"); state numbers in the reply to Any
 ```
 paths.py · paths.do   the only files with full paths (added 2026-11-02)
 REVIEW_cells_codes_2026-09.md   review of IV cells / occupation codes (data fixes §8)
+TODO_2026-11-16.md   parked 2026-11-15: the one open decision of the preparation-score rewrite (servings per cooking session; ask Anya first), Oscar storage moves, the store-coverage fix of the barcode x county files, smaller items
 TODO_2026-11-04.md   parked design questions for the obesity note (UPF rule, calorie imputation, finer prep time, healthiness definition) with the 2026-11-03 findings and proposals
 clean/     raw → tidy, per source
   nielsen/   clean_nielsen · clean_panelist · clean_ailments · validate_ailments · create_sample
@@ -278,7 +279,7 @@ z_archive/ retired: corn/ (separate farm-bill project), explore_coverage.py, fra
 food_deserts_replication/, jaravel_replication/   standalone external replications (left as-is)
 ```
 
-Cross-folder Python imports use a `sys.path` bootstrap (only in `build/variety/build_module_healthiness.py`
+Until 2026-11-15 `.gitignore` held `build/` (a Python packaging pattern), so builders under build/ were tracked only when force-added and 14 of them never were; the line is gone and they are committed. Cross-folder Python imports use a `sys.path` bootstrap (only in `build/variety/build_module_healthiness.py`
 and `build_product_variety.py`, which reach `utils/` and `clean/syndigo/`). `.sh` runners are Oscar/SLURM
 cluster jobs hardcoding `/users/amarche4/scratch/` — repo location is irrelevant to them.
 
