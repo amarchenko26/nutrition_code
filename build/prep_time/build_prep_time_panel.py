@@ -19,15 +19,12 @@ Output: interim/panel_dataset/panel_prep_time.parquet
   canned pasta meals, prepared meals and salads; RTE_RULE below); sh_open_rte: open-and-eat or ready-to-eat; sh_scratch: % on
   scratch ingredients (raw unbreaded meat, poultry and seafood, eggs, fresh vegetables that need cooking, flour and meal, dry beans
   and grains, regular rice, dry pasta, baking supplies; SCRATCH_RULE below) (all three added 2026-11-15)
-  prep_min_ae_day: minutes of preparation the year's food purchases imply, per adult equivalent per day: spending on each module x
-  its minutes per dollar (min_1000kcal / usd_1000kcal of interim/what_moves/module_time_price.parquet, build_module_time_price.py:
-  5 minutes per score point above 1 per preparation of four label servings; modules without a score 0), divided by ae_total of
-  interim/health/nova_calorie_panel.parquet x 365 (added 2026-11-15)
   ing_per_trip: distinct ingredient barcodes per food shopping trip, the household's trip mean over the year; an ingredient is a
   barcode in NOVA group 1 (unprocessed or minimally processed: fresh produce, milk, eggs, plain frozen vegetables, dry pasta, rice,
   flour) or 2 (culinary ingredients: sugar, oils, butter, salt) in interim/health/upc_dictionary.parquet (`nova`, own ingredient
   list or the nearest labelled relative); trips = distinct trip_code_uc with a food purchase (added 2026-11-15)
-  prep_min_1000kcal: minutes of cooking per 1,000 kcal bought (2026-11-18, replaces prep_min_ae_day in the paper): units bought x
+  prep_min_1000kcal: minutes of cooking per 1,000 kcal bought (2026-11-18; replaces prep_min_ae_day, minutes per adult equivalent
+  per day from the module score and module spending, which is no longer built): units bought x
   minutes per package of the barcode (interim/prep_time/upc_prep_package.parquet: build_prep_minutes_upc.py applies the rules of
   prep_minutes_rules.py to each barcode's Nielsen attributes, build_prep_minutes_package.py turns minutes per cooking session
   into minutes per package: four label servings per session, one session for packages cooked whole), summed over the year's
@@ -63,7 +60,6 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 OUT_PATH  = OUT_DIR / 'panel_prep_time.parquet'
 
 YEARS           = range(2004, 2021)
-TIME_PRICE      = idir / 'what_moves' / 'module_time_price.parquet'
 CAL_PANEL       = idir / 'health' / 'nova_calorie_panel.parquet'
 DICT            = idir / 'health' / 'upc_dictionary.parquet'
 PKG             = idir / 'prep_time' / 'upc_prep_package.parquet'
@@ -98,10 +94,6 @@ RTE_MODS = set(scores_df.loc[rte, 'product_module_code'].astype(int))
 SCR_MODS = set(scores_df.loc[scr, 'product_module_code'].astype(int))
 log(f"  ready-to-eat modules {len(RTE_MODS)}: " + '; '.join(sorted(scores_df.loc[rte, 'product_module_descr'])))
 log(f"  scratch-ingredient modules {len(SCR_MODS)}: " + '; '.join(sorted(scores_df.loc[scr, 'product_module_descr'])))
-# minutes of preparation per real dollar, by module (unscored modules 0)
-tp = pd.read_parquet(TIME_PRICE, columns=['product_module_code', 'min_1000kcal', 'usd_1000kcal'])
-tp = tp[(tp['usd_1000kcal'] > 0) & tp['min_1000kcal'].notna()]
-min_per_usd = dict(zip(tp['product_module_code'].astype(int), tp['min_1000kcal'] / tp['usd_1000kcal']))
 # ingredient barcodes: NOVA group 1 or 2
 dic = pd.read_parquet(DICT, columns=['upc_13', 'nova'])
 ING = set(dic.loc[dic['nova'].isin([1, 2]), 'upc_13'])
@@ -144,7 +136,6 @@ for year in YEARS:
     # Merge prep time score; rows without a score (excluded or unscored) become NaN
     purch['prep_time'] = purch['product_module_code'].map(score_map)
     purch['spend']     = purch['total_price_paid_real_2013'].clip(lower=0)
-    purch['prep_min']  = purch['spend'] * purch['product_module_code'].map(min_per_usd).fillna(0)
 
     # barcode minutes and calories: units bought x per-package values (rows without a size or a density add to neither)
     j = pk.reindex(purch['upc'].astype(str).str.zfill(12).values)
@@ -186,7 +177,6 @@ for year in YEARS:
     agg['sh_rte'] = 100 * agg['s_rte'] / agg['sum_spend']
     agg['sh_scratch'] = 100 * agg['s_scr'] / agg['sum_spend']
     agg['sh_open_rte'] = 100 * agg['s_ore'] / agg['sum_spend']
-    agg = agg.merge(purch.groupby('household_code')['prep_min'].sum().rename('prep_min_year'), on='household_code', how='left')
     agg = agg.merge(purch.groupby('household_code')[['bc_kcal', 'bc_min', 'bc_min_serv4', 'bc_min_once']].sum().reset_index(), on='household_code', how='left')
     # distinct ingredient barcodes per food trip
     ing = purch.loc[('0' + purch['upc'].astype(str).str.zfill(12)).isin(ING), ['household_code', 'trip_code_uc', 'upc']].drop_duplicates()
@@ -200,7 +190,7 @@ for year in YEARS:
     agg = agg.merge(total_spend, on='household_code', how='left')
 
     hh_year_list.append(agg[['household_code', 'panel_year', 'prep_time_raw', 'sh_open', 'sh_little', 'sh_cook', 'sh_rte', 'sh_open_rte',
-                             'sh_scratch', 'prep_min_year', 'ing_per_trip', 'total_spend', 'bc_kcal', 'bc_min', 'bc_min_serv4', 'bc_min_once']])
+                             'sh_scratch', 'ing_per_trip', 'total_spend', 'bc_kcal', 'bc_min', 'bc_min_serv4', 'bc_min_once']])
     log(f"    scored rows: {n_scored/n_total*100:.0f}%, {len(agg):,} HHs, {agg['ing_per_trip'].mean():.2f} ingredient barcodes per trip")
     del purch, purch_scored, agg
     gc.collect()
@@ -232,8 +222,6 @@ log(f"  normalized: mean≈0, sd≈1 (projection-factor weighted)")
 # ============================================================
 ae = pd.read_parquet(CAL_PANEL, columns=['household_code', 'panel_year', 'ae_total'])
 panel = panel.merge(ae, on=['household_code', 'panel_year'], how='left')
-panel['prep_min_ae_day'] = panel['prep_min_year'] / (panel['ae_total'].where(panel['ae_total'] > 0) * 365)
-log(f"  minutes of preparation per adult equivalent per day: mean {panel['prep_min_ae_day'].mean():.1f}, median {panel['prep_min_ae_day'].median():.1f}")
 ok = in_sample(panel['bc_kcal'], panel['ae_total']) & (panel['bc_kcal'] > 0)
 for c in ['', '_serv4', '_once']:
     panel[f'prep_min_1000kcal{c}'] = (1000 * panel[f'bc_min{c}'] / panel['bc_kcal']).where(ok)
@@ -241,7 +229,7 @@ log(f"  minutes of cooking per 1,000 kcal: mean {panel['prep_min_1000kcal'].mean
     f"four servings per session for every barcode {panel['prep_min_1000kcal_serv4'].mean():.2f}; one session per package {panel['prep_min_1000kcal_once'].mean():.2f}; "
     f"household-years with a value {panel['prep_min_1000kcal'].notna().sum():,} of {len(panel):,}")
 out = panel[['household_code', 'panel_year', 'prep_time_raw', 'prep_time', 'sh_open', 'sh_little', 'sh_cook', 'sh_rte', 'sh_open_rte',
-             'sh_scratch', 'prep_min_ae_day', 'ing_per_trip', 'prep_min_1000kcal', 'prep_min_1000kcal_serv4', 'prep_min_1000kcal_once']].copy()
+             'sh_scratch', 'ing_per_trip', 'prep_min_1000kcal', 'prep_min_1000kcal_serv4', 'prep_min_1000kcal_once']].copy()
 out.to_parquet(OUT_PATH, index=False)
 stata_path = OUT_PATH.with_suffix('.dta')
 out.to_stata(stata_path, write_index=False)
