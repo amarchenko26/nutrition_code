@@ -2,7 +2,7 @@
 
 For the rich-poor local price table (Anya 2026-11-10: "this needs to be RMS not HMS"; build_local_prices_by_income.py).
 Reads /users/amarche4/data/rms_variety/rms_upc_fips_spending_<year>.parquet (UPC x county store spending and units, spending
-= units x price / prmult, build/variety/build_product_variety.py) and rms_upc_groups.parquet (build_rms_upc_groups.py, made
+= units x price / prmult, build/variety/build_upc_fips_spending_rms.py) and rms_upc_groups.parquet (build_rms_upc_groups.py, made
 locally and copied over). For every UPC x county with MIN_UNITS or more units: unit value = spending / units; national unit
 value = the UPC's spending / units over all counties; log relative price = log(county / national), clipped at the UPC's 1st
 and 99th percentiles across counties. A county's group level = the mean of the log relatives over the group's UPCs sold in

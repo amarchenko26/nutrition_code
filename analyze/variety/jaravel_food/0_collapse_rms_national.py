@@ -1,7 +1,7 @@
 """Run on OSCAR (0_run_collapse_rms_national.sh). National barcode totals of RMS food sales for one year,
 Jaravel (2019) 1b_RMS_data_building.do: collapse (sum) total_quantity total_spending, by(product_group_code product_module_code upc).
 
-Reads  /users/amarche4/data/rms_variety/rms_upc_fips_spending_<y>.parquet (build/variety/build_product_variety.py).
+Reads  /users/amarche4/data/rms_variety/rms_upc_fips_spending_<y>.parquet (build/variety/build_upc_fips_spending_rms.py).
 Writes /users/amarche4/scratch/jaravel_food/rms_upc_national_<y>.parquet; copy these 15 files by hand to
 interim/variety/jaravel_food/rms_national/ (see README.md).
 Note (2026-11-15): the barcode x county files map stores to counties from the 2006 store list only, so they hold about

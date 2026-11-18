@@ -2,7 +2,9 @@
 2026-11-15 request: new food options offered in stores by shopper income; would be a mode of
 analyze/what_moves/build_store_choice_sets_rms.py, which streams the same files).
 Streams /users/amarche4/data/rms/2006-2020_Scanner_Data/SCANNER_DATA_<year>.tgz (read only), food modules of module_cells.parquet
-(the 538 modules of Table 12's data), aggregates the weekly rows to store x UPC (units; spending = units x price / prmult, as
+(the 538 modules of Table 12's data) and, since 2026-11-18, every other food module of the barcode x county files
+(rms_variety_module_fips_year.parquet, 554 modules), because build/variety/build_upc_fips_spending_rms.py rebuilds those files
+from this output. A module whose file exists is skipped, so a rerun streams only the modules that are missing. Aggregates the weekly rows to store x UPC (units; spending = units x price / prmult, as
 build_store_choice_sets_rms.py) and writes /users/amarche4/scratch/new_products_places/store_upc/<year>/m<module>.parquet
 (store int32, upc int64, units float32, spend float32).
 Usage: python build_store_upc_year_rms.py <year> [n_modules]   (n_modules: stop after that many food modules, a test)"""
@@ -13,6 +15,7 @@ import pyarrow as pa, pyarrow.compute as pc, pyarrow.csv as pacsv, pyarrow.parqu
 
 RMS = Path('/users/amarche4/data/rms/2006-2020_Scanner_Data')
 O = Path('/users/amarche4/scratch/new_products_places')
+VARIETY = Path('/users/amarche4/data/rms_variety/rms_variety_module_fips_year.parquet')
 
 
 def log(msg):
@@ -46,8 +49,15 @@ def read_movement(f):
 def main(year, n_modules=None):
     t0 = time.time()
     mods = set(pd.read_parquet(O / 'module_cells.parquet')['product_module_code'].astype(int))
+    mods |= set(pd.read_parquet(VARIETY, columns=['product_module_code'])['product_module_code'].astype(int))
     out = O / 'store_upc' / str(year)
     out.mkdir(parents=True, exist_ok=True)
+    have = {int(f.stem[1:]) for f in out.glob('m*.parquet')}
+    log(f'{year}: {len(mods)} food modules, {len(have & mods)} already written')
+    mods -= have
+    if not mods:
+        log(f'{year}: nothing to do')
+        return
     done, rows, bad = 0, 0, 0
     with tarfile.open(RMS / f'SCANNER_DATA_{year}.tgz', 'r|gz') as tf:
         for m in tf:
@@ -62,7 +72,8 @@ def main(year, n_modules=None):
                     d = d[(d['units'] > 0) & (d['spend'] > 0)]
                     t = pa.table({'store': pa.array(d['store'].values.astype(np.int32)), 'upc': pa.array(d['upc'].values.astype(np.int64)),
                                   'units': pa.array(d['units'].values.astype(np.float32)), 'spend': pa.array(d['spend'].values.astype(np.float32))})
-                    pq.write_table(t, out / f'm{mod}.parquet')
+                    pq.write_table(t, out / f'm{mod}.tmp')              # renamed when complete, so a killed job leaves no partial file
+                    (out / f'm{mod}.tmp').rename(out / f'm{mod}.parquet')
                     rows += len(d)
                 del d
                 gc.collect()
