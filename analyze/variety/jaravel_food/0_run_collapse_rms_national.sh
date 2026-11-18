@@ -8,6 +8,7 @@
 #SBATCH --cpus-per-task=1
 #SBATCH -p batch
 module load anaconda3/2023.09-0-aqbc
+set -eo pipefail         # the job fails when a year fails
 for y in $(seq 2006 2020); do
   python /users/amarche4/scratch/jaravel_food/0_collapse_rms_national.py $y | tail -1
 done

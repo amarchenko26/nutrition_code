@@ -112,10 +112,15 @@ def main(year, check=False):
         log(f'{year}: check only, nothing written ({time.time() - t0:.0f}s)')
         return
 
-    t = pa.table({'upc': pc.utf8_lpad(pc.cast(pa.array(new['upc'].values), pa.string()), 12, '0'),
+    def padded(values, width):
+        # text in pieces of 5 million rows: one array of 60 million 12-character barcodes passes the 2 GB limit of a text column
+        parts = np.array_split(values, max(1, len(values) // 5_000_000 + 1))
+        return pa.chunked_array([pc.utf8_lpad(pc.cast(pa.array(v), pa.string()), width, '0') for v in parts])
+
+    t = pa.table({'upc': padded(new['upc'].values, 12),
                   'product_group_code': pa.array(new['product_group_code'].values),
                   'product_module_code': pa.array(new['product_module_code'].values),
-                  'fips': pc.utf8_lpad(pc.cast(pa.array(new['fips'].values), pa.string()), 5, '0'),
+                  'fips': padded(new['fips'].values, 5),
                   'total_spending': pa.array(new['total_spending'].values),
                   'total_units': pa.array(new['total_units'].values)})
     BACKUP.mkdir(exist_ok=True)

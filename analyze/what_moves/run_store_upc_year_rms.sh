@@ -9,4 +9,5 @@
 #SBATCH -p batch
 
 module load anaconda3/2023.09-0-aqbc
+set -o pipefail          # the job fails when python fails, not only when the filter below does
 /usr/bin/time -v python /users/amarche4/scratch/new_products_places/build_store_upc_year_rms.py $SLURM_ARRAY_TASK_ID 2>&1 | grep -E "^[0-9]{2}:|Maximum resident|Elapsed|Error|error|Traceback|File"

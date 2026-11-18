@@ -12,4 +12,5 @@
 #SBATCH --array=2006-2020
 
 module load anaconda3/2023.09-0-aqbc
+set -o pipefail          # the job fails when python fails, not only when the filter below does
 /usr/bin/time -v python /users/amarche4/scratch/build_upc_fips_spending_rms.py $SLURM_ARRAY_TASK_ID $MODE 2>&1 | grep -E "^[0-9]{2}:|Maximum resident|Elapsed|Error|error|Traceback|File|assert|run build"
