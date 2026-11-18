@@ -75,7 +75,9 @@ RULES = {
 
     # ------------------------------------------------------------------ BAKING SUPPLIES
     1437: dict(name='CHOCOLATE CHIPS & MORSELS', minutes=0, why='added to baking: the baked food carries the time'),
-    1364: dict(name='STUFFING PRODUCTS', minutes=10, basis='serv4', why='stove-top stuffing mix: boil water and butter, stir in, stand 5 min', rules=[
+    # one box or bag is made at once (independent check 2026-11-18): basis pkg
+    1364: dict(name='STUFFING PRODUCTS', minutes=10, basis='pkg', why='stove-top stuffing mix: boil water and butter, stir in, stand 5 min', rules=[
+        (dict(descr=r'\bFRY|COATING|BREADING'), 0, 'frying or coating mix filed under stuffing: the meat carries the time', 'serv4'),
         (dict(style='IN BIRD'), 45, 'bread cubes for baked stuffing: cook onion and celery, add broth, bake 30 min'),
         (dict(style='MICROWAVE'), 7, 'microwave stuffing mix: stir with water and butter, microwave 5-6 min'),
     ]),

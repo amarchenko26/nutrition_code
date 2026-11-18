@@ -58,7 +58,13 @@ lab = lab[lab['serving_size_unit'].isin(SERVING_UNITS) & (lab['serving_size'] > 
 lab = lab.groupby('upc13', as_index=False)['serving_size'].median().rename(columns={'upc13': 'upc_13', 'serving_size': 'serv_g'})
 d = d.merge(lab, on='upc_13', how='left')
 d['serv_own'] = d['serv_g'].notna()
-d['serv_g'] = d['serv_g'].fillna(d.groupby('product_module_code')['serv_g'].transform('median'))
+# a label serving under a quarter or over four times the module's median is a label of another product (a spice label on a
+# pasta barcode gave 2,000 servings a package): 1,013 barcodes with 0.2% of all minutes; they take the module's median
+med = d.groupby('product_module_code')['serv_g'].transform('median')
+far = d['serv_own'] & ((d['serv_g'] < med / 4) | (d['serv_g'] > 4 * med))
+d.loc[far, 'serv_g'] = np.nan
+d['serv_own'] = d['serv_own'] & ~far
+d['serv_g'] = d['serv_g'].fillna(med)
 d['serv_g'] = d['serv_g'].fillna(d.groupby('product_group_code')['serv_g'].transform('median'))
 # powdered drinks sized in prepared quarts with a per-drink label: 4 servings of 8 fl oz per quart (as build_module_time_price.py)
 prepared = d['product_module_code'].isin(POWDER_MODULES) & (d['size1_units'].astype(str).str.strip() == 'QT') & (d['cal_per_100g'] < POWDER_DENSITY_MIN)
@@ -72,6 +78,9 @@ powder = d['product_module_code'].isin(POWDER_MODULES).values
 qt = powder & (d['size1_units'].astype(str).str.strip() == 'QT').values
 d.loc[qt, 'servings_pkg'] = (d['size1_amount'] * d['multi'].fillna(1).clip(lower=1) * 4)[qt]
 d.loc[powder & ~qt, 'servings_pkg'] = np.minimum(d['servings_pkg'], 140 * d['multi'].fillna(1).clip(lower=1))[powder & ~qt]
+# packages sized by count (18 tortillas, 12 eggs, 1 head of lettuce): never more servings than pieces
+ct = (d['size1_units'].astype(str).str.strip() == 'CT').values
+d.loc[ct, 'servings_pkg'] = np.minimum(d['servings_pkg'], d['size1_amount'] * d['multi'].fillna(1).clip(lower=1))[ct]
 by_serv = np.maximum(1.0, (d['servings_pkg'] / SERVINGS).fillna(1.0).values)
 
 # units in a package that is cooked whole: multi x the count written as N'S, where each is a full-size package

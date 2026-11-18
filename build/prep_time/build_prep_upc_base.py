@@ -9,7 +9,10 @@ Writes interim/prep_time/upc_base.parquet: upc (12 characters), product_module_c
        style, form, use, product, variety, formula, flavor, container, common_consumer_name (upper case; missing if not
        stated), old_score (1-9; missing for modules the old score left out) and old_why.
 
-A barcode bought under two module codes over the years keeps the module with more of its spending.
+A barcode bought under two module codes over the years keeps the module with more of its spending. A barcode number that was
+reused for another product has several versions in raw/products.tsv, each with its own module, description and attributes
+(common among store brands): the version kept is the latest one filed under the module the barcode was bought in, and the
+latest version of all if none is.
 """
 import sys
 from pathlib import Path
@@ -35,12 +38,18 @@ p = pd.read_csv(rdir / 'products.tsv', sep='\t', dtype=str, encoding='latin-1', 
 names = p.drop_duplicates('product_module_code')[['product_module_code', 'product_module_descr', 'product_group_descr']]
 names['product_module_code'] = pd.to_numeric(names['product_module_code'], errors='coerce')
 names = names.dropna(subset=['product_module_code']).astype({'product_module_code': 'int64'})
-p = p.sort_values('upc_ver_uc').drop_duplicates('upc', keep='last')
 p['upc'] = p['upc'].str.zfill(12)
+p['upc_ver_uc'] = p['upc_ver_uc'].astype(int)
+p['p_module'] = pd.to_numeric(p['product_module_code'], errors='coerce')
+p = p.merge(s[['upc', 'product_module_code']].rename(columns={'product_module_code': 'bought_module'}), on='upc', how='inner')
+p['same'] = (p['p_module'] == p['bought_module']).astype(int)
+p = p.sort_values(['upc', 'same', 'upc_ver_uc']).drop_duplicates('upc', keep='last')
+print(f"barcodes with a version filed under the module they were bought in: {100 * p['same'].mean():.2f}%")
 
-d = s.merge(p[['upc', 'upc_descr', 'brand_descr', 'multi', 'size1_amount', 'size1_units']], on='upc', how='left')
+d = s.merge(p[['upc', 'upc_ver_uc', 'upc_descr', 'brand_descr', 'multi', 'size1_amount', 'size1_units']], on='upc', how='left')
 d = d.merge(names, on='product_module_code', how='left')
-d = d.merge(pd.read_parquet(idir / 'products_extra' / 'products_extra_upc.parquet', columns=['upc'] + FIELDS), on='upc', how='left')
+d = d.merge(pd.read_parquet(idir / 'products_extra' / 'products_extra_upc.parquet', columns=['upc', 'upc_ver_uc'] + FIELDS),
+            on=['upc', 'upc_ver_uc'], how='left')
 sc = pd.read_parquet(idir / 'rms_variety' / 'prep_time_scores.parquet', columns=['product_module_code', 'prep_time', 'rationale'])
 d = d.merge(sc.rename(columns={'prep_time': 'old_score', 'rationale': 'old_why'}), on='product_module_code', how='left')
 d = d.rename(columns={'product_module_descr': 'module', 'product_group_descr': 'group', 'upc_descr': 'descr', 'brand_descr': 'brand'})

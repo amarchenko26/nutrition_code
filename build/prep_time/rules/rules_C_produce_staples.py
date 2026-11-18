@@ -84,6 +84,7 @@ RULES = {
         (dict(product=r'YAM|SWEET POTATO'), 30, 'sweet potatoes: peel, cut, boil or bake about 25-30 min'),
         (dict(product=r'POTATO'), 25, 'potatoes: peel, cut, boil 15-20 min'),
         (dict(product=r'ARTICHOKE'), 40, 'artichokes: trim, steam 30-40 min'),
+        (dict(product=r'BEET', descr=r'\bPLD\b|\bCKD\b|\bSTMD\b'), 0, 'peeled cooked beets: eaten as sold'),
         (dict(product=r'BEET'), 45, 'raw beets: boil 35-45 min, peel'),
         (dict(product=r'PARSNIP|TURNIP|RUTABAGA|KOHLRABI|CELERIAC|CELERY ROOT'), 25, 'parsnips, turnips, rutabaga: peel, cut, boil or roast 20 min'),
         (dict(product=r'CABBAGE', descr=r'SHRD'), 0, 'shredded cabbage for slaw: eaten as sold'),
@@ -160,9 +161,10 @@ RULES = {
 
     # ------------------------------------------------------------------ pasta
     1331: dict(name='PASTA - MACARONI', minutes=18, basis='serv4', why='dry pasta shapes: water to a boil 8 min, cook 10 min', rules=[
-        (dict(variety=r'LASAGN'), 60, 'lasagna noodles: assemble the dish and bake about 60 min'),
-        (dict(variety=r'MANICOTTI|CANNELLONI|CANNELONI'), 60, 'manicotti tubes: boil, fill, bake about 60 min'),
-        (dict(variety=r'SHELL|CONCHIGLI', form=r'JUMBO|GIANT'), 60, 'jumbo shells: boil, fill, bake about 60 min'),
+        # one box makes one baked dish (independent check 2026-11-18): basis pkg
+        (dict(variety=r'LASAGN'), 60, 'lasagna noodles: assemble the dish and bake about 60 min; one box, one dish', 'pkg'),
+        (dict(variety=r'MANICOTTI|CANNELLONI|CANNELONI'), 60, 'manicotti tubes: boil, fill, bake about 60 min; one box, one dish', 'pkg'),
+        (dict(variety=r'SHELL|CONCHIGLI', form=r'JUMBO|GIANT'), 60, 'jumbo shells: boil, fill, bake about 60 min; one box, one dish', 'pkg'),
         (dict(variety=r'^GNOCCHI$|GNOCCHI DUMPLING'), 11, 'shelf-stable potato gnocchi: boil 2-3 min after the water boils'),
         (dict(variety=r'GNOCCHI', type=r'POTATO'), 11, 'shelf-stable potato gnocchi: boil 2-3 min after the water boils'),
         (dict(variety=r'RAMEN'), 5, 'ramen noodle block: boil 3 min'),
@@ -174,7 +176,7 @@ RULES = {
         (dict(descr=r'\bTHN\b'), 15, 'thin spaghetti: water to a boil 8 min, cook 6-7 min'),
     ]),
     1336: dict(name='PASTA - NOODLES & DUMPLINGS', minutes=15, basis='serv4', why='egg noodles: water to a boil 8 min, cook 7 min', rules=[
-        (dict(variety=r'LASAGN'), 60, 'egg lasagna sheets: assemble the dish and bake about 60 min'),
+        (dict(variety=r'LASAGN'), 60, 'egg lasagna sheets: assemble the dish and bake about 60 min; one box, one dish', 'pkg'),
         (dict(variety=r'ANGEL|CAPELLINI'), 13, 'angel hair: water to a boil 8 min, cook 4-5 min'),
         (dict(type=r'F/|FILLED'), 18, 'dry filled tortellini or ravioli: boil 10-11 min after the water boils'),
         (dict(variety=r'TORTELL|RAVIOL|MEZZALUNA'), 18, 'dry filled tortellini or ravioli: boil 10-11 min after the water boils'),

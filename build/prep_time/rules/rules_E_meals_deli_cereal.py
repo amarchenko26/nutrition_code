@@ -123,9 +123,7 @@ RULES = {
         (dict(type='HASH BROWN'), 10, 'dried hash browns: fry 8-10 min after soaking in hot water', 'pkg'),
         (dict(type='DUMPLING|PANCAKE|LATKE'), 20, 'potato dumpling or pancake mix: mix, shape, boil or fry 15-20 min', 'pkg'),
     ]),
-    1255: dict(name='MEXICAN SHELLS', minutes=5, basis='serv4', why='taco shells: warmed in the oven 5 min', rules=[
-        (dict(product='TOSTAD'), 0, 'tostada shells: topped as sold'),
-    ]),
+    1255: dict(name='MEXICAN SHELLS', minutes=0, basis='serv4', why='taco and tostada shells: ready to eat, as bread; warming not counted, the filling carries the time'),
     1251: dict(name='MEXICAN DINNERS-DRY/KIT', minutes=20, basis='pkg', why='taco dinner kit: brown the meat with seasoning, warm shells, 20 min', rules=[
         (dict(product='BAKE'), 40, 'taco or enchilada bake kit: brown meat, assemble, bake 20-25 min', 'pkg'),
     ]),

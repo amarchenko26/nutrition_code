@@ -17,6 +17,10 @@ FAMILY = r"ON-COR|FREEZER QUEEN|COMFORT B|OVEN BAKE|HOMESTYLE SELECTS|PAPA CHARL
 FS = r"(?:^| )L?FS(?: |$)"
 PS = r"(?:^| )PS(?: |$)"
 
+# Package size in grams: trays under MID are single-serve, MID to BIG serve two, BIG and over are family trays for the oven.
+MID, BIG, PARTY = 480, 720, 2000
+PACK = r"\b\d+'S|\b\dPK?\b"          # a count in the description: a pack of several single items
+
 STEAM = r"\bSFR\b|\bVFS\b|\bMW\b|\bSTM|\bSTMR\b"
 
 
@@ -58,6 +62,7 @@ RULES = {
         (dict(type='KNOT'), 15, 'garlic knots: oven heats, bakes 6-8 min'),
     ]),
     2661: dict(name='BAKERY - REMAINING - FROZEN', minutes=30, basis='pkg', why='pastry to bake: oven heats, bakes 20-25 min', rules=[
+        (dict(brand='HOT POCKETS|TOASTER'), 3, 'filled pastry pockets: microwave 2-3 min', 'serv4'),
         (dict(product='CREAM PUFF|ECLAIR|PROFITEROLE|^PUFF$|MACARON|BAKLAVA|CANNOLI|TIRAMISU|PETIT'), 0, 'cream puffs and eclairs: thawed and served', 'serv4'),
         (dict(product='FILLO SHELL|PHYLLO SHELL'), 0, 'baked fillo shells: filled and served', 'serv4'),
         (dict(product='PIE CRUST|PIE SHELL|PASTRY SHELL|TART SHELL'), 45, 'pie crust: filled and baked'),
@@ -70,11 +75,8 @@ RULES = {
         (dict(type='BATTER'), 35, 'brownie batter in its pan: oven heats, bakes 25-30 min', 'pkg'),
     ]),
     2649: dict(name='BAKERY-CHEESECAKE-FROZEN', minutes=0, why='cheesecake: thawed and served'),
+    # A pack of several loaves (3'S, 5'S) is counted as that many units by build_prep_minutes_package.py; minutes are per loaf.
     2646: dict(name='DOUGH PRODUCTS-BREAD-FROZEN', minutes=35, basis='pkg', why='one loaf of bread dough: oven heats, bakes 25 min after rising', rules=[
-        (dict(descr=r"\b5'S"), 175, 'five loaves of bread dough, baked one at a time, 35 min each'),
-        (dict(descr=r"\b4'S"), 140, 'four loaves of bread dough, baked one at a time, 35 min each'),
-        (dict(descr=r"\b3'S"), 105, 'three loaves of bread dough, baked one at a time, 35 min each'),
-        (dict(descr=r"\b2'S"), 70, 'two loaves of bread dough, baked one at a time, 35 min each'),
         (dict(type='LEFSE|CHAPATI|TORTILLA'), 2, 'flat bread: warmed', 'serv4'),
     ]),
     2647: dict(name='BAKERY-BAGELS-FROZEN', minutes=2, why='bagel: toasted'),
@@ -132,6 +134,8 @@ RULES = {
         (dict(descr=r'\bMW\b|\bPFO\b|\bFO\b|FOR ONE'), 4, 'single-serve pizza: microwave 3-4 min', 'serv4'),
         (dict(brand=r"FOR ONE|SINGLES|BY THE SLICE|LEAN CUISINE|SMART ONES|CELESTE|HEALTHY CHOICE|SOUTH BEACH|MICHELINA|WEIGHT WATCHERS|ATKINS|DEEP DISH MINIS|KID CUISINE"), 4,
          'single-serve pizza: microwave 3-4 min', 'serv4'),
+        (dict(brand='DIGIORNO', grams_max=300), 4, 'single-serve pizza under 10.5 oz: microwave 3-4 min', 'serv4'),
+        (dict(grams_max=230, brand_not="TOTINO|JENO|HOME RUN"), 4, 'single-serve pizza under 8 oz: microwave 3-4 min', 'serv4'),
         (dict(type='FRN BREAD|FRENCH BREAD|F-B'), 4, 'french bread pizza, single pieces: microwave 3-4 min', 'serv4'),
         (dict(descr=r'\bFB\b|\bCFB\b|\bDS\b|\bDDS\b'), 4, 'french bread or deep dish single pizzas: microwave 3-4 min', 'serv4'),
         (dict(type='TRDNL', brand='DIGIORNO'), 4, 'single-serve pizza: microwave 3-4 min', 'serv4'),
@@ -159,8 +163,9 @@ RULES = {
         (dict(descr=r'\bLOAF\b'), 120, 'turkey loaf: oven about 2 hours', 'pkg'),
         (dict(descr=r'\bTK\b', form='^BREAST$', brand='JENNIE-O|BUTTERBALL|HONEYSUCKLE|SHADY BROOK|NORBEST'), 120, 'boneless turkey breast roast: oven about 2 hours', 'pkg'),
         (dict(brand=SKILLET), 12, 'bagged skillet meal: pan 10-13 min', 'pkg'),
-        (dict(descr=FS, brand='STOUFFER'), 60, 'family-size chicken bake: oven 60 min', 'pkg'),
-        (dict(brand="^STOUFFER'S$", form='TENDER'), 60, 'family-size chicken bake: oven 60 min', 'pkg'),
+        (dict(brand="^STOUFFER'S$", form='TENDER', grams_min=BIG), 60, 'family-size chicken bake: oven 60 min', 'pkg'),
+        (dict(brand="^STOUFFER'S$", form='TENDER', grams_min=MID), 10, 'two-serving chicken tray: microwave 9-12 min'),
+        (dict(brand="^STOUFFER'S$", form='TENDER'), 5, 'single-serve chicken entree: microwave 5 min'),
         (dict(brand=FAMILY), 60, 'family-size tray of chicken or turkey in sauce: oven 45-60 min', 'pkg'),
         (dict(brand='BANQUET', form='SLICED'), 60, 'family-size tray of sliced turkey in gravy: oven 45-60 min', 'pkg'),
         (dict(type=r'C-B|CORDON|KIEV|\bSTF\b|STUFFED', brand_not="STOUFFER|MARIE|BANQUET"), 45, 'raw stuffed breaded chicken breast: oven heats, bakes 35 min'),
@@ -181,25 +186,31 @@ RULES = {
         (dict(form='THIGH|DRUM|LEG', type_not=r'BNS|B-S|BNLS'), 45, 'raw bone-in chicken parts: baked 40-45 min'),
         (dict(form='TENDERLOIN|TENDER'), 15, 'raw chicken tenderloins: pan 10-15 min'),
         (dict(form='BREAST|THIGH|FILLET|PORTION|CUTLET'), 25, 'raw boneless chicken: pan or oven 20-25 min'),
+        (dict(form='^$', grams_min=BIG, descr_not=PACK), 60, 'family-size chicken entree tray: oven 50-60 min', 'pkg'),
+        (dict(form='^$', grams_min=MID, descr_not=PACK), 10, 'two-serving chicken entree tray or bag: microwave or pan 9-12 min'),
     ]),
     2623: dict(name='ENTREES - ITALIAN - 1 FOOD - FROZEN', minutes=5, basis='serv4', why='pasta entree in a tray or bowl: microwave 5 min', rules=[
-        (dict(brand=SS + '|BANQUET'), 5, 'single-serve pasta entree: microwave 5 min'),
-        (dict(descr=PS, brand='STOUFFER'), 90, 'party-size lasagna or pasta bake: oven 90-105 min', 'pkg'),
-        (dict(descr=FS, brand='STOUFFER'), 60, 'family-size lasagna or pasta bake: oven 60-70 min', 'pkg'),
-        (dict(brand=FAMILY), 60, 'family-size pasta bake: oven 50-65 min', 'pkg'),
-        (dict(brand=SKILLET), 12, 'bagged skillet pasta meal: pan 10-12 min', 'pkg'),
+        (dict(brand=SS + '|BANQUET', grams_max=MID), 5, 'single-serve pasta entree: microwave 5 min'),
+        (dict(brand=SS, descr=PACK), 5, 'pack of single-serve pasta entrees: microwave 5 min each'),
+        (dict(descr='FPLR'), 10, 'pack of two-serving lasagna trays: microwave 9-12 min each'),
+        (dict(brand=SKILLET, grams_min=450), 12, 'bagged skillet pasta meal: pan 10-12 min', 'pkg'),
         (dict(product='TOASTED|BREADED|FINGER'), 22, 'breaded ravioli or chicken: oven heats, bakes 12 min'),
         (dict(brand='BARBER'), 45, 'raw stuffed breaded chicken breast: oven heats, bakes 35 min'),
+        (dict(brand='OVEN BAKE'), 60, 'oven bake pasta kit: assembled, oven 45-50 min', 'pkg'),
         (dict(product='KIT|SKILLET'), 12, 'bagged skillet pasta meal: pan 10-12 min', 'pkg'),
-        (dict(product='LASAGNA|ZITI|MANICOTTI|EGGPLT|EGGPLANT|STUFFED SHELL|CANNELLONI|BAKE'), 60, 'multi-serve lasagna or pasta bake: oven 55-65 min', 'pkg'),
+        (dict(grams_min=PARTY), 90, 'party-size lasagna or pasta tray, 70 oz and over: oven 90-105 min', 'pkg'),
+        (dict(grams_min=BIG), 60, 'family-size lasagna or pasta tray: oven 55-65 min', 'pkg'),
+        (dict(grams_min=MID), 10, 'two-serving pasta tray: microwave 9-12 min'),
     ]),
     2619: dict(name='ENTREES - MEAT - 1 FOOD - FROZEN', minutes=5, basis='serv4', why='meat entree in a tray or bowl: microwave 5 min', rules=[
         (dict(brand=SS + '|ARMOUR CLASSICS'), 5, 'single-serve meat entree: microwave 5 min'),
         (dict(brand='CROCK POT'), 240, 'slow cooker kit: 4 hours on high', 'pkg'),
         (dict(product='MEATBALL', product_not='SPAGHETTI|PENNE|KIT|NOODLE', type_not='PASTA|NOODLE|FETTUC|EGG N'), 8, 'cooked meatballs: heated'),
         (dict(brand=FAMILY), 60, 'family-size tray of meat in gravy: oven 45-60 min', 'pkg'),
-        (dict(descr=FS, brand='STOUFFER'), 60, 'family-size meat entree: oven 60 min', 'pkg'),
-        (dict(brand="^STOUFFER'S$|^BANQUET$|^CTL BR$|MARIE", product='MEATLOAF|SALISBURY|^POT ROAST|SHEPHERD|CASSEROLE|CHEESEBURGER', type_not='DEEP DISH|MEAL'), 60, 'family-size meat entree: oven 45-60 min', 'pkg'),
+        (dict(product='MEATLOAF|SALISBURY|POT ROAST|SHEPHERD|CASSEROLE|CHEESEBURGER|STROGANOFF|^BEEF$|^TURKEY$|STUFFED PEPPER|STEW', grams_min=BIG, descr_not=PACK), 60,
+         'family-size meat entree tray: oven 45-60 min', 'pkg'),
+        (dict(product='MEATLOAF|SALISBURY|POT ROAST|SHEPHERD|CASSEROLE|CHEESEBURGER|STROGANOFF|^BEEF$|^TURKEY$|STUFFED PEPPER|STEW', grams_min=MID, descr_not=PACK), 10,
+         'two-serving meat entree tray or bag: microwave or pan 9-12 min'),
         (dict(type='COUNTRY FRIED|BREADED|FRITTER|CHICKEN FRIED'), 22, 'breaded steak patties: oven heats, bakes 12-15 min'),
         (dict(product='FRITTER|SCHNITZEL|FINGER|NUGGET|CHICKEN FRIED|STEAK FG'), 22, 'breaded steak patties: oven heats, bakes 12-15 min'),
         (dict(brand='CARIBBEAN|GOLDEN KRUST|TOWER ISLE'), 3, 'Jamaican meat turnovers: microwave 2-3 min'),
@@ -222,15 +233,17 @@ RULES = {
         (dict(brand="INNOVASIAN|CRAZY CUIZINE|KAHIKI|ANY'TIZERS|FOSTER FARMS|PAGODA|LING LING|GARDEIN|SEA PAK"), 25, 'battered chicken with sauce: oven heats, bakes 15-18 min'),
         (dict(type='BATTER|BREADED|TEMPURA|CRISPY', product_not='NOODLE|RICE|MEIN'), 25, 'battered chicken with sauce: oven heats, bakes 15-18 min'),
         (dict(product='TEMPURA|ORANGE CHICKEN|GENERAL TSO|SESAME CHICKEN|M-O CHICKEN|SWEET & SOUR', brand='CTL BR|TYSON$'), 25, 'battered chicken with sauce: oven heats, bakes 15-18 min'),
+        (dict(product='FRIED RICE|CFRC|NOODLE|MEIN|YAKISOBA|RAMEN', grams_min=700, descr_not=PACK), 7, 'large bag of fried rice or noodles: pan 7-8 min'),
+        (dict(grams_min=MID, grams_max=800), 12, 'bag or tray for two to three: pan or microwave 10-13 min', 'pkg'),
     ]),
     2624: dict(name='ENTREES - MEXICAN - 1 FOOD - FROZEN', minutes=3, basis='serv4', why='burrito, chimichanga or quesadilla: microwave 2-3 min', rules=[
+        (dict(product='ENCHILADA|CASSEROLE|LASAGNA', product_not='BOWL', grams_min=BIG), 60, 'family-size enchiladas or casserole: oven 50-60 min', 'pkg'),
+        (dict(product='ENCHILADA|CASSEROLE|LASAGNA', product_not='BOWL', grams_min=MID), 10, 'two-serving tray of enchiladas: microwave 9-12 min'),
         (dict(brand=SS), 5, 'single-serve Mexican entree: microwave 5 min'),
-        (dict(product='TAQUITO|FLAUTA|^TACO$|ROLLED|MINI TACO'), 22, 'taquitos or rolled tacos: oven heats, bakes 12 min'),
+        (dict(product='TAQUITO|FLAUTA|^TACO$|ROLLED|MINI TACO'), 3, 'taquitos or rolled tacos: microwave 1-2 min'),
         (dict(brand=FAMILY), 60, 'family-size enchiladas: oven 50-60 min', 'pkg'),
         (dict(brand=SKILLET), 12, 'bagged skillet meal: pan 10-13 min', 'pkg'),
         (dict(product='FAJITA', product_not='BOWL'), 10, 'fajita strips or kit: pan 8-10 min'),
-        (dict(brand='STOUFFER', product='ENCHILADA|LASAGNA|CASSEROLE'), 60, 'family-size enchiladas: oven 50-60 min', 'pkg'),
-        (dict(product='LASAGNA'), 60, 'family-size Mexican lasagna: oven 60 min', 'pkg'),
         (dict(product='ENCHILADA|CASSEROLE|LASAGNA|TAMALE|RELLENO|PAELLA', product_not='BOWL'), 5, 'enchiladas or tamales: microwave 5 min'),
     ]),
     2626: dict(name='ENTREES - SEAFOOD - 1 FOOD - FROZEN', minutes=22, basis='serv4', why='frozen fish, shrimp or crab cakes: oven heats, bakes 12-18 min', rules=[
@@ -244,18 +257,27 @@ RULES = {
         (dict(product='^SHRIMP', type_not='BREAD|BTF|BUTTERFLY|BATTER|COCONUT|CNUT|POPCORN|TEMPURA|CRISP|CRUNCH|PANKO|COAT|STUFFED|FRIED|POPPER|CPY|BRDC'), 8, 'unbreaded shrimp: pan 6-8 min'),
     ]),
     2625: dict(name='ENTREES - REMAINING - 1 FOOD - FROZEN', minutes=5, basis='serv4', why='macaroni and cheese or side dish in a tray: microwave 5 min', rules=[
-        (dict(brand=SS + '|BANQUET'), 5, 'single-serve entree: microwave 5 min'),
-        (dict(descr=PS, brand='STOUFFER'), 90, 'party-size macaroni and cheese: oven 90 min', 'pkg'),
-        (dict(descr=FS, brand='STOUFFER'), 60, 'family-size macaroni and cheese or stuffed peppers: oven 60 min', 'pkg'),
-        (dict(brand=FAMILY), 60, 'family-size tray: oven 50-60 min', 'pkg'),
         (dict(product='PIEROGI|PEROGI|PIROG'), 12, 'pierogies: boiled or pan-fried'),
         (dict(product='DUMPLING|POTSTICKER|MANDU'), 10, 'dumplings: pan-steamed 8-10 min'),
+        (dict(brand=FAMILY, grams_min=MID), 60, 'family-size tray: oven 50-60 min', 'pkg'),
+        (dict(product='MAC|PEPPER|CASSEROLE|SOUFFLE|SHEPHERD|POT PIE|BAKE|LASAGNA|GRATIN|SCALLOP|STROGANOFF|CABBAGE|EGGPLANT|WHEELS', grams_min=PARTY, descr_not=PACK), 90, 'party-size macaroni and cheese tray, 70 oz and over: oven 90 min', 'pkg'),
+        (dict(product='MAC|PEPPER|CASSEROLE|SOUFFLE|SHEPHERD|POT PIE|BAKE|LASAGNA|GRATIN|SCALLOP|STROGANOFF|CABBAGE|EGGPLANT|WHEELS', grams_min=BIG, descr_not=PACK), 60, 'family-size macaroni and cheese or stuffed peppers: oven 60 min', 'pkg'),
+        (dict(product='MAC|PEPPER|CASSEROLE|SOUFFLE|SHEPHERD|POT PIE|BAKE|LASAGNA|GRATIN|SCALLOP|STROGANOFF|CABBAGE|EGGPLANT|WHEELS', grams_min=MID, descr_not=PACK), 10, 'two-serving macaroni and cheese tray: microwave 9-12 min'),
     ]),
-    2617: dict(name='POT PIES-FROZEN', minutes=7, basis='serv4', why='single pot pie: microwave 5-10 min by size', rules=[
+    2617: dict(name='POT PIES-FROZEN', minutes=6, basis='serv4', why='single pot pie, 7-10 oz: microwave 5-6 min', rules=[
+        (dict(descr=r"\b(?:[3-9]|[12]\d)'S"), 6, 'pack of single pot pies: microwave 5-6 min each'),
+        (dict(grams_min=600), 75, 'family-size pot pie, over 21 oz: oven 65-80 min', 'pkg'),
+        (dict(grams_min=350), 11, 'large pot pie, 15-16 oz: microwave 10-11 min'),
         (dict(brand="WILLOW TREE|MRS BUDD|OVERBROOK|SPRING GLEN|CRAVERY"), 75, 'family-size pot pie: oven 65-80 min', 'pkg'),
     ]),
-    2611: dict(name='ENTREES - MEAT - 2 FOOD - FROZEN', minutes=5, basis='serv4', why='meat entree with a side in a tray: microwave 5 min'),
-    2612: dict(name='ENTREES - POULTRY - 2 FOOD - FROZEN', minutes=5, basis='serv4', why='chicken or turkey entree with a side in a tray: microwave 5 min'),
+    2611: dict(name='ENTREES - MEAT - 2 FOOD - FROZEN', minutes=5, basis='serv4', why='meat entree with a side in a tray: microwave 5 min', rules=[
+        (dict(grams_min=BIG, descr_not=PACK), 60, 'family-size meat entree tray: oven 50-60 min', 'pkg'),
+        (dict(grams_min=MID, descr_not=PACK), 10, 'two-serving meat entree tray: microwave 9-12 min'),
+    ]),
+    2612: dict(name='ENTREES - POULTRY - 2 FOOD - FROZEN', minutes=5, basis='serv4', why='chicken or turkey entree with a side in a tray: microwave 5 min', rules=[
+        (dict(grams_min=BIG, descr_not=PACK), 60, 'family-size chicken entree tray: oven 50-60 min', 'pkg'),
+        (dict(grams_min=MID, descr_not=PACK), 10, 'two-serving chicken entree tray: microwave 9-12 min'),
+    ]),
     2692: dict(name='PASTA-PLAIN-FROZEN', minutes=14, basis='serv4', why='frozen ravioli or tortellini: water to a boil 8, cooks 5-6 min', rules=[
         (dict(product='MANICOTTI|SHELL|CANNELLONI|LASAGNA'), 55, 'stuffed shells or manicotti: baked in sauce 45 min'),
         (dict(product='NOODLE|DUMPLING', type_not='STF'), 28, 'frozen egg noodles or flat dumplings: water to a boil 8, simmer 20 min'),
@@ -264,7 +286,9 @@ RULES = {
     2694: dict(name='SOUP-FROZEN-REFRIGERATED', minutes=4, basis='serv4', why='refrigerated soup: heated', rules=[
         (dict(descr=r'\bFZ\b'), 8, 'frozen soup: heated from frozen 7-10 min'),
     ]),
-    2693: dict(name='CORN DOGS-FROZEN/REFRIGERATED', minutes=25, basis='serv4', why='corn dogs: oven heats, bakes 15-18 min'),
+    # Single-serve handheld items whose box gives both directions take the microwave time, as burritos and pocket sandwiches do
+    # (review 2026-11-18; the first version had corn dogs and taquitos in the oven).
+    2693: dict(name='CORN DOGS-FROZEN/REFRIGERATED', minutes=3, basis='serv4', why='corn dogs: microwave 1-2 min'),
     2695: dict(name='SAUCES & GRAVIES-FROZEN/REFRIGERATED', minutes=0, why='salsa, pesto, sauces and gravies'),
     2603: dict(name='MEAL STARTERS', minutes=15, basis='pkg', why='skillet or stir-fry starter: meat or eggs added, pan 12-15 min', rules=[
         (dict(brand='JUST CRACK'), 2, 'egg cup: egg added, microwave 2 min', 'serv4'),
@@ -274,9 +298,17 @@ RULES = {
         (dict(brand='SLOW C|CROCK'), 240, 'slow cooker starter: 4 hours on high'),
         (dict(brand='WANCHAI|HAMBURGER HELPER|SIMPLE SUPPERS'), 25, 'dinner kit: meat added, pan 20-25 min'),
     ]),
-    2614: dict(name='ENTREES - ITALIAN - 2 FOOD - FROZEN', minutes=5, basis='serv4', why='Italian entree with a side in a tray: microwave 5 min'),
-    2627: dict(name='ENTREES - ORIENTAL - 2 FOOD - FROZEN', minutes=5, basis='serv4', why='Asian entree with rice in a tray: microwave 5 min'),
-    2616: dict(name='ENTREES - MEXICAN - 2 FOOD - FROZEN', minutes=5, basis='serv4', why='Mexican entree with rice in a tray: microwave 5 min'),
+    2614: dict(name='ENTREES - ITALIAN - 2 FOOD - FROZEN', minutes=5, basis='serv4', why='Italian entree with a side in a tray: microwave 5 min', rules=[
+        (dict(grams_min=BIG, descr_not=PACK), 60, 'family-size Italian entree tray: oven 50-60 min', 'pkg'),
+        (dict(grams_min=MID, descr_not=PACK), 10, 'two-serving Italian entree tray: microwave 9-12 min'),
+    ]),
+    2627: dict(name='ENTREES - ORIENTAL - 2 FOOD - FROZEN', minutes=5, basis='serv4', why='Asian entree with rice in a tray: microwave 5 min', rules=[
+        (dict(grams_min=MID, grams_max=1000), 12, 'bag or tray for two to three: pan or microwave 10-13 min', 'pkg'),
+    ]),
+    2616: dict(name='ENTREES - MEXICAN - 2 FOOD - FROZEN', minutes=5, basis='serv4', why='Mexican entree with rice in a tray: microwave 5 min', rules=[
+        (dict(grams_min=BIG, descr_not=PACK), 60, 'family-size Mexican entree tray: oven 50-60 min', 'pkg'),
+        (dict(grams_min=MID, descr_not=PACK), 10, 'two-serving Mexican entree tray: microwave 9-12 min'),
+    ]),
     2609: dict(name='ENTREES - SEAFOOD - 2 FOOD - FROZEN', minutes=5, basis='serv4', why='fish entree with a side in a tray: microwave 5 min'),
     2606: dict(name='ENTREES - REMAINING - 2 FOOD - FROZEN', minutes=5, basis='serv4', why='entree with a side in a tray: microwave 5 min'),
     2613: dict(name='ENTREES - MULTI PACK - FROZEN', minutes=5, basis='serv4', why='pack of single-serve entrees: microwave 5 min each meal'),
@@ -284,6 +316,7 @@ RULES = {
 
     # ---------------------------------------------------------------- vegetables
     2634: dict(name='VEGETABLES - POTATOES - FROZEN/REFRIGERATED', minutes=25, basis='serv4', why='frozen fries, tots or potato wedges: oven heats, bakes 15-20 min', rules=[
+        (dict(grams_max=200), 4, 'single-serve microwave potato cup or box, under 7 oz: microwave 3-4 min'),
         (dict(product='MASHED|WHIPPED|MASH'), 5, 'prepared mashed potatoes: microwave 4-5 min'),
         (dict(container='TUB|TRAY', descr=r' R(?: |$)'), 5, 'refrigerated potato side dish: microwave 4-6 min'),
         (dict(brand=SS), 5, 'single-serve potato dish: microwave 5 min'),
