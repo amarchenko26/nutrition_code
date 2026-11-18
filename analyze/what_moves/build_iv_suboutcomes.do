@@ -45,6 +45,7 @@ replace occ_src = female_head_occupation if missing(occ_src) | inlist(occ_src, 0
 gen byte emp_cell = inlist(occ_src, 1, 2, 3, 4, 5, 6, 8, 9, 11) if !missing(occ_src) & !inlist(occ_src, 0, 7)
 gen byte clean = (L.emp_cell == 1) if !missing(L.emp_cell)
 egen year_state = group(year fips_state_code)
+replace clean = 0 if !(avg_age_hh_head + 1 < 60)          // default sample since 2026-11-18 (Anya): heads' average age under 60 at t+1
 if "`part'" == "same_size" replace clean = 0 if !(hh_size == L.hh_size & hh_size == F.hh_size)
 
 file open fh using "$idir/what_moves/iv_suboutcomes`suffix'.csv", write replace

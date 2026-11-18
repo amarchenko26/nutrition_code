@@ -1,4 +1,4 @@
-"""Expected health change with HEI 0.031 SD higher (2026-11-09, Anya: Table 4 of 0_main.tex is the health outcomes only; its panels on the
+"""Expected health change with HEI higher by the main income IV estimate (2026-11-09, Anya: Table 4 of 0_main.tex is the health outcomes only; its panels on the
 components, purchases and food of the 0.55 SD income gap were deleted the same day, with their code).
 Outputs: tabs/what_moves/hei_scale.tex (items asked in every survey year) and hei_scale_bmi.tex (BMI); everything else is printed.
 
@@ -8,8 +8,9 @@ Outputs: tabs/what_moves/hei_scale.tex (items asked in every survey year) and he
    every year of the Health Care Survey, reported obesity ('Obesity / Overweight'), type 2 diabetes and hypertension, adults 20+ in
    2011-2023 (members 13+ report for themselves in 2011-2015, one respondent for every member from 2016), with survey-year dummies;
    hei_scale_bmi.tex = BMI and BMI of 30 or more from the weight and height brackets asked in 2016-17 only. The tables: the
-   coefficient with controls times the main income IV, 0.031 SD per $10k (interim/labor_supply/iv_main_estimates.csv, written by
-   12_); standard error by the delta method, the two estimates taken as independent. Until 2026-11-15 one table of BMI, BMI 30+,
+   coefficient with controls times the main income IV (0.031 SD per $10k on every age until 2026-11-18; since then the estimate on
+   heads under 60, the paper's default sample, interim/what_moves/iv_main_estimates.csv written by `do 13_build_ols_iv_clean.do u60`);
+   standard error by the delta method, the two estimates taken as independent. Until 2026-11-15 one table of BMI, BMI 30+,
    reported obesity and type 2 diabetes, all on the 2016-17 BMI sample.
 2. By age: the change in HEI within a household by age of the heads, net of the calendar year. Age and year rise together, so differences across ages
    are identified and the common level is not.
@@ -93,7 +94,8 @@ def health_table(mem, hh, sd, lsd, b_iv, se_iv, outs, fname):
 def main():
     h, sd = household_means()
     d = pd.read_parquet(idir / 'panel_dataset' / 'hei_usda_panel.parquet', columns=['household_code', 'panel_year', 'hei_usda', 'lhei_usda', 'projection_factor'])
-    iv = pd.read_csv(idir / 'labor_supply' / 'iv_main_estimates.csv').set_index('outcome').loc['hei_usda']
+    # the paper's main estimate: non-movers employed at t-1 with heads under 60 (`do 13_build_ols_iv_clean.do u60`, since 2026-11-18)
+    iv = pd.read_csv(idir / 'what_moves' / 'iv_main_estimates.csv').set_index('outcome').loc['hei_usda']
     b_iv, se_iv = float(iv['b']), float(iv['se'])
     print(f'SD of HEI as in 12_: {sd:.3f}; main income IV {b_iv:.4f} ({se_iv:.4f}) SD per $10k')
 

@@ -39,22 +39,26 @@ ALL_HH = {o for o, _, _ in INDICES}
 # so the table fits a landscape page. A label is a string or (estimate-row text, standard-error-row text). The ACS row since
 # 2026-11-13 (Anya): the household keeps its group of t-1, income change from the ACS, clustered on that group; it replaces the
 # row on the household's group in each year.
+# DEFAULT SAMPLE since 2026-11-18 (Anya): non-movers, employed at t-1, heads' average age under 60 at t+1. Every row is on it
+# except the first two rows of Panel A, which are labelled; each panel title states the sample.
+U60 = r'non-movers, employed at $t-1$, under 60'
 ROWS = [
     (r'A. Sample', [('geo_movers', r'All, employed at $t-1$'), ('main', r'Non-movers, employed at $t-1$'),
                     ('age60', (r'Non-movers, employed at $t-1$,', 'under 60')),
                     ('age60_sizet', (r'Non-movers, employed at $t-1$,', r'under 60, same size at $t-1$ and $t$')),
                     # the main instrument with one part of the group held at t-1 (Anya 2026-11-13, build_iv_part_fixed.py)
-                    ('sizefix', (r'Non-movers, employed at $t-1$,', r'size group held at $t-1$')),
-                    ('occfix', (r'Non-movers, employed at $t-1$,', r'occupation held at $t-1$')),
-                    ('educfix', (r'Non-movers, employed at $t-1$,', r'schooling held at $t-1$'))]),
-    (r'B. Instrument, non-movers employed at $t-1$', [('no_size_bin', 'Group without the size bin'),
-                                                      ('baseline_occ', ('Occupation frozen at the', 'first panel year')),
-                                                      ('predicted', ('Predicted group from', '$t-1$ characteristics')),
-                                                      ('acs', ('Group at $t-1$, income', 'from the ACS')),
-                                                      ('bls', ('National wage of the', 'occupation (BLS)'))]),
-    (r'C. Purchase window, same income change', [('level_t', 'Same year as the income change')]),
-    (r'D. Longer changes', [('k2', r'Changes over 2 years'), ('k3', r'Changes over 3 years'), ('k5', r'Changes over 5 years'), ('k8', r'Changes over 8 years')]),
-    (r'E. Quartile of income in the first panel year', [('q1', 'Bottom'), ('q2', 'Second'), ('q3', 'Third'), ('q4', 'Top')]),
+                    ('sizefix', (r'Non-movers, employed at $t-1$,', r'under 60, size group held at $t-1$')),
+                    ('occfix', (r'Non-movers, employed at $t-1$,', r'under 60, occupation held at $t-1$')),
+                    ('educfix', (r'Non-movers, employed at $t-1$,', r'under 60, schooling held at $t-1$'))]),
+    (rf'B. Instrument ({U60})', [('no_size_bin', 'Group without the size bin'),
+                                 ('baseline_occ', ('Occupation frozen at the', 'first panel year')),
+                                 ('predicted', ('Predicted group from', '$t-1$ characteristics')),
+                                 ('acs', ('Group at $t-1$, income', 'from the ACS')),
+                                 ('bls', ('National wage of the', 'occupation (BLS)'))]),
+    (rf'C. Purchase window, same income change ({U60})', [('level_t', 'Same year as the income change')]),
+    (r'D. Longer changes (non-movers, employed at the start of the change, under 60)',
+     [('k2', r'Changes over 2 years'), ('k3', r'Changes over 3 years'), ('k5', r'Changes over 5 years'), ('k8', r'Changes over 8 years')]),
+    (rf'E. Quartile of income in the first panel year ({U60})', [('q1', 'Bottom'), ('q2', 'Second'), ('q3', 'Third'), ('q4', 'Top')]),
 ]
 
 

@@ -29,7 +29,7 @@ cap drop d_inc
 gen double d_inc = D.real_income
 gen double d_iv = D.iv_income_fips / 10
 local FE "year_state hhid kids avg_age_hh_head hh_comp"
-local base "movers_f == 0 & clean == 1"
+local base "movers_f == 0 & clean == 1 & avg_age_hh_head + 1 < 60"          // default sample since 2026-11-18 (Anya): heads' average age under 60 at t+1
 tab year if !missing(obesity)
 foreach v in obesity diabetes_type2 hypertension {
 	gen double h_`v' = 100 * `v'

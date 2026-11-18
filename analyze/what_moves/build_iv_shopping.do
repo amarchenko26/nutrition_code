@@ -36,7 +36,7 @@ gen double d_inc = D.real_income
 gen double d_iv = D.iv_income_fips / 10
 gen byte same_size = hh_size == L.hh_size & hh_size == F.hh_size if !missing(hh_size, L.hh_size, F.hh_size)
 local FE "year_state hhid kids avg_age_hh_head hh_comp"
-local base "movers_f == 0 & clean == 1"
+local base "movers_f == 0 & clean == 1 & avg_age_hh_head + 1 < 60"          // default sample since 2026-11-18 (Anya): heads' average age under 60 at t+1
 
 replace dist_km = min(dist_km, 100) if !missing(dist_km)
 gen double samezip = 100 * same_zip

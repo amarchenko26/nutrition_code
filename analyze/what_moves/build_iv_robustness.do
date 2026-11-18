@@ -122,6 +122,12 @@ bysort hhid (year): gen baseline_income = real_income[1]
 xtile inc_q = baseline_income [aw = projection_factor] if movers_f == 0, nquantiles(4)
 sort hhid year
 local FE "year_state hhid kids avg_age_hh_head hh_comp"
+// DEFAULT SAMPLE since 2026-11-18 (Anya: 'non movers, employed at t-1, under 60 ... the default sample for the rest of the tables
+// concerning income IV, except where explicitly specified'): heads' average age under 60 at t+1 (age at t plus one, so the rows on
+// purchases before the income change need no t+1 record). Every row of the outcome files and the size table use it, except the
+// rows main (non-movers employed at t-1 of every age) and geo_movers (the same with households that change county), which Panel A
+// of the table labels. The printed parts unpack, zero, size, age and purge are as they were (every age unless they say otherwise).
+local u60 "avg_age_hh_head + 1 < 60"
 
 // ---------------------------------------------------------------- where the estimate comes from
 if "`part'" == "unpack" {
@@ -388,7 +394,7 @@ if "`part'" == "purge" {
 if "`part'" == "sizetab" {
 	gen double sz_f = 100 * (F.hh_size != hh_size) if !missing(F.hh_size, hh_size)
 	gen double y_main = F.hei_usda - hei_usda
-	quietly ivreghdfe y_main (d_inc = d_iv) [pw = projection_factor] if movers_f == 0 & clean == 1, absorb(`FE') cluster(fips)
+	quietly ivreghdfe y_main (d_inc = d_iv) [pw = projection_factor] if movers_f == 0 & clean == 1 & `u60', absorb(`FE') cluster(fips)
 	gen byte msamp = e(sample)
 	di "main HEI regression: N " e(N)
 	quietly reghdfe sz_f d_iv [pw = projection_factor] if msamp == 1, absorb(`FE') cluster(fips)
@@ -437,6 +443,7 @@ gen double y_lev = F.`v'
 // calories: households of the same size only, in every row
 local base "movers_f == 0 & clean == 1"
 if "`v'" == "cals_ae_day" local base "`base' & same_size == 1"
+local dflt "`base' & `u60'"          // the default sample: heads under 60 at t+1
 
 // quartile of income at t-1: cut points within each year among non-movers, projection-weighted. Income comes in brackets, so
 // every cut falls on a bracket; the whole bracket goes to the side that brings the group's share closer to a quarter (from
@@ -444,7 +451,7 @@ if "`v'" == "cals_ae_day" local base "`base' & same_size == 1"
 // heads' average age under 60 at t+1 (Anya 2026-11-10, Table 7 panel C): replaces only the age60 rows of $OUT, so the other
 // rows are not re-estimated; the main sequence below writes the same rows on a full run
 if inlist("`mode'", "age60", "age60_sizet") {
-	local cnd "`base' & avg_age_hh_head + 1 < 60"
+	local cnd "`dflt'"
 	if "`mode'" == "age60_sizet" local cnd "`cnd' & same_size_t == 1"
 	preserve
 	import delimited using "$OUT", clear varnames(1) stringcols(_all)
@@ -467,15 +474,15 @@ if "`mode'" == "acs" {
 	export delimited using "$OUT", replace
 	restore
 	foreach w in main before {
-		run_iv `v' acs `w' y_`w' d_inc d_acs "`base'" "`FE'" acs_grp_t1
+		run_iv `v' acs `w' y_`w' d_inc d_acs "`dflt'" "`FE'" acs_grp_t1
 		di "`v' acs `w': " e(N_clust) " groups"
 		if "`w'" == "main" {
 			foreach c in acs_grp_t1 fips {
-				capture reghdfe d_inc d_acs [pw = projection_factor] if `base' & !missing(y_main), absorb(`FE') cluster(`c')
+				capture reghdfe d_inc d_acs [pw = projection_factor] if `dflt' & !missing(y_main), absorb(`FE') cluster(`c')
 				if _rc == 0 di "`v' acs first stage, clustered on `c': " %8.3f _b[d_acs] " (" %7.3f _se[d_acs] ") N " e(N) " clusters " e(N_clust)
 			}
 		}
-		capture ivreghdfe y_`w' (d_inc = d_acs) [pw = projection_factor] if `base', absorb(`FE') cluster(fips)
+		capture ivreghdfe y_`w' (d_inc = d_acs) [pw = projection_factor] if `dflt', absorb(`FE') cluster(fips)
 		if _rc == 0 di "`v' acs `w', clustered on county: " %8.3f _b[d_inc] " (" %7.3f _se[d_inc] ") F " %6.1f e(widstat) " N " e(N)
 	}
 	di "build_iv_robustness.do `v' acs complete"
@@ -491,13 +498,13 @@ if "`mode'" == "partfix" {
 	export delimited using "$OUT", replace
 	restore
 	foreach z in d_iv d_ivs d_ivo d_ive {
-		quietly reghdfe d_inc `z' [pw = projection_factor] if `base' & !missing(y_main), absorb(`FE') cluster(fips)
+		quietly reghdfe d_inc `z' [pw = projection_factor] if `dflt' & !missing(y_main), absorb(`FE') cluster(fips)
 		di "`v' first stage `z': " %8.4f _b[`z'] " (" %7.4f _se[`z'] ") N " e(N)
 	}
 	foreach w in main before {
-		run_iv `v' sizefix `w' y_`w' d_inc d_ivs "`base'" "`FE'"
-		run_iv `v' occfix `w' y_`w' d_inc d_ivo "`base'" "`FE'"
-		run_iv `v' educfix `w' y_`w' d_inc d_ive "`base'" "`FE'"
+		run_iv `v' sizefix `w' y_`w' d_inc d_ivs "`dflt'" "`FE'"
+		run_iv `v' occfix `w' y_`w' d_inc d_ivo "`dflt'" "`FE'"
+		run_iv `v' educfix `w' y_`w' d_inc d_ive "`dflt'" "`FE'"
 	}
 	di "build_iv_robustness.do `v' partfix complete"
 	exit
@@ -532,7 +539,7 @@ if "`mode'" == "qlag" {
 	tab year inc_qy [aw = projection_factor] if movers_f == 0, row nofreq
 	gen byte inc_ql = L.inc_qy
 	gen double inc_lag = L.real_income
-	gen byte cmp = `base' & !missing(y_main, d_inc, d_iv)
+	gen byte cmp = `dflt' & !missing(y_main, d_inc, d_iv)
 	tab inc_q inc_ql [aw = projection_factor] if cmp, cell nofreq
 	gen byte same_q = inc_q == inc_ql if cmp & !missing(inc_q, inc_ql)
 	sum same_q [aw = projection_factor]
@@ -540,7 +547,7 @@ if "`mode'" == "qlag" {
 	tabstat inc_lag d_inc d_iv [aw = projection_factor] if cmp, by(inc_ql) statistics(mean n)
 	foreach w in main before {
 		forvalues q = 1/4 {
-			run_iv `v' ql`q' `w' y_`w' d_inc d_iv "`base' & inc_ql == `q'" "`FE'"
+			run_iv `v' ql`q' `w' y_`w' d_inc d_iv "`dflt' & inc_ql == `q'" "`FE'"
 		}
 	}
 	di "build_iv_robustness.do `v' qlag complete"
@@ -548,40 +555,40 @@ if "`mode'" == "qlag" {
 }
 
 foreach w in main before {
-	run_iv `v' main `w' y_`w' d_inc d_iv "`base'" "`FE'"
-	run_iv `v' hh_year `w' y_`w' d_inc d_iv "`base'" "year hhid kids avg_age_hh_head hh_comp"
-	run_iv `v' no_hhfe `w' y_`w' d_inc d_iv "`base'" "year_state kids avg_age_hh_head hh_comp"
-	run_iv `v' year_only `w' y_`w' d_inc d_iv "`base'" "year kids avg_age_hh_head hh_comp"
-	if "`v'" != "cals_ae_day" run_iv `v' same_size `w' y_`w' d_inc d_iv "`base' & same_size == 1" "`FE'"
-	run_iv `v' age60 `w' y_`w' d_inc d_iv "`base' & avg_age_hh_head + 1 < 60" "`FE'"
-	run_iv `v' age60_sizet `w' y_`w' d_inc d_iv "`base' & avg_age_hh_head + 1 < 60 & same_size_t == 1" "`FE'"
-	run_iv `v' sizefix `w' y_`w' d_inc d_ivs "`base'" "`FE'"
-	run_iv `v' occfix `w' y_`w' d_inc d_ivo "`base'" "`FE'"
-	run_iv `v' educfix `w' y_`w' d_inc d_ive "`base'" "`FE'"
-	if "`v'" != "cals_ae_day" run_iv `v' geo_movers `w' y_`w' d_inc d_iv "clean == 1" "`FE'"
+	run_iv `v' main `w' y_`w' d_inc d_iv "`base'" "`FE'"            // every age
+	run_iv `v' hh_year `w' y_`w' d_inc d_iv "`dflt'" "year hhid kids avg_age_hh_head hh_comp"
+	run_iv `v' no_hhfe `w' y_`w' d_inc d_iv "`dflt'" "year_state kids avg_age_hh_head hh_comp"
+	run_iv `v' year_only `w' y_`w' d_inc d_iv "`dflt'" "year kids avg_age_hh_head hh_comp"
+	if "`v'" != "cals_ae_day" run_iv `v' same_size `w' y_`w' d_inc d_iv "`dflt' & same_size == 1" "`FE'"
+	run_iv `v' age60 `w' y_`w' d_inc d_iv "`dflt'" "`FE'"            // the default sample
+	run_iv `v' age60_sizet `w' y_`w' d_inc d_iv "`dflt' & same_size_t == 1" "`FE'"
+	run_iv `v' sizefix `w' y_`w' d_inc d_ivs "`dflt'" "`FE'"
+	run_iv `v' occfix `w' y_`w' d_inc d_ivo "`dflt'" "`FE'"
+	run_iv `v' educfix `w' y_`w' d_inc d_ive "`dflt'" "`FE'"
+	if "`v'" != "cals_ae_day" run_iv `v' geo_movers `w' y_`w' d_inc d_iv "clean == 1" "`FE'"            // every age
 	if "`v'" == "cals_ae_day" run_iv `v' geo_movers `w' y_`w' d_inc d_iv "clean == 1 & same_size == 1" "`FE'"
-	run_iv `v' stayers `w' y_`w' d_inc d_iv "`base' & stayer == 1" "`FE'"
-	run_iv `v' switchers `w' y_`w' d_inc d_iv "`base' & stayer == 0" "`FE'"
-	run_iv `v' switch_noNE `w' y_`w' d_inc d_iv "`base' & stayer == 0 & into_ne == 0" "`FE'"
-	run_iv `v' no_size_bin `w' y_`w' d_inc d_ivx "`base'" "`FE'"
-	run_iv `v' predicted `w' y_`w' d_inc d_prd "`base'" "`FE'"
-	run_iv `v' baseline_occ `w' y_`w' d_inc d_ivb "`base'" "`FE'"
-	run_iv `v' bls `w' y_`w' d_inc d_bls "`base'" "`FE'"
-	run_iv `v' acs `w' y_`w' d_inc d_acs "`base'" "`FE'" acs_grp_t1
+	run_iv `v' stayers `w' y_`w' d_inc d_iv "`dflt' & stayer == 1" "`FE'"
+	run_iv `v' switchers `w' y_`w' d_inc d_iv "`dflt' & stayer == 0" "`FE'"
+	run_iv `v' switch_noNE `w' y_`w' d_inc d_iv "`dflt' & stayer == 0 & into_ne == 0" "`FE'"
+	run_iv `v' no_size_bin `w' y_`w' d_inc d_ivx "`dflt'" "`FE'"
+	run_iv `v' predicted `w' y_`w' d_inc d_prd "`dflt'" "`FE'"
+	run_iv `v' baseline_occ `w' y_`w' d_inc d_ivb "`dflt'" "`FE'"
+	run_iv `v' bls `w' y_`w' d_inc d_bls "`dflt'" "`FE'"
+	run_iv `v' acs `w' y_`w' d_inc d_acs "`dflt'" "`FE'" acs_grp_t1
 	forvalues q = 1/4 {
-		run_iv `v' q`q' `w' y_`w' d_inc d_iv "`base' & inc_q == `q'" "`FE'"
+		run_iv `v' q`q' `w' y_`w' d_inc d_iv "`dflt' & inc_q == `q'" "`FE'"
 	}
 }
-run_iv `v' level_t main y_t d_inc d_iv "`base'" "`FE'"
+run_iv `v' level_t main y_t d_inc d_iv "`dflt'" "`FE'"
 // levels: outcome at t+1 on income at t
-capture ivreghdfe y_lev (real_income = iv_income_fips) [pw = projection_factor] if `base', absorb(`FE') cluster(fips)
+capture ivreghdfe y_lev (real_income = iv_income_fips) [pw = projection_factor] if `dflt', absorb(`FE') cluster(fips)
 if _rc == 0 {
 	file open fh using "$OUT", write append
 	file write fh "`v',levels,main," (_b[real_income]) "," (_se[real_income]) "," (e(widstat)) "," (e(N)) _n
 	file close fh
 	di "`v' levels: " %8.3f _b[real_income] " (" %7.3f _se[real_income] ") F " %6.1f e(widstat) " N " e(N)
 }
-// k-year changes: employed at t-k; outcome from t+1-k to t+1, income and instrument from t-k to t. Before window: the same k-year income change on the one-year change t-k-2 to t-k-1
+// k-year changes: employed at t-k, heads under 60 at t+1; outcome from t+1-k to t+1, income and instrument from t-k to t. Before window: the same k-year income change on the one-year change t-k-2 to t-k-1
 foreach k in 2 3 5 8 {
 	local km1 = `k' - 1
 	gen double dk_inc = real_income - L`k'.real_income
@@ -589,7 +596,7 @@ foreach k in 2 3 5 8 {
 	gen double dk_y = F.`v' - L`km1'.`v'
 	gen byte clean_k = L`k'.emp_cell == 1
 	gen byte size_k = hh_size == L`k'.hh_size & hh_size == F.hh_size
-	local bk "movers_f == 0 & clean_k == 1"
+	local bk "movers_f == 0 & clean_k == 1 & `u60'"
 	if "`v'" == "cals_ae_day" local bk "`bk' & size_k == 1"
 	run_iv `v' k`k' main dk_y dk_inc dk_iv "`bk'" "`FE'"
 	drop dk_inc dk_iv dk_y clean_k size_k

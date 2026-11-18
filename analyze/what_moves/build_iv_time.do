@@ -1,7 +1,8 @@
 // ============================================================================
 // build_iv_time.do -- the income IV on the time intensity of the groceries (Anya 2026-11-15: a table after the diet-parts table)
 //
-// Main specification of analyze/labor_supply/12_ (the 0.031 SD HEI estimate): households employed at t-1 that stay in their county;
+// Main specification of the paper (tab:hi_clean): households employed at t-1 that stay in their county, heads' average age under 60
+// at t+1 (the default sample since 2026-11-18);
 // change in the outcome from t to t+1 on the change in income from t-1 to t ($10k), instrumented with the change in
 // leave-one-county-out group income; household, state-by-year, children, head age and household composition fixed effects;
 // projection weights; clustered on county. Placebo: the same outcome from t-3 to t-2.
@@ -13,7 +14,8 @@
 // prep_minutes_rules.py: rules on Nielsen's product attributes; four label servings per cooking session, one session for packages
 // cooked whole), a ratio, so on all households (since 2026-11-18; it replaces prep_min_ae_day, the module-score minutes per adult
 // equivalent per day); prep_min_1000kcal_serv4 and prep_min_1000kcal_once = the same with four servings per session for every
-// barcode and with one session per package for every barcode (checks, in the csv only); ing_per_trip = distinct ingredient barcodes
+// barcode and with one session per package for every barcode (checks, in the csv only); prep_min_1000kcal_same = the main measure
+// on households of the same size at t-1, t and t+1 (Anya 2026-11-18); ing_per_trip = distinct ingredient barcodes
 // (NOVA group 1 or 2) per food shopping trip, on households of the same size at t-1, t and t+1 (a larger household buys more items
 // on a trip).
 // Output: interim/what_moves/iv_time.csv (read by build_iv_time_table.py), printed as well.
@@ -41,7 +43,7 @@ gen double d_inc = D.real_income
 gen double d_iv = D.iv_income_fips / 10
 gen byte same_size = hh_size == L.hh_size & hh_size == F.hh_size if !missing(hh_size, L.hh_size, F.hh_size)
 local FE "year_state hhid kids avg_age_hh_head hh_comp"
-local base "movers_f == 0 & clean == 1"
+local base "movers_f == 0 & clean == 1 & avg_age_hh_head + 1 < 60"          // default sample since 2026-11-18 (Anya): heads' average age under 60 at t+1
 foreach v in prep_time_raw sh_open sh_little sh_cook sh_rte sh_open_rte sh_scratch prep_min_1000kcal prep_min_1000kcal_serv4 prep_min_1000kcal_once ing_per_trip {
 	gen double m_`v' = F.`v' - `v'
 	gen double b_`v' = L2.`v' - L3.`v'
@@ -72,6 +74,9 @@ foreach v in prep_time_raw sh_open sh_little sh_cook sh_rte sh_open_rte sh_scrat
 	run_one `v' main m_`v' `v' "`base'" "`FE'"
 	run_one `v' before b_`v' `v' "`base'" "`FE'"
 }
+// minutes of cooking per 1,000 kcal on households of the same size at t-1, t and t+1 as well (Anya 2026-11-18)
+run_one prep_min_1000kcal_same main m_prep_min_1000kcal prep_min_1000kcal "`base' & same_size == 1" "`FE'"
+run_one prep_min_1000kcal_same before b_prep_min_1000kcal prep_min_1000kcal "`base' & same_size == 1" "`FE'"
 run_one ing_per_trip main m_ing_per_trip ing_per_trip "`base' & same_size == 1" "`FE'"
 run_one ing_per_trip before b_ing_per_trip ing_per_trip "`base' & same_size == 1" "`FE'"
 di "build_iv_time.do complete"

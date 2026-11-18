@@ -8,6 +8,12 @@
 //
 // Output (tabs/labor_supply/):
 //   ols_iv_clean.tex
+//
+// `do 13_build_ols_iv_clean.do u60` (Anya 2026-11-18: non-movers, employed at t-1, heads under 60 is the default sample of the
+// paper's income IV tables): the same table on households whose heads' average age is under 60 at t+1 (age at t plus one),
+// standardized with the same SD (all non-mover household-years) -> tabs/what_moves/iv_main.tex, the main table of 0_main.tex
+// (tab:hi_clean), and interim/what_moves/iv_main_estimates.csv (2SLS estimate, standard error, F, N per outcome, in SD; read by
+// analyze/what_moves/build_hei_scale.py). Without the argument the table of notes/labor_supply.tex, every age, as before.
 // ============================================================================
 
 clear all
@@ -31,6 +37,12 @@ replace occ_src = female_head_occupation if missing(occ_src) | inlist(occ_src, 0
 gen byte emp_cell     = inlist(occ_src, 1, 2, 3, 4, 5, 6, 8, 9, 11) if !missing(occ_src) & !inlist(occ_src, 0, 7)
 gen byte not_emp_cell = inlist(occ_src, 10, 12)                    if !missing(occ_src) & !inlist(occ_src, 0, 7)
 gen byte clean = (L.emp_cell == 1) if !missing(L.emp_cell)
+local part "`1'"
+local out "$overleaf/tabs/labor_supply/ols_iv_clean.tex"
+if "`part'" == "u60" {
+	replace clean = 0 if !(avg_age_hh_head + 1 < 60)
+	local out "$overleaf/tabs/what_moves/iv_main.tex"
+}
 egen year_state = group(year fips_state_code)   // state-by-year FE, as in 12_ (2026-11-05)
 
 // ------------------------------------------------- z-scored nutrition outcomes
@@ -61,8 +73,18 @@ foreach v of local outcomes {
 // Two coefficient rows in one table via fragment/append.
 // \\$ emits a literal \$ into the .tex (a single \$ reaches LaTeX as a bare
 // $ because Stata consumes the backslash).
+if "`part'" == "u60" {
+	file open fh using "$data/interim/what_moves/iv_main_estimates.csv", write replace
+	file write fh "outcome,b,se,f,n" _n
+	foreach v of local outcomes {
+		estimates restore iv_`v'
+		file write fh "`v'," (_b[D.real_income]) "," (_se[D.real_income]) "," (e(widstat)) "," (e(N)) _n
+	}
+	file close fh
+}
+
 esttab ols_hi ols_hi_usda ols_hei_usda ///
-	using "$overleaf/tabs/labor_supply/ols_iv_clean.tex", ///
+	using "`out'", ///
 	replace fragment booktabs ///
 	b(3) se(3) star(* 0.10 ** 0.05 *** 0.01) ///
 	keep(D.real_income) varlabels(D.real_income "OLS: $\Delta$ Income (\\$10k)") ///
@@ -72,7 +94,7 @@ esttab ols_hi ols_hi_usda ols_hei_usda ///
 	posthead("\midrule")
 
 esttab iv_hi iv_hi_usda iv_hei_usda ///
-	using "$overleaf/tabs/labor_supply/ols_iv_clean.tex", ///
+	using "`out'", ///
 	append fragment booktabs ///
 	b(3) se(3) star(* 0.10 ** 0.05 *** 0.01) ///
 	keep(D.real_income) varlabels(D.real_income "2SLS: $\Delta$ Income (\\$10k)") ///
