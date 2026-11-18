@@ -75,6 +75,9 @@ end
 foreach v in spend_month trips_week {
 	run_one `v' main m_`v' `v' "`base' & same_size == 1" "`FE'"
 	run_one `v' before b_`v' `v' "`base' & same_size == 1" "`FE'"
+	// all households of the main specification, whatever their size (Anya's note in 0_main.tex, 2026-11-18)
+	run_one `v'_all main m_`v' `v' "`base'" "`FE'"
+	run_one `v'_all before b_`v' `v' "`base'" "`FE'"
 }
 foreach v in sh_grocery sh_discount sh_club sh_drug sh_conv samezip dist_km store_zipinc store_hi {
 	run_one `v' main m_`v' `v' "`base'" "`FE'"

@@ -15,8 +15,11 @@ from utils.stars import star_num
 import pandas as pd
 
 PANELS = [
-    (r'A. Spending and trips (households of the same size at $t-1$, $t$ and $t+1$)',
-     [('spend_month', r'Food spending per month (\$)', 2, 0), ('trips_week', 'Shopping trips per week', 3, 2)]),
+    (r'A. Spending and trips',
+     [('spend_month', r'Food spending per month (\$), households of the same size', 2, 0),
+      ('spend_month_all', r'Food spending per month (\$), all households', 2, 0),
+      ('trips_week', 'Shopping trips per week, households of the same size', 3, 2),
+      ('trips_week_all', 'Shopping trips per week, all households', 3, 2)]),
     (r'B. Share of food spending (\%)',
      [('sh_grocery', 'Grocery stores', 2, 1), ('sh_discount', 'Discount and dollar stores', 2, 1), ('sh_club', 'Warehouse clubs', 2, 1),
       ('sh_drug', 'Drug stores', 2, 1), ('sh_conv', 'Convenience stores', 2, 1)]),
